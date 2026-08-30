@@ -188,8 +188,31 @@ describe("GCJ overlay region excludes Taiwan island", () => {
   it("still treats mainland GCJ cities as inside the overlay region", () => {
     assert.equal(lib.outOfChina(39.9167135, 116.3868853), false); // Beijing
     assert.equal(lib.outOfChina(24.6013341, 118.0704538), false); // Xiamen
+    assert.equal(lib.outOfChina(24.479, 118.089), false); // Xiamen Island
+    assert.equal(lib.outOfChina(24.546, 118.327), false); // Dadeng (PRC)
+    assert.equal(lib.outOfChina(26.0745, 119.2965), false); // Fuzhou
     assert.equal(lib.outOfChina(31.2304, 121.4737), false); // Shanghai
     assert.equal(lib.inTaiwanIsland(24.6013341, 118.0704538), false);
+    assert.equal(lib.inPenghuKinmenMatsu(24.6013341, 118.0704538), false);
+  });
+
+  it("treats Penghu, Kinmen, and Matsu as outside the overlay region", () => {
+    const offshore = [
+      [23.5712, 119.5794], // Magong, Penghu
+      [23.209, 119.428], // Qimei, Penghu
+      [24.4329, 118.3171], // Jincheng, Kinmen
+      [24.4281, 118.235], // Lieyu
+      [24.9918, 119.4523], // Wuqiu
+      [26.1506, 119.931], // Nangan, Matsu
+      [26.2254, 119.9983], // Beigan, Matsu
+      [26.366, 120.4904], // Dongyin, Matsu
+      [25.973, 119.939] // Juguang, Matsu
+    ];
+    for (const [lat, lon] of offshore) {
+      assert.equal(lib.inPenghuKinmenMatsu(lat, lon), true, `${lat},${lon}`);
+      assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
+      assert.equal(lib.inTaiwanIsland(lat, lon), false, `${lat},${lon}`);
+    }
   });
 
   it("uses the shared outOfChina helper from the content script", () => {

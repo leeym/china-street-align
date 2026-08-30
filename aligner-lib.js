@@ -99,16 +99,41 @@
     return lo >= 72.004 && lo <= 137.8347 && la >= 0.8293 && la <= 55.8271;
   }
 
+  function inLatLonBox(lat, lon, south, north, west, east) {
+    return lat >= south && lat <= north && lon >= west && lon <= east;
+  }
+
   // Taiwan main island (Formosa). West of 120.03°E stays on the Fujian side
   // of the strait (Xiamen ~118.07°E, Pingtan ~119.8°E).
   function inTaiwanIsland(lat, lon) {
+    return inLatLonBox(Number(lat), Number(lon), 21.88, 25.32, 120.03, 122.01);
+  }
+
+  // Penghu, Kinmen (incl. Lieyu / Wuqiu), and Matsu. Boxes stay east of
+  // Xiamen (~118.07°E) and off the Fujian coast (Huangqi ~119.85°E).
+  const ROC_OFFSHORE_BOXES = [
+    [23.18, 23.80, 119.30, 119.70], // Penghu
+    [24.392, 24.527, 118.295, 118.46], // Greater Kinmen
+    [24.408, 24.452, 118.215, 118.275], // Lieyu
+    [24.365, 24.395, 118.148, 118.185], // Dadan / Erdan
+    [24.977, 25.005, 119.443, 119.479], // Wuqiu
+    [26.135, 26.18, 119.905, 119.965], // Nangan
+    [26.21, 26.255, 119.965, 120.025], // Beigan
+    [26.355, 26.39, 120.465, 120.515], // Dongyin
+    [25.945, 25.995, 119.915, 120.0] // Juguang
+  ];
+
+  function inPenghuKinmenMatsu(lat, lon) {
     const la = Number(lat);
     const lo = Number(lon);
-    return la >= 21.88 && la <= 25.32 && lo >= 120.03 && lo <= 122.01;
+    return ROC_OFFSHORE_BOXES.some(([south, north, west, east]) =>
+      inLatLonBox(la, lo, south, north, west, east)
+    );
   }
 
   function outOfChina(lat, lon) {
     if (inTaiwanIsland(lat, lon)) return true;
+    if (inPenghuKinmenMatsu(lat, lon)) return true;
     return !inChinaGcjBox(lat, lon);
   }
 
@@ -142,6 +167,7 @@
     overlayTileSize,
     inChinaGcjBox,
     inTaiwanIsland,
+    inPenghuKinmenMatsu,
     outOfChina,
     parseMapHref
   };
