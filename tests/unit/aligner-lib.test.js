@@ -1,0 +1,102 @@
+const { describe, it } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs");
+const path = require("path");
+
+require("../../aligner-lib.js");
+const lib = globalThis.Gcj02Aligner;
+const rootDir = path.join(__dirname, "..", "..");
+const contentJs = fs.readFileSync(path.join(rootDir, "content.js"), "utf8");
+const contentCss = fs.readFileSync(path.join(rootDir, "content.css"), "utf8");
+
+describe("Maps chrome vs overlay stacking", () => {
+  it("treats overlay on <html> as covering Maps chrome", () => {
+    assert.equal(lib.overlayWouldCoverMapsChrome("HTML", "absolute", 1), true);
+    assert.equal(lib.overlayWouldCoverMapsChrome("HTML", "fixed", 500), true);
+  });
+
+  it("treats position:fixed overlay as covering chrome", () => {
+    assert.equal(lib.overlayWouldCoverMapsChrome("DIV", "fixed", 0), true);
+    assert.equal(lib.overlayWouldCoverMapsChrome("DIV", "fixed", 500), true);
+    assert.equal(lib.overlayWouldCoverMapsChrome("BODY", "fixed", 100000), true);
+  });
+
+  it("treats positive overlay z-index as covering auto-z Maps controls", () => {
+    assert.equal(lib.overlayWouldCoverMapsChrome("DIV", "absolute", 1), true);
+    assert.equal(lib.overlayWouldCoverMapsChrome("DIV", "absolute", 500), true);
+  });
+
+  it("allows an absolute overlay at z-index 0 inside the map canvas host", () => {
+    assert.equal(lib.overlayWouldCoverMapsChrome("DIV", "absolute", 0), false);
+    assert.equal(lib.OVERLAY_Z, 0);
+    assert.equal(lib.chromeStacksAboveOverlay(lib.CHROME_Z, lib.OVERLAY_Z), true);
+  });
+
+  it("keeps CSS overlay absolute, z-index 0, never fixed", () => {
+    const block = contentCss.match(/#gcj02-aligner-root\s*\{([^}]+)\}/);
+    assert.ok(block, "missing #gcj02-aligner-root CSS");
+    const body = block[1];
+    assert.match(body, /position:\s*absolute/);
+    assert.doesNotMatch(body, /position:\s*fixed/);
+    const z = body.match(/z-index:\s*(\d+)/);
+    assert.ok(z);
+    assert.equal(Number(z[1]), lib.OVERLAY_Z);
+    assert.equal(
+      lib.overlayWouldCoverMapsChrome("DIV", "absolute", Number(z[1])),
+      false
+    );
+  });
+
+  it("includes default holes for zoom cluster, search, and layers", () => {
+    const holes = lib.defaultChromeHoles(1440, 900);
+    assert.ok(holes.some((h) => h.x > 1300 && h.y > 600));
+    assert.ok(holes.some((h) => h.x < 20 && h.y < 20));
+  });
+
+  it("builds a single polygon that notches out zoom, search, and layers", () => {
+    const p = lib.chromeClipPath(1440, 900);
+    assert.match(p, /^polygon\(/);
+    assert.match(p, /1360px/);
+    assert.match(p, /660px/);
+    assert.equal(lib.chromeClipPath(0, 0), "");
+  });
+
+  it("does not append the overlay root to documentElement", () => {
+    assert.doesNotMatch(contentJs, /documentElement\.appendChild\(\s*root\s*\)/);
+    assert.match(contentJs, /function overlayHost\(/);
+    assert.match(contentJs, /insertBefore\(\s*root,\s*host\.firstChild\s*\)/);
+    assert.match(contentJs, /host !== document\.body\) return \{ host/);
+    assert.doesNotMatch(contentJs, /function liftMapsChrome/);
+    assert.doesNotMatch(contentJs, /gcj02-keep-chrome/);
+    assert.match(contentJs, /function clipHostForChrome/);
+  });
+});
+
+describe("native hide must not remove Maps controls", () => {
+  it("hides raster map tiles only", () => {
+    assert.equal(lib.shouldHideNativeImage("https://mt0.google.com/vt/lyrs=s&x=1&y=2&z=17"), true);
+    assert.equal(lib.shouldHideNativeImage("https://khms1.google.com/kh/v=394&x=1&y=2&z=17"), true);
+  });
+
+  it("does not hide zoom/layer/pegman sprites on gstatic mapfiles", () => {
+    const zoomIcon = "https://maps.gstatic.com/mapfiles/transparent.png";
+    const apiSprite = "https://maps.gstatic.com/maps-api-v3/mapfiles/api-3/images/google_white5.png";
+    const compass = "https://maps.gstatic.com/maps-api-v3/mapfiles/iw_close.gif";
+    assert.equal(lib.shouldHideNativeImage(zoomIcon), false);
+    assert.equal(lib.shouldHideNativeImage(apiSprite), false);
+    assert.equal(lib.shouldHideNativeImage(compass), false);
+  });
+
+  it("does not hide the extension overlay tiles", () => {
+    assert.equal(
+      lib.shouldHideNativeImage("https://mt1.google.com/vt/lyrs=h&x=1&y=2&z=17", true),
+      false
+    );
+  });
+
+  it("hides only large map canvases, not small control canvases", () => {
+    assert.equal(lib.shouldHideNativeCanvas(1440, 900, 1440, 900), true);
+    assert.equal(lib.shouldHideNativeCanvas(40, 40, 40, 40), false);
+    assert.equal(lib.shouldHideNativeCanvas(48, 48, 96, 96), false);
+  });
+});

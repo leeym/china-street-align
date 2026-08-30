@@ -1,0 +1,38 @@
+#gcj02-aligner-root {
+  position: absolute !important;
+  inset: 0 !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+  overflow: hidden !important;
+}
+.gcj02-tile,
+.gcj02-road {
+  position: absolute !important;
+  max-width: none !important;
+  user-select: none !important;
+  pointer-events: none !important;
+}
+.gcj02-tile {
+  opacity: 1;
+}
+.gcj02-road {
+  opacity: 0.95;
+}
+#gcj02-aligner-status {
+  position: fixed;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  z-index: 1000010;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font: 12px system-ui, sans-serif;
+  pointer-events: none;
+  max-width: 520px;
+}
+.gcj02-hide-native {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
