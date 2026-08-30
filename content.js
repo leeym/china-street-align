@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.10";
+  let VERSION = "0.6.11";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -350,7 +350,10 @@
   function syncPois(st, w, h, center) {
     if (!root) return;
     const pois = collectPoisFromDocument();
-    const poiKey = pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind}`).join("|");
+    const poiKey = [
+      w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
+      pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind}`).join("|")
+    ].join(";");
     if (poiKey === lastPoiKey) return;
     lastPoiKey = poiKey;
     root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());

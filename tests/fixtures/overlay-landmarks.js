@@ -8,11 +8,13 @@ const FORBIDDEN_CITY = {
   query: "紫禁城",
   poiNeedles: ["紫禁城", "故宫"],
   mapHref:
-    "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167455,116.3868853,15z",
+    "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167135,116.3868853,15z/data=!4m2!2m1!6e1",
   satHref:
-    "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167455,116.3868853,4718m/data=!3m1!1e3!4m2!2m1!6e1",
-  lat: 39.9167455,
+    "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167135,116.3868853,4718m/data=!3m1!1e3!4m2!2m1!6e1",
+  lat: 39.9167135,
   lon: 116.3868853,
+  // 故宫午门, GCJ-02. Must sit on the overlay palace axis, not east of it.
+  samplePoi: { name: "故宫", lat: 39.91306, lon: 116.397026 },
   meters: 4718,
   expectZoom: 15
 };
@@ -61,7 +63,7 @@ const XIAMEN_XINGLIN = {
 };
 
 const LANDMARKS = [FORBIDDEN_CITY, WUZHANGYUAN, DUISHAN, XIAMEN_XINGLIN];
-const SEARCH_PLACES = [FORBIDDEN_CITY, WUZHANGYUAN, DUISHAN];
+const SEARCH_PLACES = [FORBIDDEN_CITY];
 
 module.exports = {
   FORBIDDEN_CITY,

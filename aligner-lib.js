@@ -113,19 +113,20 @@
     };
   }
 
-  // Maps !3d / sidebar coordinates are GCJ-02, same as the camera @.
-  // Convert longitude onto the remapped street tiles (west, with X235) but
-  // keep the GCJ latitude: at 五丈原 the public evil transform's northing
-  // overshoots G310 even though Off places those pins south of the highway.
+  // Sidebar !3d is GCJ-02, same as native pins. Street tiles use that GCJ
+  // drawing, then CSS overlayShiftPx (camera). POIs must take the same
+  // vector: lon-only gcjToWgs leaves Beijing pins east of the palace axis.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
-    const wgs = gcjToWgs(placeLat, placeLon);
-    const p = worldPixel(placeLat, wgs.lon, zoom);
+    const raw = worldPixel(placeLat, placeLon, zoom);
+    const s = overlayShiftPx(camLat, camLon, zoom);
     return {
-      x: p.x - center.x + Number(width) / 2,
-      y: p.y - center.y + Number(height) / 2,
+      x: raw.x - center.x + Number(width) / 2 + s.dx,
+      y: raw.y - center.y + Number(height) / 2 + s.dy,
       lat: Number(placeLat),
-      lon: wgs.lon
+      lon: Number(placeLon),
+      dx: s.dx,
+      dy: s.dy
     };
   }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.

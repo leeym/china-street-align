@@ -432,24 +432,22 @@ describe("search result POIs on the overlay", () => {
     assert.doesNotMatch(contentJs, /gcj02-poi-pin/);
   });
 
-  it("plots overlay POIs at gcjToWgs so they stay south of G310 with remapped tiles", () => {
-    const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
-    const poi = WUZHANGYUAN.samplePoi;
-    const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
+  it("plots overlay POIs with the same CSS vector as street tiles", () => {
+    const { FORBIDDEN_CITY } = require("../fixtures/overlay-landmarks");
+    const poi = FORBIDDEN_CITY.samplePoi;
+    const cam = { lat: FORBIDDEN_CITY.lat, lon: FORBIDDEN_CITY.lon };
     const center = lib.worldPixel(cam.lat, cam.lon, 15);
     const raw = lib.worldPixel(poi.lat, poi.lon, 15);
     const unshifted = {
       x: raw.x - center.x + 720,
       y: raw.y - center.y + 450
     };
+    const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
-    const wgs = lib.gcjToWgs(poi.lat, poi.lon);
-    assert.ok(plotted.x < unshifted.x - 20, "POI must move west with X235");
-    assert.ok(Math.abs(plotted.y - unshifted.y) < 4, "POI must keep Off latitude vs G310");
-    assert.equal(plotted.lat, poi.lat);
-    assert.equal(plotted.lon, wgs.lon);
-    assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat, `POI lat ${plotted.lat} crossed G310`);
-    assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon, `POI lon ${plotted.lon} crossed X235`);
+    assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1, JSON.stringify({ plotted, unshifted, shift }));
+    assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 1);
+    assert.ok(plotted.x < unshifted.x - 40, "故宫 must move west with overlay streets");
+    assert.ok(shift.dx < -20, `Beijing streets move west, dx=${shift.dx}`);
     assert.match(contentJs, /overlayPoiScreenPx\(/);
     assert.match(contentJs, /translate3d\(\$\{rdx\}px/);
     assert.match(contentJs, /shift\(s\.dx, s\.dy\)/);
