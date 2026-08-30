@@ -191,6 +191,10 @@ describe("GCJ overlay region excludes Taiwan island", () => {
     assert.equal(lib.outOfChina(24.6013341, 118.0704538), false); // Xiamen
     assert.equal(lib.outOfChina(24.479, 118.089), false); // Xiamen Island
     assert.equal(lib.outOfChina(24.546, 118.327), false); // Dadeng (PRC)
+    assert.equal(lib.outOfChina(24.6060291, 118.0838401), false); // 兑山村, Jimei
+    assert.equal(lib.outOfChina(24.6060199, 118.08899), false);
+    assert.equal(lib.inXiamenMainland(24.6060291, 118.0838401), true);
+    assert.equal(lib.inPenghuKinmenMatsu(24.6060291, 118.0838401), false);
     assert.equal(lib.outOfChina(26.0745, 119.2965), false); // Fuzhou
     assert.equal(lib.outOfChina(31.2304, 121.4737), false); // Shanghai
     assert.equal(lib.inTaiwanIsland(24.6013341, 118.0704538), false);
@@ -203,6 +207,7 @@ describe("GCJ overlay region excludes Taiwan island", () => {
       [23.209, 119.428], // Qimei, Penghu
       [24.4329, 118.3171], // Jincheng, Kinmen
       [24.4281, 118.235], // Lieyu
+      [24.38, 118.165], // Dadan
       [24.9918, 119.4523], // Wuqiu
       [26.1506, 119.931], // Nangan, Matsu
       [26.2254, 119.9983], // Beigan, Matsu
@@ -213,7 +218,26 @@ describe("GCJ overlay region excludes Taiwan island", () => {
       assert.equal(lib.inPenghuKinmenMatsu(lat, lon), true, `${lat},${lon}`);
       assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
       assert.equal(lib.inTaiwanIsland(lat, lon), false, `${lat},${lon}`);
+      assert.equal(lib.inXiamenMainland(lat, lon), false, `${lat},${lon}`);
     }
+  });
+
+  it("keeps Jimei 兑山村 on the Xiamen overlay, not as Kinmen", () => {
+    const url =
+      "https://www.google.com/maps/place/%E4%B8%AD%E5%9C%8B%E7%A6%8F%E5%BB%BA%E7%9C%81%E5%BB%88%E9%96%80%E5%B8%82%E9%9B%86%E7%BE%8E%E5%8D%80%E5%85%8C%E5%B1%B1%E6%9D%91+%E9%82%AE%E6%94%BF%E7%BC%86%E7%A0%81:+361021/@24.6060291,118.0838401,2796m/data=!3m2!1e3!4b1!4m6!3m5!1s0x34148e6ab5fe7f93:0x9985637b6ac4b21e!8m2!3d24.6060199!4d118.08899!16s%2Fg%2F11c615d_bw";
+    const st = lib.parseMapHref(url);
+    const place = lib.parsePlaceCoords(url);
+    const spec = lib.overlaySpec(url);
+    assert.ok(st);
+    assert.equal(st.lat, 24.6060291);
+    assert.equal(st.lon, 118.0838401);
+    assert.equal(lib.outOfChina(st.lat, st.lon), false);
+    assert.equal(lib.outOfChina(place.lat, place.lon), false);
+    assert.equal(lib.isNativeOnlyView(url), false);
+    assert.equal(spec.nativeOnly, false);
+    assert.equal(spec.label, "satellite");
+    const gcj = lib.wgsToGcj(st.lat, st.lon);
+    assert.ok(Math.hypot(gcj.lat - st.lat, gcj.lon - st.lon) > 1e-4);
   });
 
   it("uses the shared outOfChina helper from the content script", () => {

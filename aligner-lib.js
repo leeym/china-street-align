@@ -123,6 +123,14 @@
     [25.945, 25.995, 119.915, 120.0] // Juguang
   ];
 
+  // Xiamen island, Jimei, and Huli west of the Kinmen channel.
+  // 兑山村 (24.606°N, 118.084°E) is Jimei, PRC — not Kinmen.
+  // South of 24.40°N keeps Dadan/Erdan (ROC) out of this box.
+  // East of 118.20°E keeps Lieyu out.
+  function inXiamenMainland(lat, lon) {
+    return inLatLonBox(Number(lat), Number(lon), 24.40, 24.72, 117.88, 118.20);
+  }
+
   function inPenghuKinmenMatsu(lat, lon) {
     const la = Number(lat);
     const lo = Number(lon);
@@ -132,6 +140,7 @@
   }
 
   function outOfChina(lat, lon) {
+    if (inXiamenMainland(lat, lon)) return false;
     if (inTaiwanIsland(lat, lon)) return true;
     if (inPenghuKinmenMatsu(lat, lon)) return true;
     return !inChinaGcjBox(lat, lon);
@@ -298,6 +307,7 @@
     overlayTileSize,
     inChinaGcjBox,
     inTaiwanIsland,
+    inXiamenMainland,
     inPenghuKinmenMatsu,
     outOfChina,
     wgsToGcj,

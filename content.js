@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.2";
+  let VERSION = "0.6.3";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
