@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.3";
+  let VERSION = "0.6.4";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -17,6 +17,7 @@
   let lastKey = "";
   let lastHref = "";
   let lastPoiKey = "";
+  let lastHost = null;
   let alive = true;
   const obs = new MutationObserver(() => {
     if (!alive) return;
@@ -128,25 +129,44 @@
   }
 
   function overlayHost() {
-    const hideCanvas = globalThis.Gcj02Aligner?.shouldHideNativeCanvas
-      || ((cssW, cssH, bufW, bufH) => cssW * cssH >= 200000 || bufW * bufH >= 200000);
+    const isMap = globalThis.Gcj02Aligner?.shouldHideNativeCanvas
+      || ((cssW, cssH, bufW, bufH) => cssW * cssH >= 80000 || bufW * bufH >= 80000);
     let best = null;
     let bestArea = 0;
     document.querySelectorAll("canvas").forEach((c) => {
       const r = c.getBoundingClientRect();
       const area = r.width * r.height;
-      if (area > bestArea && hideCanvas(r.width, r.height, c.width, c.height)) {
+      if (area > bestArea && isMap(r.width, r.height, c.width, c.height)) {
         bestArea = area;
         best = c;
       }
     });
-    const host = best?.parentElement;
-    if (host && host !== document.documentElement && host !== document.body) return { host, canvas: best };
-    return null;
+    if (!best) return null;
+    const host = best.parentElement;
+    if (!host) return null;
+    return { host, canvas: best };
+  }
+
+  function fitOverlayToCanvas(host, canvas) {
+    if (!root || !host || !canvas) return;
+    const cr = canvas.getBoundingClientRect();
+    const hr = host.getBoundingClientRect();
+    root.style.inset = "auto";
+    root.style.left = `${cr.left - hr.left}px`;
+    root.style.top = `${cr.top - hr.top}px`;
+    root.style.width = `${Math.max(cr.width, 1)}px`;
+    root.style.height = `${Math.max(cr.height, 1)}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
   }
 
   function clipHostForChrome(host) {
-    if (!host) return;
+    if (!host || host === document.body || host === document.documentElement) {
+      if (lastHost && lastHost !== host) {
+        try { lastHost.style.clipPath = ""; } catch (_e) {}
+      }
+      return;
+    }
     if (lastHost && lastHost !== host) {
       try { lastHost.style.clipPath = ""; } catch (_e) {}
     }
@@ -163,7 +183,7 @@
   function setNativeMapHidden(hidden) {
     document.documentElement.classList.toggle("gcj02-overlay-on", hidden);
     const hideCanvas = globalThis.Gcj02Aligner?.shouldHideNativeCanvas
-      || ((cssW, cssH, bufW, bufH) => cssW * cssH >= 200000 || bufW * bufH >= 200000);
+      || ((cssW, cssH, bufW, bufH) => cssW * cssH >= 80000 || bufW * bufH >= 80000);
     const hideImg = globalThis.Gcj02Aligner?.shouldHideNativeImage
       || ((src, inOverlay) => !inOverlay && /\/vt\/|khms\d\.google\.com/i.test(src || ""));
     const host = root?.parentElement;
@@ -187,7 +207,7 @@
   function ensureRoot() {
     const found = overlayHost();
     if (!found) return false;
-    const { host } = found;
+    const { host, canvas } = found;
     if (!root) {
       root = document.createElement("div");
       root.id = "gcj02-aligner-root";
@@ -204,6 +224,7 @@
     }
     if (statusEl.parentElement !== document.body) document.body.appendChild(statusEl);
     clipHostForChrome(host);
+    fitOverlayToCanvas(host, canvas);
     return true;
   }
 
@@ -423,6 +444,18 @@
     lastKey = "";
     setTimeout(redraw, 200);
   });
+  ["pushState", "replaceState"].forEach((name) => {
+    const orig = history[name];
+    history[name] = function historyHook() {
+      const ret = orig.apply(this, arguments);
+      if (alive) {
+        lastKey = "";
+        lastHref = "";
+        setTimeout(redraw, 80);
+      }
+      return ret;
+    };
+  });
   pollTimer = setInterval(() => {
     if (!alive) return;
     if (location.href !== lastHref) {
@@ -446,7 +479,14 @@
       return;
     }
     if (root && root.style.display !== "none") {
-      clipHostForChrome(root.parentElement);
+      const found = overlayHost();
+      if (found) {
+        if (root.parentElement !== found.host) {
+          found.host.insertBefore(root, found.host.firstChild);
+        }
+        clipHostForChrome(found.host);
+        fitOverlayToCanvas(found.host, found.canvas);
+      }
       setNativeMapHidden(true);
       syncPoisIfVisible();
     }

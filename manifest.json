@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "On by default in China: overlay WGS-84 streets so they match satellite imagery. Native Google streets there are GCJ-02.",
   "permissions": ["storage"],
   "host_permissions": [
@@ -29,7 +29,9 @@
     {
       "matches": [
         "https://www.google.com/maps*",
+        "https://www.google.com/maps/*",
         "https://www.google.com.hk/maps*",
+        "https://www.google.com.hk/maps/*",
         "https://maps.google.com/*"
       ],
       "js": ["aligner-lib.js", "content.js"],

@@ -1,6 +1,6 @@
 #gcj02-aligner-root {
   position: absolute !important;
-  inset: 0 !important;
+  inset: 0;
   pointer-events: none !important;
   z-index: 0 !important;
   overflow: hidden !important;

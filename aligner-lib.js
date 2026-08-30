@@ -30,7 +30,9 @@
   function shouldHideNativeCanvas(cssW, cssH, bufW, bufH) {
     const cssArea = Math.max(0, cssW) * Math.max(0, cssH);
     const bufArea = Math.max(0, bufW) * Math.max(0, bufH);
-    return cssArea >= 200000 || bufArea >= 200000;
+    if (Math.min(cssW, cssH) < 96) return false;
+    // Place pages leave a smaller map next to the sidebar (~400×320).
+    return cssArea >= 80000 || bufArea >= 80000;
   }
 
   function defaultChromeHoles(hostW, hostH) {

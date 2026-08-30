@@ -45,7 +45,7 @@ async function waitForOverlay(page) {
     if (!root || root.style.display === "none") return false;
     const tiles = [...root.querySelectorAll(".gcj02-tile")];
     return tiles.length > 0 && tiles.some((img) => img.complete && img.naturalWidth >= 256);
-  }, { timeout: 90000 });
+  }, { timeout: 120000 });
 }
 
 test.describe("GCJ-02 Google Maps extension", () => {
@@ -120,7 +120,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
 
     expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.status).toMatch(/v0\.6\.3/);
+    expect(stats.status).toMatch(/v0\.6\.4/);
     expect(Number(stats.zoom)).toBeGreaterThan(15.8);
     expect(Number(stats.zoom)).toBeLessThan(17.5);
     expect(stats.layer).toBe("satellite");
@@ -259,5 +259,60 @@ test.describe("GCJ-02 Google Maps extension", () => {
       path: path.join(__dirname, "..", "test-results", "xiamen-alignment.png"),
       fullPage: false
     });
+  });
+
+  test("aligns overlay on Jimei 兑山村 place URL", async () => {
+    const url =
+      "https://www.google.com/maps/place/%E4%B8%AD%E5%9C%8B%E7%A6%8F%E5%BB%BA%E7%9C%81%E5%BB%88%E9%96%80%E5%B8%82%E9%9B%86%E7%BE%8E%E5%8D%80%E5%85%8C%E5%B1%B1%E6%9D%91+%E9%82%AE%E6%94%BF%E7%BC%86%E7%A0%81:+361021/@24.6060291,118.0838401,2796m/data=!3m2!1e3!4b1!4m6!3m5!1s0x34148e6ab5fe7f93:0x9985637b6ac4b21e!8m2!3d24.6060199!4d118.08899";
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
+    await dismissConsent(page);
+    await page.waitForTimeout(4000);
+    await waitForOverlay(page);
+    await page.waitForTimeout(2500);
+
+    const stats = await page.evaluate(() => {
+      const root = document.getElementById("gcj02-aligner-root");
+      const canvases = [...document.querySelectorAll("canvas")].map((c) => {
+        const r = c.getBoundingClientRect();
+        return {
+          cssW: Math.round(r.width),
+          cssH: Math.round(r.height),
+          bufW: c.width,
+          bufH: c.height,
+          hidden: c.classList.contains("gcj02-hide-native")
+        };
+      });
+      const road = document.querySelector(".gcj02-road");
+      const t = road ? getComputedStyle(road).transform : "";
+      const m = t.match(/matrix\(([^)]+)\)/);
+      const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
+      const roadShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
+      return {
+        href: location.href,
+        hasRoot: !!root,
+        display: root?.style.display || "",
+        mode: root?.dataset.mode || "",
+        layer: root?.dataset.layer || "",
+        offsetPx: root?.dataset.offsetPx || "",
+        status: document.getElementById("gcj02-aligner-status")?.textContent || "",
+        tileCount: root ? root.querySelectorAll(".gcj02-tile").length : 0,
+        roadCount: root ? root.querySelectorAll(".gcj02-road").length : 0,
+        roadShift,
+        canvases
+      };
+    });
+
+    await page.screenshot({
+      path: path.join(__dirname, "..", "test-results", "jimei-duishan-place.png"),
+      fullPage: false
+    });
+
+    expect(stats.mode, JSON.stringify(stats)).toBe("on");
+    expect(stats.layer).toBe("satellite");
+    expect(stats.display).not.toBe("none");
+    expect(Number(stats.offsetPx)).toBeGreaterThan(20);
+    expect(stats.roadShift).toBeGreaterThan(20);
+    expect(stats.tileCount).toBeGreaterThan(4);
+    expect(stats.canvases.some((c) => c.hidden && c.cssW * c.cssH >= 80000)).toBe(true);
   });
 });

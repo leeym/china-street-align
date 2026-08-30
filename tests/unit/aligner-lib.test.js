@@ -66,10 +66,12 @@ describe("Maps chrome vs overlay stacking", () => {
     assert.doesNotMatch(contentJs, /documentElement\.appendChild\(\s*root\s*\)/);
     assert.match(contentJs, /function overlayHost\(/);
     assert.match(contentJs, /insertBefore\(\s*root,\s*host\.firstChild\s*\)/);
-    assert.match(contentJs, /host !== document\.body\) return \{ host/);
+    assert.match(contentJs, /function fitOverlayToCanvas/);
+    assert.doesNotMatch(contentJs, /host !== document\.body\) return \{ host/);
     assert.doesNotMatch(contentJs, /function liftMapsChrome/);
     assert.doesNotMatch(contentJs, /gcj02-keep-chrome/);
     assert.match(contentJs, /function clipHostForChrome/);
+    assert.match(contentJs, /let lastHost = null;/);
   });
 });
 
@@ -97,8 +99,10 @@ describe("native hide must not remove Maps controls", () => {
 
   it("hides only large map canvases, not small control canvases", () => {
     assert.equal(lib.shouldHideNativeCanvas(1440, 900, 1440, 900), true);
+    assert.equal(lib.shouldHideNativeCanvas(420, 320, 840, 640), true);
     assert.equal(lib.shouldHideNativeCanvas(40, 40, 40, 40), false);
     assert.equal(lib.shouldHideNativeCanvas(48, 48, 96, 96), false);
+    assert.equal(lib.shouldHideNativeCanvas(80, 80, 80, 80), false);
   });
 });
 
