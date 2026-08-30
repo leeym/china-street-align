@@ -113,18 +113,20 @@
     };
   }
 
-  // Sidebar !3d is GCJ-02. Street tiles are CSS-shifted onto WGS; converting
-  // both lat and lon (or adding full overlayShiftPx) overshoots north of G310
-  // at 五丈原. Keep GCJ latitude; move longitude onto the shifted streets.
+  // Sidebar !3d is GCJ-02. Native search pins are painted on the Maps canvas
+  // (not DOM), so On must redraw them. Use the same CSS vector as street tiles
+  // so icon+label stay with G310/X235 the way Off did.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
-    const wgs = gcjToWgs(placeLat, placeLon);
-    const p = worldPixel(placeLat, wgs.lon, zoom);
+    const raw = worldPixel(placeLat, placeLon, zoom);
+    const s = overlayShiftPx(camLat, camLon, zoom);
     return {
-      x: p.x - center.x + Number(width) / 2,
-      y: p.y - center.y + Number(height) / 2,
+      x: raw.x - center.x + Number(width) / 2 + s.dx,
+      y: raw.y - center.y + Number(height) / 2 + s.dy,
       lat: Number(placeLat),
-      lon: wgs.lon
+      lon: Number(placeLon),
+      dx: s.dx,
+      dy: s.dy
     };
   }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.

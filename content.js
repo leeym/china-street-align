@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.14";
+  let VERSION = "0.6.15";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -325,8 +325,10 @@
     return globalThis.Gcj02Aligner.collectPoisFromAnchors(anchors);
   }
 
-  function appendPoiGlyph(el, kind) {
+  function appendPoiGlyph(el, kind, name) {
     const spec = globalThis.Gcj02Aligner.poiMarkerSpec(kind);
+    const mark = document.createElement("div");
+    mark.className = "gcj02-poi-mark";
     const ns = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(ns, "svg");
     svg.setAttribute("class", "gcj02-poi-icon");
@@ -344,7 +346,15 @@
     path.setAttribute("fill", "#fff");
     svg.appendChild(bg);
     svg.appendChild(path);
-    el.appendChild(svg);
+    mark.appendChild(svg);
+    el.appendChild(mark);
+    const labelText = String(name || "").trim();
+    if (labelText) {
+      const label = document.createElement("span");
+      label.className = "gcj02-poi-label";
+      label.textContent = labelText;
+      el.appendChild(label);
+    }
   }
 
   function syncPois(st, w, h, center) {
@@ -352,7 +362,7 @@
     const pois = collectPoisFromDocument();
     const poiKey = [
       w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
-      pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind}`).join("|")
+      pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind},${p.name}`).join("|")
     ].join(";");
     if (poiKey === lastPoiKey) return;
     lastPoiKey = poiKey;
@@ -369,8 +379,8 @@
       el.setAttribute("aria-label", poi.name || poi.kind);
       el.style.left = `${screen.x}px`;
       el.style.top = `${screen.y}px`;
-      el.style.transform = "translate(-50%, -100%)";
-      appendPoiGlyph(el, poi.kind);
+      el.style.transform = "translate(-13px, -100%)";
+      appendPoiGlyph(el, poi.kind, poi.name);
       root.appendChild(el);
     });
     root.dataset.poiCount = String(pois.length);

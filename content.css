@@ -38,17 +38,38 @@
 }
 .gcj02-poi {
   position: absolute !important;
-  transform: translate(-50%, -100%);
+  transform: translate(-13px, -100%);
   z-index: 2;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 4px;
   pointer-events: none !important;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+.gcj02-poi-mark {
+  flex: 0 0 auto;
+  line-height: 0;
 }
 .gcj02-poi-icon {
   display: block;
   width: 26px;
   height: 26px;
   overflow: visible;
+}
+.gcj02-poi-label {
+  flex: 0 0 auto;
+  max-width: 160px;
+  margin-bottom: 5px;
+  color: #202124;
+  font: 600 12px/1.15 "Google Sans", Roboto, "Noto Sans TC", "Noto Sans SC", sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow:
+    -1px -1px 0 #fff,
+    1px -1px 0 #fff,
+    -1px 1px 0 #fff,
+    1px 1px 0 #fff,
+    0 0 3px #fff;
 }

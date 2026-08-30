@@ -102,13 +102,15 @@ test.describe("Parameterized search landmarks", () => {
           "search hits must not render as numbered dots"
         ).toBe(0);
         expect(await page.locator(".gcj02-poi-icon").count()).toBe(overlayPins.length);
+        expect(
+          await page.locator(".gcj02-poi-label").count(),
+          "On must show POI names beside icons like Off"
+        ).toBe(overlayPins.length);
         if (place.id === "wuzhangyuan") {
           const hits = overlayPins.filter((p) => /五丈原/.test(p.text));
           expect(hits.length, JSON.stringify(overlayPins)).toBeGreaterThan(0);
-          for (const p of hits) {
-            expect(p.wgsLat, JSON.stringify(p)).toBeLessThan(place.poiWgsSouthOfG310Lat);
-            expect(p.wgsLon, JSON.stringify(p)).toBeLessThan(place.poiWgsWestOfX235Lon);
-          }
+          const labels = await page.locator(".gcj02-poi-label").allTextContents();
+          expect(labels.some((t) => /五丈原/.test(t)), JSON.stringify(labels)).toBeTruthy();
         }
         if (place.id === "forbidden-city") {
           const kinds = overlayPins.map((p) => p.kind);

@@ -261,9 +261,13 @@ function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
     expect(Math.abs(got[i].top - expected[i].top), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
     expect(Math.abs(got[i].dx || 0), "POI must not extra-translate off the street tiles").toBeLessThan(2);
     expect(Math.abs(got[i].dy || 0)).toBeLessThan(2);
-    // Lon-only WGS: west of Off GCJ, same latitude (do not apply full evil northing).
-    expect(expected[i].left, JSON.stringify({ i, expected: expected[i] })).toBeLessThan(expected[i].rawLeft - 20);
-    expect(Math.abs(expected[i].top - expected[i].rawTop)).toBeLessThan(4);
+    const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
+    expect(
+      Math.abs(expected[i].left - expected[i].rawLeft - shift.dx),
+      JSON.stringify({ i, expected: expected[i], shift })
+    ).toBeLessThan(3);
+    expect(Math.abs(expected[i].top - expected[i].rawTop - shift.dy)).toBeLessThan(3);
+    expect(shift.dx, "streets and POIs must move west onto WGS").toBeLessThan(-20);
   }
 }
 
