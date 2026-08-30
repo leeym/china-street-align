@@ -93,15 +93,39 @@
     return { dx, dy, hypot: Math.hypot(dx, dy) };
   }
 
+  // Google street tiles are indexed in WGS mercator but drawn in GCJ-02.
+  // Fetch the GCJ tile that belongs on this WGS slot and align the GCJ
+  // feature at the tile center onto the WGS center (no CSS translate of a
+  // WGS-indexed image — that Y slide is wrong near 105°E, 35°N / 五丈原).
+  function overlayRoadTile(x, y, z) {
+    const zTile = Number(z);
+    const ll = tileCenterLatLon(x, y, zTile);
+    const gcj = wgsToGcj(ll.lat, ll.lon);
+    const p = worldPixel(gcj.lat, gcj.lon, zTile);
+    const max = 2 ** zTile;
+    const gx = ((Math.floor(p.x / TILE) % max) + max) % max;
+    const gy = Math.floor(p.y / TILE);
+    return {
+      x: gx,
+      y: gy,
+      fracX: p.x - Math.floor(p.x / TILE) * TILE,
+      fracY: p.y - gy * TILE
+    };
+  }
+
+  // Maps !3d / sidebar coordinates are GCJ-02, same as the camera @.
+  // Convert longitude onto the remapped street tiles (west, with X235) but
+  // keep the GCJ latitude: at 五丈原 the public evil transform's northing
+  // overshoots G310 even though Off places those pins south of the highway.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
-    const p = worldPixel(placeLat, placeLon, zoom);
-    const s = overlayShiftPx(placeLat, placeLon, zoom);
+    const wgs = gcjToWgs(placeLat, placeLon);
+    const p = worldPixel(placeLat, wgs.lon, zoom);
     return {
-      x: p.x - center.x + Number(width) / 2 + s.dx,
-      y: p.y - center.y + Number(height) / 2 + s.dy,
-      dx: s.dx,
-      dy: s.dy
+      x: p.x - center.x + Number(width) / 2,
+      y: p.y - center.y + Number(height) / 2,
+      lat: Number(placeLat),
+      lon: wgs.lon
     };
   }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.
@@ -348,6 +372,7 @@
     worldPixel,
     tileCenterLatLon,
     overlayShiftPx,
+    overlayRoadTile,
     overlayPoiScreenPx,
     inChinaGcjBox,
     inTaiwanIsland,

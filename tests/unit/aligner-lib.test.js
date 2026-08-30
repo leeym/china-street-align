@@ -407,7 +407,7 @@ describe("search result POIs on the overlay", () => {
     assert.equal(pois[1].lat, 34.252);
   });
 
-  it("shifts overlay POIs with the same vector as street tiles", () => {
+  it("plots overlay POIs at gcjToWgs so they stay south of G310 with remapped tiles", () => {
     const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
@@ -417,13 +417,24 @@ describe("search result POIs on the overlay", () => {
       x: raw.x - center.x + 720,
       y: raw.y - center.y + 450
     };
-    const shifted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
-    const tile = lib.overlayShiftPx(poi.lat, poi.lon, 15);
-    assert.ok(shifted.x < unshifted.x - 20, "POI must move west with X235");
-    assert.ok(Math.abs(shifted.dx - tile.dx) < 1e-6);
-    assert.ok(Math.abs(shifted.dy - tile.dy) < 1e-6);
-    assert.match(contentJs, /overlayShiftPx\(poi\.lat, poi\.lon/);
-    assert.match(contentJs, /translate3d\(\$\{s\.dx\}px/);
+    const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
+    const wgs = lib.gcjToWgs(poi.lat, poi.lon);
+    const src = lib.overlayRoadTile(
+      Math.floor(lib.worldPixel(cam.lat, cam.lon, 15).x / 256),
+      Math.floor(lib.worldPixel(cam.lat, cam.lon, 15).y / 256),
+      15
+    );
+    assert.ok(plotted.x < unshifted.x - 20, "POI must move west with X235");
+    assert.ok(Math.abs(plotted.y - unshifted.y) < 4, "POI must keep Off latitude vs G310");
+    assert.equal(plotted.lat, poi.lat);
+    assert.equal(plotted.lon, wgs.lon);
+    assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat, `POI lat ${plotted.lat} crossed G310`);
+    assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon, `POI lon ${plotted.lon} crossed X235`);
+    assert.ok(src.fracX >= 0 && src.fracX < 256);
+    assert.ok(src.fracY >= 0 && src.fracY < 256);
+    assert.match(contentJs, /overlayPoiScreenPx\(/);
+    assert.match(contentJs, /overlayRoadTile\(/);
+    assert.doesNotMatch(contentJs, /translate3d\(\$\{s\.dx\}px/);
   });
 
   it("draws overlay POI markers from place links in the content script", () => {

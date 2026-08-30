@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.7";
+  let VERSION = "0.6.8";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -81,11 +81,6 @@
   function outOfChina(lat, lon) {
     return globalThis.Gcj02Aligner.outOfChina(lat, lon);
   }
-
-  function wgsToGcj(lat, lon) {
-    return globalThis.Gcj02Aligner.wgsToGcj(lat, lon);
-  }
-
 
   function overlaySpec() {
     return globalThis.Gcj02Aligner.overlaySpec(location.href);
@@ -186,6 +181,12 @@
     const hideImg = globalThis.Gcj02Aligner?.shouldHideNativeImage
       || ((src, inOverlay) => !inOverlay && /\/vt\/|khms\d\.google\.com/i.test(src || ""));
     const host = root?.parentElement;
+    if (host) {
+      [...host.children].forEach((el) => {
+        if (el === root) return;
+        el.classList.toggle("gcj02-hide-native", hidden);
+      });
+    }
     document.querySelectorAll("canvas").forEach((c) => {
       const r = c.getBoundingClientRect();
       const inHost = !!(host && host.contains(c) && c.parentElement === host);
@@ -310,13 +311,16 @@
     lastPoiKey = poiKey;
     root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
     pois.forEach((poi, i) => {
-      const p = worldPixel(poi.lat, poi.lon, st.zoom);
-      const s = globalThis.Gcj02Aligner.overlayShiftPx(poi.lat, poi.lon, st.zoom);
+      const screen = globalThis.Gcj02Aligner.overlayPoiScreenPx(
+        poi.lat, poi.lon, st.lat, st.lon, st.zoom, w, h
+      );
       const el = document.createElement("div");
       el.className = "gcj02-poi";
-      el.style.left = `${p.x - center.x + w / 2}px`;
-      el.style.top = `${p.y - center.y + h / 2}px`;
-      el.style.transform = `translate(-50%, -100%) translate3d(${s.dx}px,${s.dy}px,0)`;
+      el.dataset.wgsLat = String(screen.lat);
+      el.dataset.wgsLon = String(screen.lon);
+      el.style.left = `${screen.x}px`;
+      el.style.top = `${screen.y}px`;
+      el.style.transform = "translate(-50%, -100%)";
       const pin = document.createElement("span");
       pin.className = "gcj02-poi-pin";
       pin.textContent = String(i + 1);
@@ -397,6 +401,9 @@
 
       const sample = globalThis.Gcj02Aligner.overlayShiftPx(st.lat, st.lon, st.zoom);
       const offsetPx = sample.hypot;
+      const camTx = Math.floor(center.x / tileSize);
+      const camTy = Math.floor(center.y / tileSize);
+      const camSrc = globalThis.Gcj02Aligner.overlayRoadTile(camTx, camTy, zTile);
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
       setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
@@ -407,12 +414,16 @@
         offsetPx: offsetPx.toFixed(2),
         shiftDx: sample.dx.toFixed(2),
         shiftDy: sample.dy.toFixed(2),
+        roadTileDx: String(camSrc.x - camTx),
+        roadTileDy: String(camSrc.y - camTy),
+        roadFracX: camSrc.fracX.toFixed(2),
+        roadFracY: camSrc.fracY.toFixed(2),
         lat: st.lat.toFixed(6),
         lon: st.lon.toFixed(6)
       });
 
-      const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
       const hasBase = spec.baseLyrs.length > 0;
+      const roadTile = globalThis.Gcj02Aligner.overlayRoadTile;
 
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
@@ -421,24 +432,23 @@
 
           const ll = tileCenterLatLon(wx, ty, zTile);
           const pW = worldPixel(ll.lat, ll.lon, st.zoom);
-          const gcj = wgsToGcj(ll.lat, ll.lon);
-          const pG = worldPixel(gcj.lat, gcj.lon, st.zoom);
-          const rdx = pW.x - pG.x;
-          const rdy = pW.y - pG.y;
-          const left = pW.x - center.x + w / 2 - tileSize / 2;
-          const top = pW.y - center.y + h / 2 - tileSize / 2;
+          const src = roadTile(wx, ty, zTile);
+          const satLeft = pW.x - center.x + w / 2 - tileSize / 2;
+          const satTop = pW.y - center.y + h / 2 - tileSize / 2;
+          const roadLeft = pW.x - center.x + w / 2 - src.fracX * scale;
+          const roadTop = pW.y - center.y + h / 2 - src.fracY * scale;
 
           for (const lyrs of spec.baseLyrs) {
-            placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
+            placeTile("gcj02-tile", lyrs, satLeft, satTop, tileSize, "", wx, ty, zTile);
           }
           if (spec.roadLyrs) {
             placeTile(
               hasBase ? "gcj02-road" : "gcj02-tile",
-              spec.roadLyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile
+              spec.roadLyrs, roadLeft, roadTop, tileSize, "", src.x, src.y, zTile
             );
           }
           for (const lyrs of spec.extraLyrs) {
-            placeTile("gcj02-road", lyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile);
+            placeTile("gcj02-road", lyrs, roadLeft, roadTop, tileSize, "", src.x, src.y, zTile);
           }
         }
       }

@@ -105,6 +105,14 @@ test.describe("Parameterized search landmarks", () => {
           return { href: location.href, width: r.width, height: r.height, anchors };
         });
         assertOverlayPoisMatchModel(snap, overlayPins);
+        if (place.poiWgsSouthOfG310Lat != null) {
+          const hits = overlayPins.filter((p) => /五丈原/.test(p.text));
+          expect(hits.length, JSON.stringify(overlayPins)).toBeGreaterThan(0);
+          for (const p of hits) {
+            expect(p.wgsLat, JSON.stringify(p)).toBeLessThan(place.poiWgsSouthOfG310Lat);
+            expect(p.wgsLon, JSON.stringify(p)).toBeLessThan(place.poiWgsWestOfX235Lon);
+          }
+        }
         if (nativePins.length >= 2 && overlayPins.length >= 2) {
           const ndx = nativePins[1].x - nativePins[0].x;
           const odx = overlayPins[1].left - overlayPins[0].left;

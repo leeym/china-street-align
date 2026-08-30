@@ -30,7 +30,10 @@ const WUZHANGYUAN = {
   lon: 107.6089203,
   meters: 5053,
   expectZoom: 15,
-  samplePoi: { name: "五丈原", lat: 34.282582, lon: 107.618568 }
+  samplePoi: { name: "五丈原", lat: 34.282582, lon: 107.618568 },
+  // WGS-84 of that GCJ !3d must stay south of G310 and west of X235.
+  poiWgsSouthOfG310Lat: 34.286,
+  poiWgsWestOfX235Lon: 107.617
 };
 
 const DUISHAN = {

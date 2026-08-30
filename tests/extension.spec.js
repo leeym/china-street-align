@@ -55,7 +55,10 @@ async function overlayAlignmentStats(page) {
     const t = road ? getComputedStyle(road).transform : "";
     const m = t.match(/matrix\(([^)]+)\)/);
     const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
-    const roadShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
+    const cssShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
+    const fracX = Number(root?.dataset.roadFracX || 0);
+    const fracY = Number(root?.dataset.roadFracY || 0);
+    const roadShift = cssShift || Math.hypot(128 - fracX, 128 - fracY);
     const hidden = [...document.querySelectorAll("canvas.gcj02-hide-native")];
     const opacities = hidden.map((c) => getComputedStyle(c).opacity);
     return {
@@ -159,7 +162,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
 
     expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.status).toMatch(/v0\.6\.7/);
+    expect(stats.status).toMatch(/v0\.6\.8/);
     expect(Number(stats.zoom)).toBeGreaterThan(15.8);
     expect(Number(stats.zoom)).toBeLessThan(17.5);
     expect(stats.layer).toBe("satellite");
@@ -171,13 +174,10 @@ test.describe("GCJ-02 Google Maps extension", () => {
     expect(String(stats.zTile)).not.toMatch(/\./);
     expect(stats.sampleShift).toBeLessThan(2);
     const roadShift = await page.evaluate(() => {
-      const road = document.querySelector(".gcj02-road");
-      if (!road) return 0;
-      const t = getComputedStyle(road).transform;
-      const m = t.match(/matrix\(([^)]+)\)/);
-      if (!m) return 0;
-      const p = m[1].split(",").map((x) => Number(x.trim()));
-      return p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
+      const root = document.getElementById("gcj02-aligner-root");
+      const fracX = Number(root?.dataset.roadFracX || 0);
+      const fracY = Number(root?.dataset.roadFracY || 0);
+      return Math.hypot(128 - fracX, 128 - fracY);
     });
     expect(roadShift).toBeGreaterThan(20);
 

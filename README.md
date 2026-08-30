@@ -26,7 +26,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. The default mode is **On**.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.7**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.8**).
 
 ## Usage
 

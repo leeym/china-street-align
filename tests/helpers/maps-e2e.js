@@ -86,7 +86,10 @@ async function overlayAlignmentStats(page) {
     const t = road ? getComputedStyle(road).transform : "";
     const m = t.match(/matrix\(([^)]+)\)/);
     const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
-    const roadShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
+    const cssShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
+    const fracX = Number(root?.dataset.roadFracX || 0);
+    const fracY = Number(root?.dataset.roadFracY || 0);
+    const roadShift = cssShift || Math.hypot(128 - fracX, 128 - fracY);
     const hidden = [...document.querySelectorAll("canvas.gcj02-hide-native")];
     const pois = [...document.querySelectorAll(".gcj02-poi")].map((el) => el.textContent || "");
     return {
@@ -97,6 +100,8 @@ async function overlayAlignmentStats(page) {
       offsetPx: Number(root?.dataset.offsetPx || 0),
       shiftDx: Number(root?.dataset.shiftDx || 0),
       shiftDy: Number(root?.dataset.shiftDy || 0),
+      roadFracX: Number(root?.dataset.roadFracX || 0),
+      roadFracY: Number(root?.dataset.roadFracY || 0),
       poiCount: Number(root?.dataset.poiCount || 0),
       overlayPoiLabels: pois,
       status: document.getElementById("gcj02-aligner-status")?.textContent || "",
@@ -119,7 +124,9 @@ async function overlayPoiScreen(page) {
         left: parseFloat(el.style.left) || 0,
         top: parseFloat(el.style.top) || 0,
         dx: m ? Number(m[1]) : 0,
-        dy: m ? Number(m[2]) : 0
+        dy: m ? Number(m[2]) : 0,
+        wgsLat: Number(el.dataset.wgsLat || 0),
+        wgsLon: Number(el.dataset.wgsLon || 0)
       };
     });
   });
@@ -236,15 +243,17 @@ function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
   expect(pois.length, JSON.stringify(snap.anchors.slice(0, 4))).toBeGreaterThan(0);
   const expected = pois
     .map((p) => {
-      const s = lib.overlayShiftPx(p.lat, p.lon, st.zoom);
-      const center = lib.worldPixel(st.lat, st.lon, st.zoom);
+      const screen = lib.overlayPoiScreenPx(p.lat, p.lon, st.lat, st.lon, st.zoom, snap.width, snap.height);
       const raw = lib.worldPixel(p.lat, p.lon, st.zoom);
+      const center = lib.worldPixel(st.lat, st.lon, st.zoom);
       return {
         text: p.name,
-        left: raw.x - center.x + snap.width / 2,
-        top: raw.y - center.y + snap.height / 2,
-        dx: s.dx,
-        dy: s.dy
+        left: screen.x,
+        top: screen.y,
+        lat: screen.lat,
+        lon: screen.lon,
+        rawLeft: raw.x - center.x + snap.width / 2,
+        rawTop: raw.y - center.y + snap.height / 2
       };
     })
     .sort((a, b) => a.left - b.left || a.top - b.top);
@@ -253,9 +262,9 @@ function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
   for (let i = 0; i < n; i++) {
     expect(Math.abs(got[i].left - expected[i].left), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
     expect(Math.abs(got[i].top - expected[i].top), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
-    expect(Math.abs(got[i].dx - expected[i].dx), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(2);
-    expect(Math.abs(got[i].dy - expected[i].dy), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(2);
-    expect(Math.hypot(got[i].dx, got[i].dy)).toBeGreaterThan(20);
+    expect(Math.abs(got[i].dx || 0), "POI must not CSS-slide independently of remapped tiles").toBeLessThan(2);
+    expect(Math.abs(got[i].dy || 0)).toBeLessThan(2);
+    expect(Math.hypot(expected[i].left - expected[i].rawLeft, expected[i].top - expected[i].rawTop)).toBeGreaterThan(20);
   }
 }
 
