@@ -11,7 +11,7 @@
   },
   "keywords": [],
   "author": "Yen-Ming Lee",
-  "license": "ISC",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "commonjs",
   "devDependencies": {
     "@playwright/test": "^1.62.1"
