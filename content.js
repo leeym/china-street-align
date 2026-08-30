@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.23";
+  let VERSION = "0.6.24";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -307,13 +307,19 @@
     return "";
   }
 
+  function articleTextForPlace(startEl) {
+    const row = startEl.closest("[role=article]");
+    return row ? String(row.innerText || "") : "";
+  }
+
   function collectPoisFromDocument() {
     const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => {
       const label = a.getAttribute("aria-label") || a.textContent || "";
       return {
         href: a.href || a.getAttribute("href") || "",
         label,
-        category: categoryBlobForPlace(label.trim().split(" · ")[0], a)
+        category: categoryBlobForPlace(label.trim().split(" · ")[0], a),
+        article: articleTextForPlace(a)
       };
     });
     if (/\/maps\/place\//.test(location.href)) {
@@ -327,12 +333,12 @@
       // Place pages often set h1 to "結果"; prefer the /maps/place/NAME/ path.
       const label = fromPath || heading;
       const category = (document.body.innerText || "").slice(0, 400);
-      if (label) anchors.unshift({ href: location.href, label, category });
+      if (label) anchors.unshift({ href: location.href, label, category, article: "" });
     }
     return globalThis.Gcj02Aligner.collectPoisFromAnchors(anchors);
   }
 
-  function appendPoiGlyph(el, kind, name) {
+  function appendPoiGlyph(el, kind, name, description) {
     const spec = globalThis.Gcj02Aligner.poiMarkerSpec(kind);
     const hover = globalThis.Gcj02Aligner.poiHoverTeardropSpec();
     const mark = document.createElement("div");
@@ -381,14 +387,24 @@
     mark.appendChild(tear);
     el.appendChild(mark);
     const labelText = String(name || "").trim();
+    const descText = String(description || "").trim();
     if (labelText) {
       const label = document.createElement("span");
       label.className = "gcj02-poi-label";
       label.textContent = labelText;
       el.appendChild(label);
-      const tip = document.createElement("span");
+      const tip = document.createElement("div");
       tip.className = "gcj02-poi-tooltip";
-      tip.textContent = labelText;
+      const title = document.createElement("div");
+      title.className = "gcj02-poi-tooltip-title";
+      title.textContent = labelText;
+      tip.appendChild(title);
+      if (descText) {
+        const desc = document.createElement("div");
+        desc.className = "gcj02-poi-tooltip-desc";
+        desc.textContent = descText;
+        tip.appendChild(desc);
+      }
       el.appendChild(tip);
     }
   }
@@ -445,7 +461,7 @@
     const pois = collectPoisFromDocument();
     const poiKey = [
       w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
-      pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind},${p.name}`).join("|")
+      pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind},${p.name},${p.description || ""}`).join("|")
     ].join(";");
     if (poiKey === lastPoiKey) {
       if (hoveredPoiKey) {
@@ -467,12 +483,16 @@
       el.dataset.wgsLat = String(screen.lat);
       el.dataset.wgsLon = String(screen.lon);
       el.dataset.kind = poi.kind || "place";
-      el.setAttribute("aria-label", poi.name || poi.kind);
+      if (poi.description) el.dataset.description = poi.description;
+      el.setAttribute(
+        "aria-label",
+        poi.description ? `${poi.name} - ${poi.description}` : (poi.name || poi.kind)
+      );
       el.style.left = `${screen.x}px`;
       el.style.top = `${screen.y}px`;
       el.style.transform = "translate(-13px, -100%)";
       if (hoveredPoiKey && el.dataset.key === hoveredPoiKey) el.classList.add("is-hover");
-      appendPoiGlyph(el, poi.kind, poi.name);
+      appendPoiGlyph(el, poi.kind, poi.name, poi.description);
       root.appendChild(el);
     });
     root.dataset.poiCount = String(pois.length);

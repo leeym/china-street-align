@@ -198,6 +198,47 @@
     return new RegExp(POI_VISITED_SUFFIX, "i").test(String(label || ""));
   }
 
+  // Sidebar articles list a short blurb under the category line, e.g.
+  // 「附設博物館的 1420 年宮殿建築群」. Off paints it under the title in the
+  // hover tooltip; On must do the same.
+  function extractPoiDescription(name, articleText) {
+    const n = String(name || "").trim();
+    const lines = String(articleText || "")
+      .split(/\n+/)
+      .map((l) => l.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const isName = (l) =>
+      !!n && (l === n || l.startsWith(`${n} `) || l.startsWith(`${n}:`) || l.startsWith(`${n}：`));
+    const isRating = (l) =>
+      /^\d+(\.\d+)?$/.test(l)
+      || /^\(\s*[\d,]+\s*\)/.test(l)
+      // "4.6(2,909)" / "4.6 (2,909)" / "4.6 · (2,909)" — never a description.
+      || /^\d+(\.\d+)?\s*[\(（]?\s*[\d,]+\s*[\)）]?/.test(l)
+      || /^[\d,]+\s*(則|reviews?|個評分|ratings?)/i.test(l)
+      || /^\d+(\.\d+)?\s*[★⭐]/.test(l);
+    const isCategory = (l) => {
+      if (/·|•/.test(l) && /旅遊景點|旅游景点|歷史|历史|遺址|遗址|Tourist|Historic|Museum|博物館|博物院|風景|风景|公园|公園|餐廳|饭店|Hotel|酒店/.test(l)) {
+        return true;
+      }
+      return /^(旅遊景點|旅游景点|歷史遺址|历史遗址|遺址博物館|遗址博物馆|Tourist attraction|Historic site|Museum|博物館|博物院|風景區|风景区|公园|公園)$/i.test(l);
+    };
+    const isHours = (l) =>
+      /已打烊|營業中|临时关闭|暫時關閉|Closed|Opens?\b|Closes?\b|開始營業|24\s*小時|Open 24|Hours?/i.test(l);
+
+    let i = 0;
+    // Keep skipping name / rating / category / hours until a real blurb.
+    while (i < lines.length && (isRating(lines[i]) || isCategory(lines[i]) || isHours(lines[i]) || isName(lines[i]))) {
+      i += 1;
+    }
+    if (i >= lines.length) return "";
+    const line = lines[i];
+    if (isHours(line) || isName(line) || isRating(line) || isCategory(line)) return "";
+    if (line.length < 4 || line.length > 100) return "";
+    // Reject leftover review/price crumbs that slipped past isRating.
+    if (/^[\d,.\s()（）]+$/.test(line)) return "";
+    return line.slice(0, 90);
+  }
+
   function collectPoisFromAnchors(anchors) {
     const seen = new Set();
     const out = [];
@@ -222,8 +263,9 @@
         name = fromPath;
       }
       if (!name || labelHasVisitedSuffix(name)) continue;
-      const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""} ${name}`, name);
-      out.push({ lat: c.lat, lon: c.lon, name, kind });
+      const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""} ${a.article || ""} ${name}`, name);
+      const description = extractPoiDescription(name, a.article || "");
+      out.push({ lat: c.lat, lon: c.lon, name, kind, description });
       if (out.length >= 24) break;
     }
     return out;
@@ -512,6 +554,7 @@
     overlayPoiScreenPx,
     cleanPoiName,
     labelHasVisitedSuffix,
+    extractPoiDescription,
     placeNameFromHref,
     isGenericPoiName,
     inChinaGcjBox,

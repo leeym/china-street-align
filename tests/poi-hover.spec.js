@@ -106,9 +106,10 @@ test.describe("sidebar hover shows red teardrop + tooltip", () => {
     await expect(hovered).toHaveCount(1, { timeout: 5000 });
     await expect(hovered.locator(".gcj02-poi-teardrop")).toBeVisible();
     await expect(hovered.locator(".gcj02-poi-tooltip")).toBeVisible();
-    const tip = (await hovered.locator(".gcj02-poi-tooltip").textContent()) || "";
-    expect(tip.length, tip).toBeGreaterThan(0);
-    expect(await hovered.getAttribute("aria-label")).toBe(tip);
+    await expect(hovered.locator(".gcj02-poi-tooltip-title")).toBeVisible();
+    const title = ((await hovered.locator(".gcj02-poi-tooltip-title").textContent()) || "").trim();
+    expect(title.length, title).toBeGreaterThan(0);
+    expect(await hovered.getAttribute("aria-label")).toMatch(new RegExp(`^${title}`));
     await expect(hovered.locator(".gcj02-poi-icon")).toBeHidden();
     await expect(hovered.locator(".gcj02-poi-label")).toBeHidden();
     await page.screenshot({ path: path.join(OUT, "on-hover-wuzhangyuan.png"), fullPage: false });

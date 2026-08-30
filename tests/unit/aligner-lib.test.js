@@ -156,6 +156,54 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(noColon[0].name, "五丈原鎮");
   });
 
+  it("extracts the sidebar description blurb under a search hit", () => {
+    const article = [
+      "故宮",
+      "故宮",
+      "4.6",
+      "旅遊景點 · 景山前街4号",
+      "附設博物館的 1420 年宮殿建築群",
+      "已打烊 · 開始營業時間：週二08:30"
+    ].join("\n");
+    assert.equal(
+      lib.extractPoiDescription("故宮", article),
+      "附設博物館的 1420 年宮殿建築群"
+    );
+    assert.equal(
+      lib.extractPoiDescription(
+        "故宮",
+        "故宮\n4.6(2,909)\n旅遊景點 · 景山前街4号\n附設博物館的 1420 年宮殿建築群\n已打烊"
+      ),
+      "附設博物館的 1420 年宮殿建築群"
+    );
+    assert.equal(
+      lib.extractPoiDescription(
+        "故宮",
+        "故宮\n4.6 (2,909)\n旅遊景點\n附設博物館的 1420 年宮殿建築群"
+      ),
+      "附設博物館的 1420 年宮殿建築群"
+    );
+    assert.notEqual(lib.extractPoiDescription("故宮", "故宮\n4.6(2,909)\n旅遊景點"), "4.6(2,909)");
+    assert.equal(
+      lib.extractPoiDescription("坤寧宮", "坤寧宮\n4.6\n旅遊景點\n大殿和皇后故居\n已打烊"),
+      "大殿和皇后故居"
+    );
+    assert.equal(lib.extractPoiDescription("太和門", "太和門\n4.6\n旅遊景點 · 故宮博物院\n已打烊"), "");
+    const pois = lib.collectPoisFromAnchors([
+      {
+        href: "https://www.google.com/maps/place/%E6%95%85%E5%AE%AE/data=!8m2!3d39.9168!4d116.3971",
+        label: "故宮",
+        category: "旅遊景點 · 景山前街4号",
+        article
+      }
+    ]);
+    assert.equal(pois[0].name, "故宮");
+    assert.equal(pois[0].description, "附設博物館的 1420 年宮殿建築群");
+    assert.match(contentJs, /articleTextForPlace/);
+    assert.match(contentJs, /poi\.description/);
+    assert.match(contentCss, /\.gcj02-poi-tooltip-desc/);
+  });
+
   it("requires a large GCJ→WGS pixel shift at China landmarks", () => {
     for (const place of [XIAMEN_XINGLIN, WUZHANGYUAN]) {
       const st = lib.parseMapHref(place.satHref || place.href);
@@ -636,8 +684,9 @@ describe("search result POIs on the overlay", () => {
     assert.equal(plotted.lon, wgs.lon);
     assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat);
     assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon);
-    assert.match(contentJs, /appendPoiGlyph\(el, poi\.kind, poi\.name\)/);
+    assert.match(contentJs, /appendPoiGlyph\(el, poi\.kind, poi\.name, poi\.description\)/);
     assert.match(contentCss, /\.gcj02-poi-label/);
+    assert.match(contentCss, /\.gcj02-poi-tooltip-desc/);
     assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
     assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
   });
