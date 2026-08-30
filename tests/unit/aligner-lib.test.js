@@ -51,18 +51,21 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
   });
 
-  it("shifts overlay POI longitude onto WGS streets but keeps GCJ latitude", () => {
+  it("shifts overlay POI longitude 2× west onto overlay streets but keeps GCJ latitude", () => {
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
     const center = lib.worldPixel(cam.lat, cam.lon, 15);
     const raw = lib.worldPixel(poi.lat, poi.lon, 15);
     const wgs = lib.gcjToWgs(poi.lat, poi.lon);
+    const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
     const unshifted = { x: raw.x - center.x + 720, y: raw.y - center.y + 450 };
-    assert.ok(plotted.x < unshifted.x - 40, "must move west with X235");
+    const once = unshifted.x + shift.dx;
+    assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) < 1);
+    assert.ok(plotted.x < once - 40, "1× lon leaves 五丈原 east of overlay X235");
     assert.ok(Math.abs(plotted.y - unshifted.y) < 2, "must not apply evil northing over G310");
     assert.equal(plotted.lat, poi.lat);
-    assert.equal(plotted.lon, wgs.lon);
+    assert.ok(Math.abs(plotted.lon - (poi.lon + 2 * (wgs.lon - poi.lon))) < 1e-9);
     assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat);
     assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon);
     assert.match(contentJs, /overlayPoiScreenPx\(/);
@@ -548,12 +551,12 @@ describe("search result POIs on the overlay", () => {
       x: raw.x - center.x + 720,
       y: raw.y - center.y + 450
     };
+    const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
-    const wgs = lib.gcjToWgs(poi.lat, poi.lon);
-    assert.ok(plotted.x < unshifted.x - 40, "五丈原 must move west with X235");
+    assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) < 1);
+    assert.ok(plotted.x < unshifted.x + shift.dx - 40, "must pass west of overlay X235");
     assert.ok(Math.abs(plotted.y - unshifted.y) < 2, "must keep Off latitude vs G310");
     assert.equal(plotted.lat, poi.lat);
-    assert.equal(plotted.lon, wgs.lon);
     assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat);
     assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon);
     assert.match(contentJs, /appendPoiGlyph\(el, poi\.kind, poi\.name\)/);

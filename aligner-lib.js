@@ -113,18 +113,23 @@
     };
   }
 
-  // Sidebar !3d is GCJ-02. Native search pins sit at GCJ mercator (Off). Street
-  // tiles CSS-shift onto WGS; converting both lat+lon (or full overlayShiftPx)
-  // pushes 五丈原 north of G310. Keep GCJ latitude; shift longitude west only.
+  // Sidebar !3d is GCJ-02. Off paints pins at GCJ mercator vs the WGS @ camera
+  // (measured). Overlay streets are WGS-indexed then CSS-shifted by 1× evil
+  // transform; at 五丈原 that moves X235 about twice as far west as a single
+  // gcjToWgs lon step, so 1× leaves pins east of X235 while Off had them west.
+  // Apply 2× longitude westing and keep Off latitude (1× lat/full shift jumps
+  // north of G310).
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
+    const raw = worldPixel(placeLat, placeLon, zoom);
+    const s = overlayShiftPx(camLat, camLon, zoom);
     const wgs = gcjToWgs(placeLat, placeLon);
-    const p = worldPixel(placeLat, wgs.lon, zoom);
+    const plotLon = Number(placeLon) + 2 * (wgs.lon - Number(placeLon));
     return {
-      x: p.x - center.x + Number(width) / 2,
-      y: p.y - center.y + Number(height) / 2,
+      x: raw.x - center.x + Number(width) / 2 + 2 * s.dx,
+      y: raw.y - center.y + Number(height) / 2,
       lat: Number(placeLat),
-      lon: wgs.lon
+      lon: plotLon
     };
   }
 
