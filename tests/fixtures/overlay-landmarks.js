@@ -33,7 +33,7 @@ const WUZHANGYUAN = {
   meters: 5053,
   expectZoom: 15,
   samplePoi: { name: "五丈原", lat: 34.282582, lon: 107.618568 },
-  // WGS-84 of that GCJ !3d must stay south of G310 and west of X235.
+  // WGS-84 of that GCJ !3d (single gcjToWgs — south of G310 / west of X235 gate).
   poiWgsSouthOfG310Lat: 34.286,
   poiWgsWestOfX235Lon: 107.617
 };

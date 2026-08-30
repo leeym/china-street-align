@@ -15,7 +15,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   // 2. Streets, terrain, POIs, and other overlays are GCJ-02 — inside China,
   //    translate them onto the WGS-84 camera with overlayShiftPx.
   //    Search POIs are canvas-painted by Maps (not DOM), so On redraws icon+label
-  //    at GCJ + the same CSS vector as street tiles.
+  //    at gcjToWgs (one geographic step — same EW/NS balance as street tiles).
   const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
 
   it("never transforms satellite base tiles (WGS-84 stays put)", () => {
@@ -51,7 +51,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
   });
 
-  it("shifts overlay POI longitude 2× west onto overlay streets but keeps GCJ latitude", () => {
+  it("plots overlay POIs with one GCJ→WGS step matching street shift, not a 2× pixel hack", () => {
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
     const center = lib.worldPixel(cam.lat, cam.lon, 15);
@@ -60,16 +60,46 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
     const unshifted = { x: raw.x - center.x + 720, y: raw.y - center.y + 450 };
-    const once = unshifted.x + shift.dx;
-    assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) < 1);
-    assert.ok(plotted.x < once - 40, "1× lon leaves 五丈原 east of overlay X235");
-    assert.ok(Math.abs(plotted.y - unshifted.y) < 2, "must not apply evil northing over G310");
-    assert.equal(plotted.lat, poi.lat);
-    assert.ok(Math.abs(plotted.lon - (poi.lon + 2 * (wgs.lon - poi.lon))) < 1e-9);
+    const wgsPx = lib.worldPixel(wgs.lat, wgs.lon, 15);
+    assert.ok(Math.abs(plotted.x - (wgsPx.x - center.x + 720)) < 1);
+    assert.ok(Math.abs(plotted.y - (wgsPx.y - center.y + 450)) < 1);
+    assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 2);
+    assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 2);
+    assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) > 40, "must not use the 2× easting hack");
+    assert.equal(plotted.lat, wgs.lat);
+    assert.equal(plotted.lon, wgs.lon);
     assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat);
     assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon);
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(rootDir, "aligner-lib.js"), "utf8"),
+      /2 \* s\.dx|2 \* \(wgs\.lon/
+    );
     assert.match(contentJs, /overlayPoiScreenPx\(/);
     assert.match(contentCss, /\.gcj02-poi-label/);
+  });
+
+  it("keeps POI easting/northing ratio with street shift across zoom levels", () => {
+    const poi = WUZHANGYUAN.samplePoi;
+    const cams = [
+      { z: 15, lat: 34.2820338, lon: 107.6089203 },
+      { z: 14, lat: 34.2820688, lon: 107.5986206 },
+      { z: 13, lat: 34.2820706, lon: 107.5780211 }
+    ];
+    const wgs = lib.gcjToWgs(poi.lat, poi.lon);
+    for (const cam of cams) {
+      const shift = lib.overlayShiftPx(cam.lat, cam.lon, cam.z);
+      const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, cam.z, 1280, 720);
+      const center = lib.worldPixel(cam.lat, cam.lon, cam.z);
+      const raw = lib.worldPixel(poi.lat, poi.lon, cam.z);
+      const unshifted = { x: raw.x - center.x + 640, y: raw.y - center.y + 360 };
+      const dx = plotted.x - unshifted.x;
+      const dy = plotted.y - unshifted.y;
+      assert.ok(Math.abs(dx - shift.dx) < 2, `z=${cam.z} dx ${dx} vs ${shift.dx}`);
+      assert.ok(Math.abs(dy - shift.dy) < 2, `z=${cam.z} dy ${dy} vs ${shift.dy}`);
+      assert.ok(Math.abs(dx / dy - shift.dx / shift.dy) < 0.05, `z=${cam.z} EW/NS ratio`);
+      assert.ok(Math.abs(plotted.lat - wgs.lat) < 1e-9);
+      assert.ok(Math.abs(plotted.lon - wgs.lon) < 1e-9);
+    }
   });
 
   it("strips Google Maps visited-link aria-label suffixes from POI names", () => {
@@ -541,7 +571,7 @@ describe("search result POIs on the overlay", () => {
     assert.doesNotMatch(contentJs, /gcj02-poi-pin/);
   });
 
-  it("plots overlay POIs west with streets but not north of G310, with clean labels", () => {
+  it("plots overlay POIs with one GCJ→WGS step matching street shift, with clean labels", () => {
     const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
@@ -552,11 +582,13 @@ describe("search result POIs on the overlay", () => {
       y: raw.y - center.y + 450
     };
     const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
+    const wgs = lib.gcjToWgs(poi.lat, poi.lon);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
-    assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) < 1);
-    assert.ok(plotted.x < unshifted.x + shift.dx - 40, "must pass west of overlay X235");
-    assert.ok(Math.abs(plotted.y - unshifted.y) < 2, "must keep Off latitude vs G310");
-    assert.equal(plotted.lat, poi.lat);
+    assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 2);
+    assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 2);
+    assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) > 40);
+    assert.equal(plotted.lat, wgs.lat);
+    assert.equal(plotted.lon, wgs.lon);
     assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat);
     assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon);
     assert.match(contentJs, /appendPoiGlyph\(el, poi\.kind, poi\.name\)/);

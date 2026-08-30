@@ -20,7 +20,7 @@ This project does **not** change the satellite layer. When enabled, it overlays 
 **Datum rules (in China, mode On):**
 
 1. **Satellite is WGS-84** — never shift, remap, or otherwise move satellite tiles.
-2. **Streets, terrain, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera (same WGS tile `x,y` as satellite for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label; keep **GCJ latitude** and apply **2× longitude** westing (1× leaves 五丈原 east of overlay X235; full lat transform jumps north of G310).
+2. **Streets, terrain, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera (same WGS tile `x,y` as satellite for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label at **gcjToWgs** (one geographic step, same easting/northing balance as street tiles at every zoom — never a pixel multiplier).
 
 Outside China the overlay stays off.
 
@@ -31,7 +31,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. The default mode is **On**.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.17**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.18**).
 
 ## Usage
 

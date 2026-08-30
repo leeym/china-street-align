@@ -159,7 +159,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
 
     expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.status).toMatch(/v0\.6\.17/);
+    expect(stats.status).toMatch(/v0\.6\.18/);
     expect(Number(stats.zoom)).toBeGreaterThan(15.8);
     expect(Number(stats.zoom)).toBeLessThan(17.5);
     expect(stats.layer).toBe("satellite");

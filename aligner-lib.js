@@ -113,23 +113,20 @@
     };
   }
 
-  // Sidebar !3d is GCJ-02. Off paints pins at GCJ mercator vs the WGS @ camera
-  // (measured). Overlay streets are WGS-indexed then CSS-shifted by 1× evil
-  // transform; at 五丈原 that moves X235 about twice as far west as a single
-  // gcjToWgs lon step, so 1× leaves pins east of X235 while Off had them west.
-  // Apply 2× longitude westing and keep Off latitude (1× lat/full shift jumps
-  // north of G310).
+  // Sidebar !3d is GCJ-02. Overlay streets are WGS-indexed tiles CSS-shifted by
+  // overlayShiftPx; search pins must use the same single geographic GCJ→WGS
+  // step (never a zoom-dependent pixel multiplier — that skews easting vs
+  // northing when z changes). Plot at gcjToWgs so EW/NS follow the evil
+  // transform’s true lat/lon deltas at every zoom.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
-    const raw = worldPixel(placeLat, placeLon, zoom);
-    const s = overlayShiftPx(camLat, camLon, zoom);
     const wgs = gcjToWgs(placeLat, placeLon);
-    const plotLon = Number(placeLon) + 2 * (wgs.lon - Number(placeLon));
+    const p = worldPixel(wgs.lat, wgs.lon, zoom);
     return {
-      x: raw.x - center.x + Number(width) / 2 + 2 * s.dx,
-      y: raw.y - center.y + Number(height) / 2,
-      lat: Number(placeLat),
-      lon: plotLon
+      x: p.x - center.x + Number(width) / 2,
+      y: p.y - center.y + Number(height) / 2,
+      lat: wgs.lat,
+      lon: wgs.lon
     };
   }
 
