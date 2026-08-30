@@ -113,24 +113,42 @@
     };
   }
 
-  // Sidebar !3d is GCJ-02. Overlay streets are WGS-indexed tiles CSS-shifted by
-  // overlayShiftPx; search pins must use the same single geographic GCJ→WGS
-  // step (never a zoom-dependent pixel multiplier — that skews easting vs
-  // northing when z changes). Plot at gcjToWgs so EW/NS follow the evil
-  // transform’s true lat/lon deltas at every zoom.
+  // Sidebar !3d is GCJ-02 and matches Off pin mercator. Overlay street tiles all
+  // take one camera overlayShiftPx (rigid) so POIs must use that same vector —
+  // per-tile shifts made pins drift vs roads across zoom. Never multiply the
+  // pixel shift; EW/NS follow overlayShiftPx at every z.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
+    const raw = worldPixel(placeLat, placeLon, zoom);
+    const s = overlayShiftPx(camLat, camLon, zoom);
     const wgs = gcjToWgs(placeLat, placeLon);
-    const p = worldPixel(wgs.lat, wgs.lon, zoom);
     return {
-      x: p.x - center.x + Number(width) / 2,
-      y: p.y - center.y + Number(height) / 2,
+      x: raw.x - center.x + Number(width) / 2 + s.dx,
+      y: raw.y - center.y + Number(height) / 2 + s.dy,
       lat: wgs.lat,
-      lon: wgs.lon
+      lon: wgs.lon,
+      dx: s.dx,
+      dy: s.dy
     };
   }
 
-  // aria-label often appends ":開啟過的連結" / "Opened link" after the place name.
+  function placeNameFromHref(href) {
+    const m = String(href || "").match(/\/maps\/place\/([^/@]+)/);
+    if (!m) return "";
+    try {
+      const s = decodeURIComponent(m[1].replace(/\+/g, " "));
+      if (!s || /^data=/i.test(s)) return "";
+      return s;
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function isGenericPoiName(name) {
+    return /^(結果|结果|Results?|Map results?|Search results?)$/i.test(String(name || "").trim());
+  }
+
+  // aria-label often appends ":開啟過的連結" / "Opened link"; place pages use h1 "結果".
   function cleanPoiName(label) {
     let s = String(label || "").replace(/\s+/g, " ").trim();
     s = s.replace(
@@ -141,7 +159,12 @@
       /\s*[–—-]\s*(開啟過的連結|打开过的链接|Opened link|Previously visited).*$/i,
       ""
     );
+    s = s.replace(
+      /\s*[\(（]\s*(開啟過的連結|打开过的链接|Opened link|Previously visited)\s*[\)）]\s*$/i,
+      ""
+    );
     s = s.split(" · ")[0].trim();
+    if (isGenericPoiName(s)) return "";
     return s.slice(0, 48);
   }
 
@@ -156,9 +179,13 @@
       const key = `${c.lat.toFixed(5)},${c.lon.toFixed(5)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const name = cleanPoiName(a.label);
+      // Search result links often use /maps/place/A/…; the real name is in aria-label.
+      // Place pages set h1 to「結果」— cleanPoiName drops that so the path name wins.
+      const fromPath = cleanPoiName(placeNameFromHref(href));
+      const fromLabel = cleanPoiName(a.label);
+      const name = fromLabel || fromPath;
       if (!name) continue;
-      const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""}`, name);
+      const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""} ${name}`, name);
       out.push({ lat: c.lat, lon: c.lon, name, kind });
       if (out.length >= 24) break;
     }
@@ -434,6 +461,8 @@
     overlayRoadTile,
     overlayPoiScreenPx,
     cleanPoiName,
+    placeNameFromHref,
+    isGenericPoiName,
     inChinaGcjBox,
     inTaiwanIsland,
     inXiamenMainland,

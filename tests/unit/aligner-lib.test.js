@@ -13,9 +13,9 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   // Product rules (do not weaken):
   // 1. Satellite imagery is WGS-84 — never CSS-shift or remap satellite tiles.
   // 2. Streets, terrain, POIs, and other overlays are GCJ-02 — inside China,
-  //    translate them onto the WGS-84 camera with overlayShiftPx.
+  //    translate them onto the WGS-84 camera with one camera overlayShiftPx.
   //    Search POIs are canvas-painted by Maps (not DOM), so On redraws icon+label
-  //    at gcjToWgs (one geographic step — same EW/NS balance as street tiles).
+  //    at Off GCJ mercator plus that same rigid camera vector.
   const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
 
   it("never transforms satellite base tiles (WGS-84 stays put)", () => {
@@ -39,19 +39,21 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
       "p"
     );
     assert.equal(lib.overlaySpec(XIAMEN_XINGLIN.href).roadLyrs, "h");
+    assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
     assert.match(
       contentJs,
-      /placeTile\(\s*hasBase \? "gcj02-road" : "gcj02-tile",\s*spec\.roadLyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile\s*\)/
+      /placeTile\(\s*hasBase \? "gcj02-road" : "gcj02-tile",\s*spec\.roadLyrs, left, top, tileSize, roadShift, wx, ty, zTile\s*\)/
     );
     assert.match(
       contentJs,
-      /placeTile\("gcj02-road", lyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile\)/
+      /placeTile\("gcj02-road", lyrs, left, top, tileSize, roadShift, wx, ty, zTile\)/
     );
+    assert.doesNotMatch(contentJs, /overlayShiftPx\(ll\.lat/);
     assert.doesNotMatch(contentJs, /shiftRoads/);
     assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
   });
 
-  it("plots overlay POIs with one GCJ→WGS step matching street shift, not a 2× pixel hack", () => {
+  it("plots overlay POIs with the camera street shift (not a 2× hack)", () => {
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
     const center = lib.worldPixel(cam.lat, cam.lon, 15);
@@ -60,11 +62,10 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
     const unshifted = { x: raw.x - center.x + 720, y: raw.y - center.y + 450 };
-    const wgsPx = lib.worldPixel(wgs.lat, wgs.lon, 15);
-    assert.ok(Math.abs(plotted.x - (wgsPx.x - center.x + 720)) < 1);
-    assert.ok(Math.abs(plotted.y - (wgsPx.y - center.y + 450)) < 1);
-    assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 2);
-    assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 2);
+    assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1);
+    assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 1);
+    assert.equal(plotted.dx, shift.dx);
+    assert.equal(plotted.dy, shift.dy);
     assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) > 40, "must not use the 2× easting hack");
     assert.equal(plotted.lat, wgs.lat);
     assert.equal(plotted.lon, wgs.lon);
@@ -75,30 +76,40 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
       /2 \* s\.dx|2 \* \(wgs\.lon/
     );
     assert.match(contentJs, /overlayPoiScreenPx\(/);
+    assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
     assert.match(contentCss, /\.gcj02-poi-label/);
   });
 
-  it("keeps POI easting/northing ratio with street shift across zoom levels", () => {
+  it("keeps POI↔street shift vector identical across zoom levels", () => {
     const poi = WUZHANGYUAN.samplePoi;
     const cams = [
-      { z: 15, lat: 34.2820338, lon: 107.6089203 },
-      { z: 14, lat: 34.2820688, lon: 107.5986206 },
-      { z: 13, lat: 34.2820706, lon: 107.5780211 }
+      { z: 15, lat: 34.2820186, lon: 107.6089231 },
+      { z: 16, lat: 34.2820184, lon: 107.6140729 },
+      { z: 17, lat: 34.2820183, lon: 107.6166478 }
     ];
     const wgs = lib.gcjToWgs(poi.lat, poi.lon);
+    let prevBearing = null;
     for (const cam of cams) {
       const shift = lib.overlayShiftPx(cam.lat, cam.lon, cam.z);
       const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, cam.z, 1280, 720);
       const center = lib.worldPixel(cam.lat, cam.lon, cam.z);
       const raw = lib.worldPixel(poi.lat, poi.lon, cam.z);
       const unshifted = { x: raw.x - center.x + 640, y: raw.y - center.y + 360 };
-      const dx = plotted.x - unshifted.x;
-      const dy = plotted.y - unshifted.y;
-      assert.ok(Math.abs(dx - shift.dx) < 2, `z=${cam.z} dx ${dx} vs ${shift.dx}`);
-      assert.ok(Math.abs(dy - shift.dy) < 2, `z=${cam.z} dy ${dy} vs ${shift.dy}`);
-      assert.ok(Math.abs(dx / dy - shift.dx / shift.dy) < 0.05, `z=${cam.z} EW/NS ratio`);
+      assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1, `z=${cam.z} x`);
+      assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 1, `z=${cam.z} y`);
+      assert.ok(Math.abs(plotted.dx / plotted.dy - shift.dx / shift.dy) < 1e-9);
       assert.ok(Math.abs(plotted.lat - wgs.lat) < 1e-9);
       assert.ok(Math.abs(plotted.lon - wgs.lon) < 1e-9);
+      const town = { lat: 34.282017, lon: 107.61922 };
+      const a = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, cam.z, 1280, 720);
+      const b = lib.overlayPoiScreenPx(town.lat, town.lon, cam.lat, cam.lon, cam.z, 1280, 720);
+      const bearing = Math.atan2(b.y - a.y, b.x - a.x);
+      if (prevBearing != null) {
+        let d = Math.abs(bearing - prevBearing);
+        if (d > Math.PI) d = 2 * Math.PI - d;
+        assert.ok(d < 0.05, `z=${cam.z} POI pair bearing drifted ${d}`);
+      }
+      prevBearing = bearing;
     }
   });
 
@@ -107,13 +118,26 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(lib.cleanPoiName("五丈原：打开过的链接"), "五丈原");
     assert.equal(lib.cleanPoiName("Wuzhangyuan:Opened link"), "Wuzhangyuan");
     assert.equal(lib.cleanPoiName("五丈原 · 旅遊景點"), "五丈原");
+    assert.equal(lib.cleanPoiName("結果"), "");
+    assert.equal(lib.cleanPoiName("Results"), "");
+    assert.equal(
+      lib.placeNameFromHref(
+        "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/data=!8m2!3d34.28!4d107.61"
+      ),
+      "五丈原"
+    );
     const pois = lib.collectPoisFromAnchors([
       {
-        href: "https://www.google.com/maps/place/A/data=!8m2!3d34.28!4d107.61",
+        href: "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/data=!8m2!3d34.28!4d107.61",
+        label: "結果"
+      },
+      {
+        href: "https://www.google.com/maps/place/A/data=!8m2!3d34.29!4d107.62",
         label: "五丈原:開啟過的連結"
       }
     ]);
     assert.equal(pois[0].name, "五丈原");
+    assert.equal(pois[1].name, "五丈原");
   });
 
   it("requires a large GCJ→WGS pixel shift at China landmarks", () => {
@@ -571,7 +595,7 @@ describe("search result POIs on the overlay", () => {
     assert.doesNotMatch(contentJs, /gcj02-poi-pin/);
   });
 
-  it("plots overlay POIs with one GCJ→WGS step matching street shift, with clean labels", () => {
+  it("plots overlay POIs with the camera street shift, with clean labels", () => {
     const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
@@ -584,8 +608,8 @@ describe("search result POIs on the overlay", () => {
     const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
     const wgs = lib.gcjToWgs(poi.lat, poi.lon);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
-    assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 2);
-    assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 2);
+    assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1);
+    assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 1);
     assert.ok(Math.abs(plotted.x - (unshifted.x + 2 * shift.dx)) > 40);
     assert.equal(plotted.lat, wgs.lat);
     assert.equal(plotted.lon, wgs.lon);
@@ -593,7 +617,7 @@ describe("search result POIs on the overlay", () => {
     assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon);
     assert.match(contentJs, /appendPoiGlyph\(el, poi\.kind, poi\.name\)/);
     assert.match(contentCss, /\.gcj02-poi-label/);
-    assert.match(contentJs, /shift\(s\.dx, s\.dy\)/);
+    assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
     assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
   });
 
@@ -601,7 +625,7 @@ describe("search result POIs on the overlay", () => {
     assert.match(contentJs, /placeTile\(\s*hasBase \? "gcj02-road" : "gcj02-tile"/);
     assert.match(
       contentJs,
-      /spec\.roadLyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile/
+      /spec\.roadLyrs, left, top, tileSize, roadShift, wx, ty, zTile/
     );
     assert.match(contentJs, /placeTile\("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile\)/);
     assert.doesNotMatch(contentJs, /src\.x,\s*src\.y/);

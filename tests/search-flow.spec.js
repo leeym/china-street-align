@@ -111,7 +111,7 @@ test.describe("Parameterized search landmarks", () => {
           expect(hits.length, JSON.stringify(overlayPins)).toBeGreaterThan(0);
           const labels = await page.locator(".gcj02-poi-label").allTextContents();
           expect(labels.some((t) => /五丈原/.test(t)), JSON.stringify(labels)).toBeTruthy();
-          expect(labels.every((t) => !/開啟過的連結|Opened link/i.test(t)), JSON.stringify(labels)).toBeTruthy();
+          expect(labels.every((t) => !/開啟過的連結|Opened link|結果|Results?/i.test(t)), JSON.stringify(labels)).toBeTruthy();
           for (const p of hits) {
             expect(p.wgsLat, JSON.stringify(p)).toBeLessThan(place.poiWgsSouthOfG310Lat);
             expect(p.wgsLon, JSON.stringify(p)).toBeLessThan(place.poiWgsWestOfX235Lon);

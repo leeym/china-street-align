@@ -261,7 +261,7 @@ function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
     expect(Math.abs(got[i].top - expected[i].top), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
     expect(Math.abs(got[i].dx || 0), "POI must not extra-translate off the street tiles").toBeLessThan(2);
     expect(Math.abs(got[i].dy || 0)).toBeLessThan(2);
-    // Same single GCJ→WGS vector as street tiles (EW and NS); never a 2× pixel hack.
+    // Same rigid camera CSS vector as street tiles (EW and NS); never a 2× pixel hack.
     const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
     expect(Math.abs(expected[i].left - (expected[i].rawLeft + shift.dx))).toBeLessThan(4);
     expect(Math.abs(expected[i].top - (expected[i].rawTop + shift.dy))).toBeLessThan(4);

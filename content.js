@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.18";
+  let VERSION = "0.6.19";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -316,11 +316,17 @@
       };
     });
     if (/\/maps\/place\//.test(location.href)) {
-      const heading = (document.querySelector("h1")?.textContent || "").trim();
-      const fromPath = decodeURIComponent(location.pathname).split("/").filter(Boolean).pop() || "";
-      const label = heading || fromPath.replace(/\+/g, " ");
+      const parts = decodeURIComponent(location.pathname).split("/").filter(Boolean);
+      const pi = parts.indexOf("place");
+      const fromPath = globalThis.Gcj02Aligner.placeNameFromHref(location.href)
+        || globalThis.Gcj02Aligner.cleanPoiName(pi >= 0 ? parts[pi + 1] || "" : "");
+      const heading = globalThis.Gcj02Aligner.cleanPoiName(
+        (document.querySelector("h1")?.textContent || "").trim()
+      );
+      // Place pages often set h1 to "結果"; prefer the /maps/place/NAME/ path.
+      const label = fromPath || heading;
       const category = (document.body.innerText || "").slice(0, 400);
-      anchors.unshift({ href: location.href, label, category });
+      if (label) anchors.unshift({ href: location.href, label, category });
     }
     return globalThis.Gcj02Aligner.collectPoisFromAnchors(anchors);
   }
@@ -470,6 +476,9 @@
 
       const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
       const hasBase = spec.baseLyrs.length > 0;
+      // One camera shift for every street tile. Per-tile evil shifts warped the
+      // road layer so search pins (single vector) drifted vs X235 across zoom.
+      const roadShift = shift(sample.dx, sample.dy);
 
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
@@ -478,23 +487,22 @@
 
           const ll = tileCenterLatLon(wx, ty, zTile);
           const pW = worldPixel(ll.lat, ll.lon, st.zoom);
-          const s = globalThis.Gcj02Aligner.overlayShiftPx(ll.lat, ll.lon, st.zoom);
           const left = pW.x - center.x + w / 2 - tileSize / 2;
           const top = pW.y - center.y + h / 2 - tileSize / 2;
 
           // Satellite `s` stays on WGS. Streets (`h`/`m`/`p`) use the same WGS
-          // tile index then CSS-shift GCJ drawing onto that satellite.
+          // tile index then the camera CSS-shift onto that satellite.
           for (const lyrs of spec.baseLyrs) {
             placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }
           if (spec.roadLyrs) {
             placeTile(
               hasBase ? "gcj02-road" : "gcj02-tile",
-              spec.roadLyrs, left, top, tileSize, shift(s.dx, s.dy), wx, ty, zTile
+              spec.roadLyrs, left, top, tileSize, roadShift, wx, ty, zTile
             );
           }
           for (const lyrs of spec.extraLyrs) {
-            placeTile("gcj02-road", lyrs, left, top, tileSize, shift(s.dx, s.dy), wx, ty, zTile);
+            placeTile("gcj02-road", lyrs, left, top, tileSize, roadShift, wx, ty, zTile);
           }
         }
       }
