@@ -40,7 +40,7 @@
     return [
       { x: w - 80, y: h - 240, w: 72, h: 228 },
       { x: 8, y: 8, w: Math.min(480, w * 0.42), h: 64 },
-      { x: 8, y: h - 96, w: 88, h: 88 }
+      { x: 8, y: h - 400, w: Math.min(300, w * 0.28), h: 392 }
     ];
   }
 
@@ -137,6 +137,64 @@
     return !inChinaGcjBox(lat, lon);
   }
 
+  function dataParam(href) {
+    const m = String(href || "").match(/[?&/]data=([^&#]*)/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
+  function mapDisplayType(data) {
+    const m = String(data || "").match(/!3m\d+!1e(\d+)/);
+    return m ? Number(m[1]) : 0;
+  }
+
+  function mapLayerIds(data) {
+    const ids = [];
+    const re = /!5m\d+((?:!1e\d+)+)/g;
+    let m;
+    while ((m = re.exec(String(data || "")))) {
+      for (const e of m[1].matchAll(/!1e(\d+)/g)) ids.push(Number(e[1]));
+    }
+    return ids;
+  }
+
+  function isNativeOnlyView(href) {
+    const url = String(href || "");
+    if (/@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,[\d.]+a,/.test(url)) return true;
+    const type = mapDisplayType(dataParam(url));
+    return type === 1 || type === 2;
+  }
+
+  function overlaySpec(href) {
+    const url = String(href || "");
+    if (isNativeOnlyView(url)) {
+      return {
+        nativeOnly: true,
+        label: "native",
+        baseLyrs: [],
+        roadLyrs: "",
+        extraLyrs: []
+      };
+    }
+    const data = dataParam(url);
+    const type = mapDisplayType(data);
+    const layers = mapLayerIds(data);
+    const extras = layers.filter((id) => id !== 4);
+    const satellite = type === 3;
+    const terrain = !satellite && layers.includes(4);
+    const extraLyrs = [];
+    if (extras.includes(1)) extraLyrs.push("h,traffic");
+    if (extras.includes(2)) extraLyrs.push("m,transit");
+    if (extras.includes(3)) extraLyrs.push("h,bike");
+    if (extras.includes(5)) extraLyrs.push("svv");
+    if (satellite) {
+      return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", extraLyrs };
+    }
+    if (terrain) {
+      return { nativeOnly: false, label: "terrain", baseLyrs: ["t"], roadLyrs: "h", extraLyrs };
+    }
+    return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", extraLyrs };
+  }
+
   function parseMapHref(href) {
     const url = String(href || "");
     const zMatch = url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)z\b/);
@@ -169,6 +227,11 @@
     inTaiwanIsland,
     inPenghuKinmenMatsu,
     outOfChina,
+    dataParam,
+    mapDisplayType,
+    mapLayerIds,
+    isNativeOnlyView,
+    overlaySpec,
     parseMapHref
   };
 })(typeof globalThis !== "undefined" ? globalThis : self);

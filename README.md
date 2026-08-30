@@ -26,7 +26,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. The default mode is **On**.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.5.8**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.0**).
 
 ## Usage
 
@@ -35,9 +35,9 @@ The toolbar popup has:
 - **On** — shift streets onto satellite (default in China)
 - **Off** — original Google Maps
 
-A small status line on the map shows mode, layer (`satellite` / `map`), version, and zoom.
+A small status line on the map shows mode, layer (`satellite` / `terrain` / `map`), version, and zoom.
 
-Map zoom, search, layers, and other Google chrome stay clickable; the overlay is clipped away from those controls.
+Map zoom, search, layers, and other Google chrome stay clickable; the overlay is clipped away from those controls. Terrain, traffic, transit, bicycling, and Street View coverage use matching Google tiles (streets still shifted). Full Street View and 3D Earth stay on Google’s native view.
 
 ## Development
 

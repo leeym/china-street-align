@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.5.8";
+  let VERSION = "0.6.0";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -107,8 +107,8 @@
     return { lat: lat + dLat, lon: lon + dLon };
   }
 
-  function isSatelliteView() {
-    return /!1e3\b/.test(location.href);
+  function overlaySpec() {
+    return globalThis.Gcj02Aligner.overlaySpec(location.href);
   }
 
   function parseMapState() {
@@ -245,22 +245,42 @@
     img.src = url;
   }
 
+  function placeTile(className, lyrs, left, top, tileSize, transform, wx, ty, zTile) {
+    const img = document.createElement("img");
+    img.className = className;
+    img.draggable = false;
+    img.alt = "loading";
+    img.dataset.ok = "";
+    img.style.width = `${tileSize}px`;
+    img.style.height = `${tileSize}px`;
+    img.style.left = `${left}px`;
+    img.style.top = `${top}px`;
+    if (transform) img.style.transform = transform;
+    root.appendChild(img);
+    bindTile(img, tileUrl(lyrs, wx, ty, zTile));
+  }
+
+  function hideOverlay() {
+    if (root) {
+      root.style.display = "none";
+      root.dataset.mode = "off";
+      root.dataset.tileOk = "0";
+      root.dataset.tileError = "0";
+    }
+    if (statusEl) statusEl.style.display = "none";
+    if (lastHost) {
+      try { lastHost.style.clipPath = ""; lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
+    }
+    setNativeMapHidden(false);
+  }
+
   function redraw() {
     if (!alive) return;
+    const spec = overlaySpec();
     const st = parseMapState();
     const active = effectiveMode(st);
-    if (active === "off" || !st || st.zoom < 5 || st.zoom > 21) {
-      if (root) {
-        root.style.display = "none";
-        root.dataset.mode = "off";
-        root.dataset.tileOk = "0";
-        root.dataset.tileError = "0";
-      }
-      if (statusEl) statusEl.style.display = "none";
-      if (lastHost) {
-        try { lastHost.style.clipPath = ""; lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
-      }
-      setNativeMapHidden(false);
+    if (spec.nativeOnly || active === "off" || !st || st.zoom < 5 || st.zoom > 21) {
+      hideOverlay();
       return;
     }
 
@@ -282,8 +302,10 @@
     const x1 = Math.floor((tl.x + w) / tileSize) + pad;
     const y1 = Math.floor((tl.y + h) / tileSize) + pad;
     const max = 2 ** zTile;
-    const satView = isSatelliteView();
-    const key = [active, satView ? "s" : "m", zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y)].join(",");
+    const key = [
+      active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), spec.extraLyrs.join("+"),
+      zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y)
+    ].join(",");
     if (key === lastKey) return;
     lastKey = key;
 
@@ -292,10 +314,10 @@
     const sample = wgsToGcj(st.lat, st.lon);
     const samplePx = worldPixel(sample.lat, sample.lon, st.zoom);
     const offsetPx = Math.hypot(samplePx.x - center.x, samplePx.y - center.y);
-    const layer = satView ? "satellite" : "map";
-    setStatus(`On · ${layer} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
+    const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
+    setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
       mode: "on",
-      layer,
+      layer: spec.label,
       version: VERSION,
       zoom: st.zoom.toFixed(3),
       zTile: String(zTile),
@@ -303,6 +325,9 @@
       lat: st.lat.toFixed(6),
       lon: st.lon.toFixed(6)
     });
+
+    const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
+    const hasBase = spec.baseLyrs.length > 0;
 
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
@@ -318,32 +343,18 @@
         const left = pW.x - center.x + w / 2 - tileSize / 2;
         const top = pW.y - center.y + h / 2 - tileSize / 2;
 
-        if (satView) {
-          const sat = document.createElement("img");
-          sat.className = "gcj02-tile";
-          sat.draggable = false;
-          sat.alt = "loading";
-          sat.dataset.ok = "";
-          sat.style.width = `${tileSize}px`;
-          sat.style.height = `${tileSize}px`;
-          sat.style.left = `${left}px`;
-          sat.style.top = `${top}px`;
-          root.appendChild(sat);
-          bindTile(sat, tileUrl("s", wx, ty, zTile));
+        for (const lyrs of spec.baseLyrs) {
+          placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
         }
-
-        const road = document.createElement("img");
-        road.className = satView ? "gcj02-road" : "gcj02-tile";
-        road.draggable = false;
-        road.alt = "loading";
-        road.dataset.ok = "";
-        road.style.width = `${tileSize}px`;
-        road.style.height = `${tileSize}px`;
-        road.style.left = `${left}px`;
-        road.style.top = `${top}px`;
-        road.style.transform = `translate3d(${rdx}px,${rdy}px,0)`;
-        root.appendChild(road);
-        bindTile(road, tileUrl(satView ? "h" : "m", wx, ty, zTile));
+        if (spec.roadLyrs) {
+          placeTile(
+            hasBase ? "gcj02-road" : "gcj02-tile",
+            spec.roadLyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile
+          );
+        }
+        for (const lyrs of spec.extraLyrs) {
+          placeTile("gcj02-road", lyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile);
+        }
       }
     }
   }
@@ -387,6 +398,14 @@
       lastHref = location.href;
       lastKey = "";
       redraw();
+      return;
+    }
+    const spec = overlaySpec();
+    if (spec.nativeOnly) {
+      if (root && root.style.display !== "none") {
+        lastKey = "";
+        redraw();
+      }
       return;
     }
     const st = parseMapState();

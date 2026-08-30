@@ -51,6 +51,7 @@ describe("Maps chrome vs overlay stacking", () => {
     const holes = lib.defaultChromeHoles(1440, 900);
     assert.ok(holes.some((h) => h.x > 1300 && h.y > 600));
     assert.ok(holes.some((h) => h.x < 20 && h.y < 20));
+    assert.ok(holes.some((h) => h.x < 20 && h.w >= 280 && h.h >= 350));
   });
 
   it("builds a single polygon that notches out zoom, search, and layers", () => {
@@ -218,5 +219,67 @@ describe("GCJ overlay region excludes Taiwan island", () => {
   it("uses the shared outOfChina helper from the content script", () => {
     assert.match(contentJs, /Gcj02Aligner\.outOfChina\(/);
     assert.doesNotMatch(contentJs, /lon < 72\.004/);
+  });
+});
+
+describe("Google Maps layer overlay spec", () => {
+  const MAP = "https://www.google.com/maps/@39.9167135,116.3868853,15z";
+  const SAT = "https://www.google.com/maps/@39.9167135,116.3868853,4718m/data=!3m1!1e3";
+  const TERRAIN = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e4";
+  const TRAFFIC = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e1";
+  const TRANSIT = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e2";
+  const BIKE = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e3";
+  const SV_COVER = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e5";
+  const TERRAIN_TRAFFIC = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m2!1e1!1e4";
+  const STREET_VIEW = "https://www.google.com/maps/@39.9167135,116.3868853,3a,75y,90h,90t/data=!3m6!1e1!3m5!1sAF1Qip";
+  const STREET_VIEW_Z = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e1";
+  const EARTH_3D = "https://www.google.com/maps/@39.9167135,116.3868853,500a,20y,0h,45t/data=!3m1!1e3";
+
+  it("keeps satellite as unshifted s tiles plus shifted hybrid labels", () => {
+    const spec = lib.overlaySpec(SAT);
+    assert.equal(spec.nativeOnly, false);
+    assert.equal(spec.label, "satellite");
+    assert.deepEqual(spec.baseLyrs, ["s"]);
+    assert.equal(spec.roadLyrs, "h");
+  });
+
+  it("uses terrain raster tiles instead of the default roadmap", () => {
+    const spec = lib.overlaySpec(TERRAIN);
+    assert.equal(spec.nativeOnly, false);
+    assert.equal(spec.label, "terrain");
+    assert.deepEqual(spec.baseLyrs, ["t"]);
+    assert.equal(spec.roadLyrs, "h");
+  });
+
+  it("adds traffic, transit, bicycling, and Street View coverage tiles", () => {
+    assert.deepEqual(lib.overlaySpec(TRAFFIC).extraLyrs, ["h,traffic"]);
+    assert.deepEqual(lib.overlaySpec(TRANSIT).extraLyrs, ["m,transit"]);
+    assert.deepEqual(lib.overlaySpec(BIKE).extraLyrs, ["h,bike"]);
+    assert.deepEqual(lib.overlaySpec(SV_COVER).extraLyrs, ["svv"]);
+    const both = lib.overlaySpec(TERRAIN_TRAFFIC);
+    assert.equal(both.label, "terrain");
+    assert.deepEqual(both.extraLyrs, ["h,traffic"]);
+  });
+
+  it("does not treat the default map as native-only", () => {
+    const spec = lib.overlaySpec(MAP);
+    assert.equal(spec.nativeOnly, false);
+    assert.equal(spec.label, "map");
+    assert.equal(spec.roadLyrs, "m");
+    assert.deepEqual(spec.baseLyrs, []);
+  });
+
+  it("hands Street View and 3D Earth back to native Maps", () => {
+    assert.equal(lib.isNativeOnlyView(STREET_VIEW), true);
+    assert.equal(lib.overlaySpec(STREET_VIEW).nativeOnly, true);
+    assert.equal(lib.overlaySpec(STREET_VIEW_Z).nativeOnly, true);
+    assert.equal(lib.overlaySpec(EARTH_3D).nativeOnly, true);
+    assert.equal(lib.overlaySpec(SAT).nativeOnly, false);
+  });
+
+  it("lets the content script follow overlaySpec instead of only !1e3", () => {
+    assert.match(contentJs, /overlaySpec\(/);
+    assert.doesNotMatch(contentJs, /function isSatelliteView/);
+    assert.match(contentJs, /spec\.nativeOnly/);
   });
 });
