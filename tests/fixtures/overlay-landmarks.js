@@ -25,13 +25,13 @@ const WUZHANGYUAN = {
   query: "五丈原",
   poiNeedles: ["五丈原"],
   mapHref:
-    "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2827507,107.5979685,14z/data=!4m2!2m1!6e1",
+    "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2820338,107.6089203,15z/data=!4m2!2m1!6e1",
   satHref:
-    "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2827507,107.5979685,10106m/data=!3m1!1e3!4m2!2m1!6e1",
-  lat: 34.2827507,
-  lon: 107.5979685,
-  meters: 10106,
-  expectZoom: 14,
+    "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2820338,107.6089203,5053m/data=!3m1!1e3!4m2!2m1!6e1",
+  lat: 34.2820338,
+  lon: 107.6089203,
+  meters: 5053,
+  expectZoom: 15,
   samplePoi: { name: "五丈原", lat: 34.282582, lon: 107.618568 },
   // WGS-84 of that GCJ !3d must stay south of G310 and west of X235.
   poiWgsSouthOfG310Lat: 34.286,

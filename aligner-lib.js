@@ -113,21 +113,54 @@
     };
   }
 
-  // Sidebar !3d is GCJ-02. Native search pins are painted on the Maps canvas
-  // (not DOM), so On must redraw them. Use the same CSS vector as street tiles
-  // so icon+label stay with G310/X235 the way Off did.
+  // Sidebar !3d is GCJ-02. Native search pins sit at GCJ mercator (Off). Street
+  // tiles CSS-shift onto WGS; converting both lat+lon (or full overlayShiftPx)
+  // pushes 五丈原 north of G310. Keep GCJ latitude; shift longitude west only.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
-    const raw = worldPixel(placeLat, placeLon, zoom);
-    const s = overlayShiftPx(camLat, camLon, zoom);
+    const wgs = gcjToWgs(placeLat, placeLon);
+    const p = worldPixel(placeLat, wgs.lon, zoom);
     return {
-      x: raw.x - center.x + Number(width) / 2 + s.dx,
-      y: raw.y - center.y + Number(height) / 2 + s.dy,
+      x: p.x - center.x + Number(width) / 2,
+      y: p.y - center.y + Number(height) / 2,
       lat: Number(placeLat),
-      lon: Number(placeLon),
-      dx: s.dx,
-      dy: s.dy
+      lon: wgs.lon
     };
+  }
+
+  // aria-label often appends ":開啟過的連結" / "Opened link" after the place name.
+  function cleanPoiName(label) {
+    let s = String(label || "").replace(/\s+/g, " ").trim();
+    s = s.replace(
+      /[:：]\s*(開啟過的連結|打开过的链接|已造訪的連結|Opened link|Previously visited|Visited).*$/i,
+      ""
+    );
+    s = s.replace(
+      /\s*[–—-]\s*(開啟過的連結|打开过的链接|Opened link|Previously visited).*$/i,
+      ""
+    );
+    s = s.split(" · ")[0].trim();
+    return s.slice(0, 48);
+  }
+
+  function collectPoisFromAnchors(anchors) {
+    const seen = new Set();
+    const out = [];
+    for (const a of anchors || []) {
+      const href = String(a.href || "");
+      if (!/\/maps\/place\//.test(href)) continue;
+      const c = parsePlaceCoords(href);
+      if (!c) continue;
+      const key = `${c.lat.toFixed(5)},${c.lon.toFixed(5)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const name = cleanPoiName(a.label);
+      if (!name) continue;
+      const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""}`, name);
+      out.push({ lat: c.lat, lon: c.lon, name, kind });
+      if (out.length >= 24) break;
+    }
+    return out;
   }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.
   // That meter value is the mercator ground width of a 5-tile (1280px) viewport,
@@ -304,25 +337,6 @@
     };
   }
 
-  function collectPoisFromAnchors(anchors) {
-    const seen = new Set();
-    const out = [];
-    for (const a of anchors || []) {
-      const href = String(a.href || "");
-      if (!/\/maps\/place\//.test(href)) continue;
-      const c = parsePlaceCoords(href);
-      if (!c) continue;
-      const key = `${c.lat.toFixed(5)},${c.lon.toFixed(5)}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const name = String(a.label || "").replace(/\s+/g, " ").trim().split(" · ")[0].slice(0, 48);
-      const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""}`, name);
-      out.push({ lat: c.lat, lon: c.lon, name, kind });
-      if (out.length >= 24) break;
-    }
-    return out;
-  }
-
   function dataParam(href) {
     const m = String(href || "").match(/[?&/]data=([^&#]*)/);
     return m ? decodeURIComponent(m[1]) : "";
@@ -417,6 +431,7 @@
     overlayShiftPx,
     overlayRoadTile,
     overlayPoiScreenPx,
+    cleanPoiName,
     inChinaGcjBox,
     inTaiwanIsland,
     inXiamenMainland,
