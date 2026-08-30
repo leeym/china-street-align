@@ -20,7 +20,7 @@ This project does **not** change the satellite layer. When enabled, it overlays 
 **Datum rules (in China, mode On):**
 
 1. **Satellite is WGS-84** — never shift, remap, or otherwise move satellite tiles.
-2. **Streets, terrain, POIs, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera (same WGS tile `x,y` as satellite for hybrid roads).
+2. **Streets, terrain, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera (same WGS tile `x,y` as satellite for hybrid roads). Search POIs convert **longitude** onto that shifted street layer and keep GCJ **latitude** (full evil-transform northing overshoots G310 at 五丈原).
 
 Outside China the overlay stays off.
 
@@ -31,7 +31,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. The default mode is **On**.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.13**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.14**).
 
 ## Usage
 

@@ -113,19 +113,18 @@
     };
   }
 
-  // Sidebar !3d is GCJ-02. Streets are WGS-indexed tiles CSS-shifted by
-  // overlayShiftPx; POIs take the same camera vector so they sit on the roads.
+  // Sidebar !3d is GCJ-02. Street tiles are CSS-shifted onto WGS; converting
+  // both lat and lon (or adding full overlayShiftPx) overshoots north of G310
+  // at 五丈原. Keep GCJ latitude; move longitude onto the shifted streets.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
-    const raw = worldPixel(placeLat, placeLon, zoom);
-    const s = overlayShiftPx(camLat, camLon, zoom);
+    const wgs = gcjToWgs(placeLat, placeLon);
+    const p = worldPixel(placeLat, wgs.lon, zoom);
     return {
-      x: raw.x - center.x + Number(width) / 2 + s.dx,
-      y: raw.y - center.y + Number(height) / 2 + s.dy,
+      x: p.x - center.x + Number(width) / 2,
+      y: p.y - center.y + Number(height) / 2,
       lat: Number(placeLat),
-      lon: Number(placeLon),
-      dx: s.dx,
-      dy: s.dy
+      lon: wgs.lon
     };
   }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.
