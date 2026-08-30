@@ -262,6 +262,47 @@
     return null;
   }
 
+  function classifyPoiKind(blob, name) {
+    const s = String(blob || "");
+    const n = String(name || "").trim();
+    let slice = s;
+    if (n) {
+      const i = s.indexOf(n);
+      if (i >= 0) slice = s.slice(i, i + 200);
+    }
+    const attr = slice.search(/旅遊景點|旅游景点|Tourist attraction|Scenic|風景區|风景区/i);
+    const hist = slice.search(/歷史遺址|历史遗址|歷史古跡|历史古迹|Historical landmark|Historic site|Heritage site|Castle|城樓|城楼|午門|午门|遺址博物館|遗址博物馆/i);
+    if (attr >= 0 && (hist < 0 || attr <= hist)) return "attraction";
+    if (hist >= 0) return "historic";
+    if (/博物館|博物院|Museum/i.test(slice)) return "historic";
+    return "place";
+  }
+
+  // Google Maps draws these as vector glyphs on the native canvas (camera =
+  // tourist attraction, gate tower = historic site). Overlay recreates them.
+  function poiMarkerSpec(kind) {
+    const k = String(kind || "place");
+    if (k === "historic") {
+      return {
+        kind: "historic",
+        fill: "#C48A5A",
+        path: "M5 19h14v1.4H5zm1.4-1.2h11.2V10.4L12 5.8 6.4 10.4zm3.2-7.2h1.6v7.2H9.6zm3.2 0h1.6v7.2h-1.6zM8 10.1l4-3.2 4 3.2V8.4L12 5.2 8 8.4z"
+      };
+    }
+    if (k === "attraction") {
+      return {
+        kind: "attraction",
+        fill: "#F28B82",
+        path: "M8.2 8.1h1.3l.9-1.3h3.2l.9 1.3h1.3c.9 0 1.7.8 1.7 1.7v5.1c0 .9-.8 1.7-1.7 1.7H8.2c-.9 0-1.7-.8-1.7-1.7V9.8c0-.9.8-1.7 1.7-1.7zm3.8 6.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8zm0-1.5a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z"
+      };
+    }
+    return {
+      kind: "place",
+      fill: "#EA4335",
+      path: "M12 4.2c-2.7 0-4.9 2.1-4.9 4.8 0 3.6 4.9 8.8 4.9 8.8s4.9-5.2 4.9-8.8c0-2.7-2.2-4.8-4.9-4.8zm0 6.5a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4z"
+    };
+  }
+
   function collectPoisFromAnchors(anchors) {
     const seen = new Set();
     const out = [];
@@ -274,7 +315,8 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const name = String(a.label || "").replace(/\s+/g, " ").trim().split(" · ")[0].slice(0, 48);
-      out.push({ lat: c.lat, lon: c.lon, name });
+      const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""}`, name);
+      out.push({ lat: c.lat, lon: c.lon, name, kind });
       if (out.length >= 24) break;
     }
     return out;
@@ -382,6 +424,8 @@
     wgsToGcj,
     gcjToWgs,
     parsePlaceCoords,
+    classifyPoiKind,
+    poiMarkerSpec,
     collectPoisFromAnchors,
     dataParam,
     mapDisplayType,

@@ -404,7 +404,32 @@ describe("search result POIs on the overlay", () => {
     const pois = lib.collectPoisFromAnchors(anchors);
     assert.equal(pois.length, 4);
     assert.equal(pois[0].name, "诸葛庙");
+    assert.equal(pois[0].kind, "place");
     assert.equal(pois[1].lat, 34.252);
+    assert.equal(pois[1].kind, "attraction");
+  });
+
+  it("classifies Forbidden City search hits as camera vs gate-tower glyphs", () => {
+    assert.equal(lib.classifyPoiKind("故宮"), "place");
+    assert.equal(lib.classifyPoiKind("故宮 4.6 旅遊景點 · 景山前街4号 故宮午門 歷史遺址", "故宮"), "attraction");
+    assert.equal(lib.classifyPoiKind("故宮 旅遊景點 · 景山前街4号"), "attraction");
+    assert.equal(lib.classifyPoiKind("故宮午門 歷史遺址 · 景山前街4号"), "historic");
+    assert.equal(lib.classifyPoiKind("太和門 Tourist attraction"), "attraction");
+    assert.equal(lib.poiMarkerSpec("attraction").kind, "attraction");
+    assert.equal(lib.poiMarkerSpec("historic").kind, "historic");
+    assert.match(lib.poiMarkerSpec("attraction").path, /M8/);
+    const pois = lib.collectPoisFromAnchors([
+      {
+        href: "https://www.google.com/maps/place/A/data=!8m2!3d39.91!4d116.39",
+        label: "故宮",
+        category: "旅遊景點 · 景山前街4号"
+      }
+    ]);
+    assert.equal(pois[0].kind, "attraction");
+    assert.match(contentJs, /appendPoiGlyph/);
+    assert.match(contentJs, /poiMarkerSpec/);
+    assert.match(contentCss, /\.gcj02-poi-icon/);
+    assert.doesNotMatch(contentJs, /gcj02-poi-pin/);
   });
 
   it("plots overlay POIs at gcjToWgs so they stay south of G310 with remapped tiles", () => {
@@ -419,28 +444,39 @@ describe("search result POIs on the overlay", () => {
     };
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
     const wgs = lib.gcjToWgs(poi.lat, poi.lon);
-    const src = lib.overlayRoadTile(
-      Math.floor(lib.worldPixel(cam.lat, cam.lon, 15).x / 256),
-      Math.floor(lib.worldPixel(cam.lat, cam.lon, 15).y / 256),
-      15
-    );
     assert.ok(plotted.x < unshifted.x - 20, "POI must move west with X235");
     assert.ok(Math.abs(plotted.y - unshifted.y) < 4, "POI must keep Off latitude vs G310");
     assert.equal(plotted.lat, poi.lat);
     assert.equal(plotted.lon, wgs.lon);
     assert.ok(plotted.lat < WUZHANGYUAN.poiWgsSouthOfG310Lat, `POI lat ${plotted.lat} crossed G310`);
     assert.ok(plotted.lon < WUZHANGYUAN.poiWgsWestOfX235Lon, `POI lon ${plotted.lon} crossed X235`);
-    assert.ok(src.fracX >= 0 && src.fracX < 256);
-    assert.ok(src.fracY >= 0 && src.fracY < 256);
     assert.match(contentJs, /overlayPoiScreenPx\(/);
-    assert.match(contentJs, /overlayRoadTile\(/);
-    assert.doesNotMatch(contentJs, /translate3d\(\$\{s\.dx\}px/);
+    assert.match(contentJs, /translate3d\(\$\{rdx\}px/);
+    assert.match(contentJs, /shift\(s\.dx, s\.dy\)/);
+    assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
+  });
+
+  it("draws satellite and roads from the same WGS tile x/y then CSS-shifts only roads", () => {
+    assert.match(contentJs, /placeTile\(\s*hasBase \? "gcj02-road" : "gcj02-tile"/);
+    assert.match(contentJs, /spec\.roadLyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile/);
+    assert.match(contentJs, /placeTile\("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile\)/);
+    assert.doesNotMatch(contentJs, /src\.x,\s*src\.y/);
+    assert.match(contentJs, /img\.dataset\.lyrs/);
+    assert.match(contentJs, /img\.dataset\.x = String\(wx\)/);
+  });
+
+  it("overlayRoadTile uses a different xy than WGS (the 0.6.8 pattern e2e must reject)", () => {
+    const x = 108517;
+    const y = 56284;
+    const z = 17;
+    const r = lib.overlayRoadTile(x, y, z);
+    assert.ok(r.x !== x || r.y !== y, JSON.stringify(r));
   });
 
   it("draws overlay POI markers from place links in the content script", () => {
     assert.match(contentJs, /collectPoisFromAnchors/);
     assert.match(contentJs, /gcj02-poi/);
-    assert.match(contentCss, /\.gcj02-poi/);
+    assert.match(contentCss, /\.gcj02-poi-icon/);
     assert.match(contentJs, /syncPoisIfVisible/);
     assert.match(contentJs, /\/maps\/place\//);
   });

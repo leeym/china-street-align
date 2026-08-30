@@ -55,10 +55,7 @@ async function overlayAlignmentStats(page) {
     const t = road ? getComputedStyle(road).transform : "";
     const m = t.match(/matrix\(([^)]+)\)/);
     const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
-    const cssShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
-    const fracX = Number(root?.dataset.roadFracX || 0);
-    const fracY = Number(root?.dataset.roadFracY || 0);
-    const roadShift = cssShift || Math.hypot(128 - fracX, 128 - fracY);
+    const roadShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
     const hidden = [...document.querySelectorAll("canvas.gcj02-hide-native")];
     const opacities = hidden.map((c) => getComputedStyle(c).opacity);
     return {
@@ -162,7 +159,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
 
     expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.status).toMatch(/v0\.6\.8/);
+    expect(stats.status).toMatch(/v0\.6\.10/);
     expect(Number(stats.zoom)).toBeGreaterThan(15.8);
     expect(Number(stats.zoom)).toBeLessThan(17.5);
     expect(stats.layer).toBe("satellite");
@@ -173,18 +170,16 @@ test.describe("GCJ-02 Google Maps extension", () => {
     expect(Number(stats.zTile)).toBeLessThanOrEqual(18);
     expect(String(stats.zTile)).not.toMatch(/\./);
     expect(stats.sampleShift).toBeLessThan(2);
-    const roadShift = await page.evaluate(() => {
-      const root = document.getElementById("gcj02-aligner-root");
-      const fracX = Number(root?.dataset.roadFracX || 0);
-      const fracY = Number(root?.dataset.roadFracY || 0);
-      return Math.hypot(128 - fracX, 128 - fracY);
-    });
-    expect(roadShift).toBeGreaterThan(20);
+    const { assertStreetsShiftedOntoSatellite } = require("./helpers/maps-e2e");
+    await assertStreetsShiftedOntoSatellite(page);
 
-    await page.screenshot({
-      path: path.join(__dirname, "..", "test-results", "xiamen-satellite-align.png"),
-      fullPage: false
-    });
+    const satPng = path.join(__dirname, "..", "test-results", "xiamen-satellite-align.png");
+    await page.screenshot({ path: satPng, fullPage: false });
+    const mapStatsPx = pngRegionStats(satPng, { x: 430, y: 90, w: 880, h: 680 });
+    expect(
+      mapStatsPx.hybridRoadShare,
+      `hybrid roads missing on satellite: ${JSON.stringify(mapStatsPx)}`
+    ).toBeGreaterThan(0.015);
 
     const zoomIn = page.getByRole("button", { name: /zoom in/i }).first();
     const menu = page.getByRole("button", { name: /^menu$/i }).first();
@@ -293,6 +288,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     expect(mapStats.zoom).toBeLessThan(17.5);
     expect(mapStats.loaded).toBeGreaterThan(4);
     expect(mapStats.nativeHidden).toBe(true);
+    await assertStreetsShiftedOntoSatellite(page);
 
     await page.screenshot({
       path: path.join(__dirname, "..", "test-results", "xiamen-alignment.png"),

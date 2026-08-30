@@ -1,5 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const path = require("path");
+const { pngRegionStats } = require("./helpers/bmp-luma");
 const { SEARCH_PLACES } = require("./fixtures/overlay-landmarks");
 const {
   launchExtensionContext,
@@ -12,6 +13,7 @@ const {
   overlayPoiScreen,
   collectNativeMapPins,
   assertOverlayPoisMatchModel,
+  assertStreetsShiftedOntoSatellite,
   ensureStreetLayer,
   ensureSatelliteLayer
 } = require("./helpers/maps-e2e");
@@ -91,14 +93,38 @@ test.describe("Parameterized search landmarks", () => {
         expect(stats.layer).toBe("map");
         expect(stats.offsetPx).toBeGreaterThan(20);
         expect(stats.roadShift).toBeGreaterThan(20);
+        await assertStreetsShiftedOntoSatellite(page);
         expect(stats.poiCount).toBeGreaterThan(0);
         const overlayPins = await overlayPoiScreen(page);
+        expect(overlayPins.every((p) => p.kind), JSON.stringify(overlayPins)).toBeTruthy();
+        expect(
+          await page.locator(".gcj02-poi-pin").count(),
+          "search hits must not render as numbered dots"
+        ).toBe(0);
+        expect(await page.locator(".gcj02-poi-icon").count()).toBe(overlayPins.length);
+        if (place.id === "forbidden-city") {
+          const kinds = overlayPins.map((p) => p.kind);
+          expect(kinds.some((k) => k === "attraction" || k === "historic"), JSON.stringify(kinds)).toBeTruthy();
+        }
         const snap = await page.evaluate(() => {
           const r = document.getElementById("gcj02-aligner-root").getBoundingClientRect();
-          const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => ({
-            href: a.href || "",
-            label: a.getAttribute("aria-label") || a.textContent || ""
-          }));
+          const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => {
+            let category = "";
+            let node = a;
+            for (let i = 0; i < 10 && node; i++) {
+              const t = (node.innerText || "").replace(/\s+/g, " ").trim();
+              if (/旅遊景點|旅游景点|歷史|历史|Tourist|Historic|Museum|博物館|遺址/.test(t)) {
+                category = t.slice(0, 240);
+                break;
+              }
+              node = node.parentElement;
+            }
+            return {
+              href: a.href || "",
+              label: a.getAttribute("aria-label") || a.textContent || "",
+              category
+            };
+          });
           if (/\/maps\/place\//.test(location.href)) {
             anchors.unshift({ href: location.href, label: document.querySelector("h1")?.textContent || "" });
           }
@@ -142,10 +168,14 @@ test.describe("Parameterized search landmarks", () => {
         expect(stats.roadShift).toBeGreaterThan(20);
         expect(stats.nativeOpacity).toBe("0");
         expect(stats.poiCount).toBeGreaterThan(0);
-        await page.screenshot({
-          path: path.join(__dirname, "..", "test-results", `${place.id}-on-sat.png`),
-          fullPage: false
-        });
+        await assertStreetsShiftedOntoSatellite(page);
+        const satPng = path.join(__dirname, "..", "test-results", `${place.id}-on-sat.png`);
+        await page.screenshot({ path: satPng, fullPage: false });
+        const mapPx = pngRegionStats(satPng, { x: 430, y: 90, w: 880, h: 680 });
+        expect(
+          mapPx.hybridRoadShare,
+          `${place.name} satellite missing hybrid roads: ${JSON.stringify(mapPx)}`
+        ).toBeGreaterThan(0.015);
       });
     });
   }

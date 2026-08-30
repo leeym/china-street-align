@@ -2,6 +2,7 @@ const { chromium } = require("@playwright/test");
 const path = require("path");
 require("../../aligner-lib.js");
 const lib = globalThis.Gcj02Aligner;
+const { parseVtSrc, tileVt } = require("./vt-src");
 
 const EXT_PATH = path.resolve(__dirname, "..", "..");
 
@@ -73,8 +74,8 @@ async function waitForNativePois(page, needles) {
       .map((a) => a.getAttribute("aria-label") || a.textContent || "")
       .join("\n");
     let href = location.href;
-    try { href += " " + decodeURIComponent(location.pathname); } catch (_e) {}
-    const extra = document.body.innerText || "";
+    try { href += " " + decodeURIComponent(location.href); } catch (_e) {}
+    const extra = (document.body.innerText || "") + " " + (document.title || "");
     return texts.some((t) => blob.includes(t) || extra.includes(t) || href.includes(t));
   }, list, { timeout: 90000 });
 }
@@ -86,12 +87,9 @@ async function overlayAlignmentStats(page) {
     const t = road ? getComputedStyle(road).transform : "";
     const m = t.match(/matrix\(([^)]+)\)/);
     const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
-    const cssShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
-    const fracX = Number(root?.dataset.roadFracX || 0);
-    const fracY = Number(root?.dataset.roadFracY || 0);
-    const roadShift = cssShift || Math.hypot(128 - fracX, 128 - fracY);
+    const roadShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
     const hidden = [...document.querySelectorAll("canvas.gcj02-hide-native")];
-    const pois = [...document.querySelectorAll(".gcj02-poi")].map((el) => el.textContent || "");
+    const pois = [...document.querySelectorAll(".gcj02-poi")].map((el) => el.getAttribute("aria-label") || "");
     return {
       href: location.href,
       mode: root?.dataset.mode || "",
@@ -100,8 +98,6 @@ async function overlayAlignmentStats(page) {
       offsetPx: Number(root?.dataset.offsetPx || 0),
       shiftDx: Number(root?.dataset.shiftDx || 0),
       shiftDy: Number(root?.dataset.shiftDy || 0),
-      roadFracX: Number(root?.dataset.roadFracX || 0),
-      roadFracY: Number(root?.dataset.roadFracY || 0),
       poiCount: Number(root?.dataset.poiCount || 0),
       overlayPoiLabels: pois,
       status: document.getElementById("gcj02-aligner-status")?.textContent || "",
@@ -120,7 +116,8 @@ async function overlayPoiScreen(page) {
       const t = el.style.transform || "";
       const m = t.match(/translate3d\(\s*([-\d.]+)px\s*,\s*([-\d.]+)px/);
       return {
-        text: el.textContent || "",
+        text: el.getAttribute("aria-label") || el.textContent || "",
+        kind: el.dataset.kind || "",
         left: parseFloat(el.style.left) || 0,
         top: parseFloat(el.style.top) || 0,
         dx: m ? Number(m[1]) : 0,
@@ -262,9 +259,73 @@ function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
   for (let i = 0; i < n; i++) {
     expect(Math.abs(got[i].left - expected[i].left), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
     expect(Math.abs(got[i].top - expected[i].top), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
-    expect(Math.abs(got[i].dx || 0), "POI must not CSS-slide independently of remapped tiles").toBeLessThan(2);
+    expect(Math.abs(got[i].dx || 0), "POI must not extra-translate off the street tiles").toBeLessThan(2);
     expect(Math.abs(got[i].dy || 0)).toBeLessThan(2);
     expect(Math.hypot(expected[i].left - expected[i].rawLeft, expected[i].top - expected[i].rawTop)).toBeGreaterThan(20);
+  }
+}
+
+async function assertStreetsShiftedOntoSatellite(page) {
+  const { expect } = require("@playwright/test");
+  const s = await page.evaluate(() => {
+    function cssShift(el) {
+      if (!el) return { dx: 0, dy: 0, hypot: 0, left: "", top: "", src: "", ok: false };
+      const t = getComputedStyle(el).transform;
+      const m = t.match(/matrix\(([^)]+)\)/);
+      const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
+      return {
+        dx: p.length === 6 ? p[4] : 0,
+        dy: p.length === 6 ? p[5] : 0,
+        hypot: p.length === 6 ? Math.hypot(p[4], p[5]) : 0,
+        left: el.style.left || "",
+        top: el.style.top || "",
+        src: el.currentSrc || el.src || "",
+        lyrs: el.dataset.lyrs || "",
+        vx: el.dataset.x || "",
+        vy: el.dataset.y || "",
+        vz: el.dataset.z || "",
+        ok: !!(el.complete && el.naturalWidth >= 64)
+      };
+    }
+    const root = document.getElementById("gcj02-aligner-root");
+    const sat = root?.querySelector(".gcj02-tile:not(.gcj02-road)");
+    const road = root?.querySelector(".gcj02-road") || root?.querySelector(".gcj02-tile");
+    let paired = null;
+    if (sat && root) {
+      const roads = [...root.querySelectorAll(".gcj02-road")];
+      const match = roads.find((r) => r.style.left === sat.style.left && r.style.top === sat.style.top)
+        || roads[0];
+      if (match) paired = { sat: cssShift(sat), road: cssShift(match) };
+    }
+    return {
+      layer: root?.dataset.layer || "",
+      expectedDx: Number(root?.dataset.shiftDx || 0),
+      expectedDy: Number(root?.dataset.shiftDy || 0),
+      offsetPx: Number(root?.dataset.offsetPx || 0),
+      sat: cssShift(sat),
+      road: cssShift(road),
+      paired
+    };
+  });
+  expect(s.offsetPx, JSON.stringify(s)).toBeGreaterThan(20);
+  expect(s.road.hypot, JSON.stringify(s)).toBeGreaterThan(20);
+  expect(s.road.ok, JSON.stringify(s)).toBe(true);
+  expect(Math.abs(s.road.dx - s.expectedDx), JSON.stringify(s)).toBeLessThan(48);
+  expect(Math.abs(s.road.dy - s.expectedDy), JSON.stringify(s)).toBeLessThan(48);
+  if (s.layer === "satellite") {
+    expect(s.sat.hypot, "satellite tiles must stay unshifted").toBeLessThan(3);
+    expect(s.paired, JSON.stringify(s)).toBeTruthy();
+    expect(s.paired.sat.left, JSON.stringify(s.paired)).toBe(s.paired.road.left);
+    expect(s.paired.sat.top, JSON.stringify(s.paired)).toBe(s.paired.road.top);
+    expect(s.paired.road.hypot).toBeGreaterThan(20);
+    expect(s.paired.sat.hypot).toBeLessThan(3);
+    const satVt = tileVt(s.paired.sat);
+    const roadVt = tileVt(s.paired.road);
+    expect(satVt.lyrs, JSON.stringify(satVt)).toMatch(/s/);
+    expect(roadVt.lyrs, JSON.stringify(roadVt)).toMatch(/^h/);
+    expect(roadVt.x, "roads must use the same WGS tile index as satellite").toBe(satVt.x);
+    expect(roadVt.y, JSON.stringify({ satVt, roadVt })).toBe(satVt.y);
+    expect(roadVt.z).toBe(satVt.z);
   }
 }
 
@@ -280,6 +341,9 @@ module.exports = {
   overlayPoiScreen,
   collectNativeMapPins,
   assertOverlayPoisMatchModel,
+  parseVtSrc,
+  tileVt,
+  assertStreetsShiftedOntoSatellite,
   ensureStreetLayer,
   ensureSatelliteLayer
 };

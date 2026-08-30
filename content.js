@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.8";
+  let VERSION = "0.6.10";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -280,6 +280,10 @@
     img.draggable = false;
     img.alt = "loading";
     img.dataset.ok = "";
+    img.dataset.lyrs = String(lyrs || "");
+    img.dataset.x = String(wx);
+    img.dataset.y = String(ty);
+    img.dataset.z = String(zTile);
     img.style.width = `${tileSize}px`;
     img.style.height = `${tileSize}px`;
     img.style.left = `${left}px`;
@@ -289,28 +293,68 @@
     bindTile(img, tileUrl(lyrs, wx, ty, zTile));
   }
 
+  function categoryBlobForPlace(name, startEl) {
+    const row = startEl.closest("[role=article]");
+    if (row) return (row.innerText || "").replace(/\s+/g, " ").trim().slice(0, 240);
+    const keys = /旅遊景點|旅游景点|歷史遺址|历史遗址|Tourist attraction|Historic site|Museum|博物館|博物院|遺址博物館|風景區|风景区/;
+    let node = startEl.parentElement;
+    for (let i = 0; i < 6 && node && node !== document.body; i++) {
+      const t = (node.innerText || "").replace(/\s+/g, " ").trim();
+      if (t.length >= 8 && t.length < 220 && keys.test(t)) return t;
+      node = node.parentElement;
+    }
+    return "";
+  }
+
   function collectPoisFromDocument() {
-    const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => ({
-      href: a.href || a.getAttribute("href") || "",
-      label: a.getAttribute("aria-label") || a.textContent || ""
-    }));
+    const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => {
+      const label = a.getAttribute("aria-label") || a.textContent || "";
+      return {
+        href: a.href || a.getAttribute("href") || "",
+        label,
+        category: categoryBlobForPlace(label.trim().split(" · ")[0], a)
+      };
+    });
     if (/\/maps\/place\//.test(location.href)) {
       const heading = (document.querySelector("h1")?.textContent || "").trim();
       const fromPath = decodeURIComponent(location.pathname).split("/").filter(Boolean).pop() || "";
       const label = heading || fromPath.replace(/\+/g, " ");
-      anchors.unshift({ href: location.href, label });
+      const category = (document.body.innerText || "").slice(0, 400);
+      anchors.unshift({ href: location.href, label, category });
     }
     return globalThis.Gcj02Aligner.collectPoisFromAnchors(anchors);
+  }
+
+  function appendPoiGlyph(el, kind) {
+    const spec = globalThis.Gcj02Aligner.poiMarkerSpec(kind);
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("class", "gcj02-poi-icon");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width", "26");
+    svg.setAttribute("height", "26");
+    svg.setAttribute("aria-hidden", "true");
+    const bg = document.createElementNS(ns, "circle");
+    bg.setAttribute("cx", "12");
+    bg.setAttribute("cy", "12");
+    bg.setAttribute("r", "12");
+    bg.setAttribute("fill", spec.fill);
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", spec.path);
+    path.setAttribute("fill", "#fff");
+    svg.appendChild(bg);
+    svg.appendChild(path);
+    el.appendChild(svg);
   }
 
   function syncPois(st, w, h, center) {
     if (!root) return;
     const pois = collectPoisFromDocument();
-    const poiKey = pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join("|");
+    const poiKey = pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind}`).join("|");
     if (poiKey === lastPoiKey) return;
     lastPoiKey = poiKey;
     root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
-    pois.forEach((poi, i) => {
+    pois.forEach((poi) => {
       const screen = globalThis.Gcj02Aligner.overlayPoiScreenPx(
         poi.lat, poi.lon, st.lat, st.lon, st.zoom, w, h
       );
@@ -318,20 +362,16 @@
       el.className = "gcj02-poi";
       el.dataset.wgsLat = String(screen.lat);
       el.dataset.wgsLon = String(screen.lon);
+      el.dataset.kind = poi.kind || "place";
+      el.setAttribute("aria-label", poi.name || poi.kind);
       el.style.left = `${screen.x}px`;
       el.style.top = `${screen.y}px`;
       el.style.transform = "translate(-50%, -100%)";
-      const pin = document.createElement("span");
-      pin.className = "gcj02-poi-pin";
-      pin.textContent = String(i + 1);
-      const label = document.createElement("span");
-      label.className = "gcj02-poi-label";
-      label.textContent = poi.name;
-      el.appendChild(pin);
-      if (poi.name) el.appendChild(label);
+      appendPoiGlyph(el, poi.kind);
       root.appendChild(el);
     });
     root.dataset.poiCount = String(pois.length);
+    root.dataset.poiKinds = pois.map((p) => p.kind).join(",");
   }
 
   function syncPoisIfVisible() {
@@ -401,9 +441,6 @@
 
       const sample = globalThis.Gcj02Aligner.overlayShiftPx(st.lat, st.lon, st.zoom);
       const offsetPx = sample.hypot;
-      const camTx = Math.floor(center.x / tileSize);
-      const camTy = Math.floor(center.y / tileSize);
-      const camSrc = globalThis.Gcj02Aligner.overlayRoadTile(camTx, camTy, zTile);
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
       setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
@@ -414,16 +451,12 @@
         offsetPx: offsetPx.toFixed(2),
         shiftDx: sample.dx.toFixed(2),
         shiftDy: sample.dy.toFixed(2),
-        roadTileDx: String(camSrc.x - camTx),
-        roadTileDy: String(camSrc.y - camTy),
-        roadFracX: camSrc.fracX.toFixed(2),
-        roadFracY: camSrc.fracY.toFixed(2),
         lat: st.lat.toFixed(6),
         lon: st.lon.toFixed(6)
       });
 
+      const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
       const hasBase = spec.baseLyrs.length > 0;
-      const roadTile = globalThis.Gcj02Aligner.overlayRoadTile;
 
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
@@ -432,23 +465,21 @@
 
           const ll = tileCenterLatLon(wx, ty, zTile);
           const pW = worldPixel(ll.lat, ll.lon, st.zoom);
-          const src = roadTile(wx, ty, zTile);
-          const satLeft = pW.x - center.x + w / 2 - tileSize / 2;
-          const satTop = pW.y - center.y + h / 2 - tileSize / 2;
-          const roadLeft = pW.x - center.x + w / 2 - src.fracX * scale;
-          const roadTop = pW.y - center.y + h / 2 - src.fracY * scale;
+          const s = globalThis.Gcj02Aligner.overlayShiftPx(ll.lat, ll.lon, st.zoom);
+          const left = pW.x - center.x + w / 2 - tileSize / 2;
+          const top = pW.y - center.y + h / 2 - tileSize / 2;
 
           for (const lyrs of spec.baseLyrs) {
-            placeTile("gcj02-tile", lyrs, satLeft, satTop, tileSize, "", wx, ty, zTile);
+            placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }
           if (spec.roadLyrs) {
             placeTile(
               hasBase ? "gcj02-road" : "gcj02-tile",
-              spec.roadLyrs, roadLeft, roadTop, tileSize, "", src.x, src.y, zTile
+              spec.roadLyrs, left, top, tileSize, shift(s.dx, s.dy), wx, ty, zTile
             );
           }
           for (const lyrs of spec.extraLyrs) {
-            placeTile("gcj02-road", lyrs, roadLeft, roadTop, tileSize, "", src.x, src.y, zTile);
+            placeTile("gcj02-road", lyrs, left, top, tileSize, shift(s.dx, s.dy), wx, ty, zTile);
           }
         }
       }

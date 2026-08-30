@@ -46,25 +46,9 @@
   pointer-events: none !important;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
 }
-.gcj02-poi-pin {
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 11px;
-  background: #ea4335;
-  color: #fff;
-  font: 700 12px/22px system-ui, sans-serif;
-  text-align: center;
-}
-.gcj02-poi-label {
-  margin-top: 2px;
-  max-width: 140px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #202124;
-  font: 11px/16px system-ui, sans-serif;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.gcj02-poi-icon {
+  display: block;
+  width: 26px;
+  height: 26px;
+  overflow: visible;
 }
