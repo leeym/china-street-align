@@ -456,7 +456,7 @@ describe("search result POIs on the overlay", () => {
 
   it("draws satellite and roads from the same WGS tile x/y then CSS-shifts only roads", () => {
     assert.match(contentJs, /placeTile\(\s*hasBase \? "gcj02-road" : "gcj02-tile"/);
-    assert.match(contentJs, /spec\.roadLyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile/);
+    assert.match(contentJs, /shiftRoads \? shift\(s\.dx, s\.dy\) : ""/);
     assert.match(contentJs, /placeTile\("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile\)/);
     assert.doesNotMatch(contentJs, /src\.x,\s*src\.y/);
     assert.match(contentJs, /img\.dataset\.lyrs/);

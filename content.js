@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.11";
+  let VERSION = "0.6.12";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -445,7 +445,9 @@
       const sample = globalThis.Gcj02Aligner.overlayShiftPx(st.lat, st.lon, st.zoom);
       const offsetPx = sample.hypot;
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
-      setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
+      const hasBase = spec.baseLyrs.length > 0;
+      const how = hasBase ? "hybrid shifted GCJ→WGS" : "WGS roadmap";
+      setStatus(`On · ${spec.label}${extras} · ${how} · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
         layer: spec.label,
         version: VERSION,
@@ -459,7 +461,9 @@
       });
 
       const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
-      const hasBase = spec.baseLyrs.length > 0;
+      // Opaque `m`/`p` at WGS x/y already match WGS POIs. CSS-shifting them
+      // (like hybrid `h` over satellite) drags the palace west of the pins.
+      const shiftRoads = hasBase;
 
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
@@ -478,7 +482,7 @@
           if (spec.roadLyrs) {
             placeTile(
               hasBase ? "gcj02-road" : "gcj02-tile",
-              spec.roadLyrs, left, top, tileSize, shift(s.dx, s.dy), wx, ty, zTile
+              spec.roadLyrs, left, top, tileSize, shiftRoads ? shift(s.dx, s.dy) : "", wx, ty, zTile
             );
           }
           for (const lyrs of spec.extraLyrs) {

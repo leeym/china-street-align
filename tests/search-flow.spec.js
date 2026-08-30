@@ -92,7 +92,7 @@ test.describe("Parameterized search landmarks", () => {
         expect(stats.mode, JSON.stringify(stats)).toBe("on");
         expect(stats.layer).toBe("map");
         expect(stats.offsetPx).toBeGreaterThan(20);
-        expect(stats.roadShift).toBeGreaterThan(20);
+        expect(stats.roadShift).toBeLessThan(3);
         await assertStreetsShiftedOntoSatellite(page);
         expect(stats.poiCount).toBeGreaterThan(0);
         const overlayPins = await overlayPoiScreen(page);
