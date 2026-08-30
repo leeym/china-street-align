@@ -10,7 +10,7 @@ Google Maps satellite tiles over China are typically **WGS-84** (the same datum 
 
 That split is not a Google bug. Public maps of China must use an approved national geodetic system:
 
-- [Surveying and Mapping Law of the People’s Republic of China](http://www.npc.gov.cn/zgrdw/npc/xinwen/2017-04/27/content_2020927.htm) (《中华人民共和国测绘法》, 2017 revision)
+- [Surveying and Mapping Law of the People’s Republic of China](https://ghzrzyw.beijing.gov.cn/zhengwuxinxi/zcfg/fl/201912/t20191213_1166995.html) (《中华人民共和国测绘法》, 2017 revision; official reprint)
 - [Regulations on Map Management](https://www.gov.cn/zhengce/2015-12/14/content_5023591.htm) (《地图管理条例》, State Council Decree No. 664)
 
 In practice, civilian internet maps implement that system as **GCJ-02** (often called “Mars coordinates”), a confidential offset from WGS-84 historically associated with the State Bureau of Surveying and Mapping (国测局). Satellite / aerial imagery is often still published in WGS-84. Plotting GCJ-02 streets on WGS-84 photos produces a consistent shift (on the order of hundreds of metres). Xinglin Bay Bridge in Xiamen is a clear example: the yellow highway and the physical bridge run as two parallel lines.
