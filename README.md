@@ -20,7 +20,11 @@ This project does **not** change the satellite layer. When enabled, it overlays 
 **Datum rules (in China, mode On):**
 
 1. **Satellite is WGS-84** — never shift, remap, or otherwise move satellite tiles.
-2. **Streets, terrain, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera with **one camera vector** (same WGS tile `x,y` as satellite for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label at Off GCJ mercator plus that same rigid shift (per-tile shifts made pins drift across zoom). Place-page titles like「結果」are ignored; names come from `/maps/place/NAME/` and visited-link aria suffixes are stripped.
+2. **The URL camera `@lat,lon` is GCJ-02** — the same datum as the sidebar `!3d/!4d`, which is why the Off pin sits on the Off street map. The overlay draws a WGS-84 world, so it centers on `gcjToWgs(@)`. Centering on the raw `@` slid the whole view, roads and pins together, by one GCJ offset — and because that offset is a pixel quantity it doubled per zoom level (107px at z15, 428px at z17), so pins walked toward the top-left as you zoomed in.
+3. **Streets, terrain, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera with **one camera vector** (same WGS tile `x,y` as satellite for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label; with the camera in the right datum each pin lands on the exact pixel Off used, and the roads move under it. Place-page titles like「結果」are ignored; names come from `/maps/place/NAME/` and visited-link aria suffixes are stripped.
+4. **A tile's anchor is its centre, on both axes** — `tileCenterLatLon` feeds a `- tileSize/2` corner calculation, so a west-edge longitude there shifts every tile half a tile (128px at scale 1) west, at every zoom. That leaves markers on the right pixel and the roads under them on the wrong one, which reads as a POI that drifts further off the map the further you zoom out.
+
+On a street-only view these rules cancel: the overlay re-centres on `gcjToWgs(@)` and shifts the GCJ tiles back by the same vector, so it must reproduce Maps pixel for pixel. There is no satellite to align to, so any residual offset is a bug — `tests/tile-align.spec.js` measures it by correlating On and Off screenshots.
 
 Outside China the overlay stays off.
 
@@ -31,7 +35,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. The default mode is **On**.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.19**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.21**).
 
 ## Usage
 
@@ -55,7 +59,7 @@ npm test
 ```
 
 - `npm run test:unit` — Node test runner (`tests/unit`), including 紫禁城 / 五丈原 / 兑山村 URLs
-- `npm run test:e2e` — Playwright: Xiamen chrome checks plus a parameterized 4-step flow per search landmark
+- `npm run test:e2e` — Playwright: Xiamen chrome checks, a parameterized 4-step flow per search landmark, POI placement across z14–z19 measured against a plain-mercator oracle, and an On-vs-Off image compare of the street tiles
 - CI runs `npm run test:unit` on every push and pull request
 
 ## Limits

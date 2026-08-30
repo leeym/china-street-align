@@ -56,10 +56,12 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   it("plots overlay POIs with the camera street shift (not a 2× hack)", () => {
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
-    const center = lib.worldPixel(cam.lat, cam.lon, 15);
+    // The overlay world is WGS-84, so its camera is the WGS twin of the URL `@`.
+    const camW = lib.overlayCamera(cam.lat, cam.lon);
+    const center = lib.worldPixel(camW.lat, camW.lon, 15);
     const raw = lib.worldPixel(poi.lat, poi.lon, 15);
     const wgs = lib.gcjToWgs(poi.lat, poi.lon);
-    const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
+    const shift = lib.overlayShiftPx(camW.lat, camW.lon, 15);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
     const unshifted = { x: raw.x - center.x + 720, y: raw.y - center.y + 450 };
     assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1);
@@ -90,9 +92,10 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     const wgs = lib.gcjToWgs(poi.lat, poi.lon);
     let prevBearing = null;
     for (const cam of cams) {
-      const shift = lib.overlayShiftPx(cam.lat, cam.lon, cam.z);
+      const camW = lib.overlayCamera(cam.lat, cam.lon);
+      const shift = lib.overlayShiftPx(camW.lat, camW.lon, cam.z);
       const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, cam.z, 1280, 720);
-      const center = lib.worldPixel(cam.lat, cam.lon, cam.z);
+      const center = lib.worldPixel(camW.lat, camW.lon, cam.z);
       const raw = lib.worldPixel(poi.lat, poi.lon, cam.z);
       const unshifted = { x: raw.x - center.x + 640, y: raw.y - center.y + 360 };
       assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1, `z=${cam.z} x`);
@@ -599,13 +602,14 @@ describe("search result POIs on the overlay", () => {
     const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
-    const center = lib.worldPixel(cam.lat, cam.lon, 15);
+    const camW = lib.overlayCamera(cam.lat, cam.lon);
+    const center = lib.worldPixel(camW.lat, camW.lon, 15);
     const raw = lib.worldPixel(poi.lat, poi.lon, 15);
     const unshifted = {
       x: raw.x - center.x + 720,
       y: raw.y - center.y + 450
     };
-    const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
+    const shift = lib.overlayShiftPx(camW.lat, camW.lon, 15);
     const wgs = lib.gcjToWgs(poi.lat, poi.lon);
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
     assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1);
@@ -642,11 +646,186 @@ describe("search result POIs on the overlay", () => {
     assert.ok(r.x !== x || r.y !== y, JSON.stringify(r));
   });
 
+  it("reads the URL @ as GCJ-02 and centers the overlay on its WGS twin", () => {
+    const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
+    const st = lib.parseMapHref(WUZHANGYUAN.zoomSets[0].steps[0].href);
+    const cam = lib.overlayCamera(st.lat, st.lon);
+    const wgs = lib.gcjToWgs(st.lat, st.lon);
+    assert.equal(cam.lat, wgs.lat);
+    assert.equal(cam.lon, wgs.lon);
+    // ~500m at 五丈原: skipping this is exactly the drift bug.
+    assert.ok(Math.abs(cam.lon - st.lon) > 0.004, `${cam.lon} vs ${st.lon}`);
+    assert.ok(Math.abs(cam.lat - st.lat) > 0.001, `${cam.lat} vs ${st.lat}`);
+    // Round trip: the shift is evaluated at the WGS camera, so wgsToGcj of it
+    // must come back to the URL value, or the roads land off the satellite.
+    const back = lib.wgsToGcj(cam.lat, cam.lon);
+    assert.ok(Math.abs(back.lat - st.lat) < 1e-7, `${back.lat} vs ${st.lat}`);
+    assert.ok(Math.abs(back.lon - st.lon) < 1e-7, `${back.lon} vs ${st.lon}`);
+    assert.match(contentJs, /Gcj02Aligner\.overlayCamera\(st\.lat, st\.lon\)/);
+    assert.match(contentJs, /worldPixel\(cam\.lat, cam\.lon, st\.zoom\)/);
+    assert.match(contentJs, /overlayShiftPx\(cam\.lat, cam\.lon, st\.zoom\)/);
+    assert.doesNotMatch(contentJs, /worldPixel\(st\.lat, st\.lon, st\.zoom\)/);
+  });
+
+  it("keeps search POIs on the Off pin pixel at every zoom in both framings", () => {
+    const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
+    const W = 1280;
+    const H = 720;
+    // Off-mode oracle: Google's `@` and !3d/!4d are one datum, so plain
+    // mercator reproduces the native pin with no GCJ math at all. On mode must
+    // land on that pixel at every zoom — the roads move, the pin does not.
+    const nativePin = (poi, st) => {
+      const p = lib.worldPixel(poi.lat, poi.lon, st.zoom);
+      const c = lib.worldPixel(st.lat, st.lon, st.zoom);
+      return { x: p.x - c.x + W / 2, y: p.y - c.y + H / 2 };
+    };
+    const pois = [WUZHANGYUAN.samplePoi, WUZHANGYUAN.townPoi];
+    const errs = [];
+    for (const set of WUZHANGYUAN.zoomSets) {
+      for (const step of set.steps) {
+        const st = lib.parseMapHref(step.href);
+        assert.equal(Math.round(st.zoom), step.zoom);
+        const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
+        for (const poi of pois) {
+          const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, st.lat, st.lon, st.zoom, W, H);
+          const pin = nativePin(poi, st);
+          const err = Math.hypot(plotted.x - pin.x, plotted.y - pin.y);
+          const where = `${set.id} z=${step.zoom} ${poi.name}`;
+          assert.ok(err < 1, `${where} moved ${err.toFixed(1)}px off the Off pin`);
+          // The bug put the pin one whole camera GCJ offset from the Off pin.
+          // Compare against that offset's own size, which halves per level.
+          const bug = Math.hypot(plotted.x - (pin.x + shift.dx), plotted.y - (pin.y + shift.dy));
+          assert.ok(
+            Math.abs(bug - shift.hypot) < 1 && bug > 20,
+            `${where} still carries the GCJ camera offset (${bug.toFixed(1)} vs ${shift.hypot.toFixed(1)})`
+          );
+          errs.push(err);
+        }
+      }
+    }
+    assert.ok(errs.length >= 18, `only ${errs.length} placements checked`);
+    // The old error doubled per level; this stays flat.
+    assert.ok(Math.max(...errs) - Math.min(...errs) < 1, JSON.stringify(errs));
+  });
+
+  it("holds each framing's own search hit at one screen offset as zoom rises", () => {
+    const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
+    // Google frames the view on one hit and keeps it at a fixed screen offset
+    // from `@`. Whichever hit that is, its drawn x/y must not move as z rises.
+    for (const set of WUZHANGYUAN.zoomSets) {
+      const anchor = WUZHANGYUAN[set.anchorKey];
+      assert.ok(anchor, `missing anchor ${set.anchorKey}`);
+      const seen = set.steps.map((step) => {
+        const st = lib.parseMapHref(step.href);
+        return lib.overlayPoiScreenPx(anchor.lat, anchor.lon, st.lat, st.lon, st.zoom, 1280, 720);
+      });
+      for (const p of seen) {
+        const xs = JSON.stringify(seen.map((s) => Math.round(s.x)));
+        const ys = JSON.stringify(seen.map((s) => Math.round(s.y)));
+        assert.ok(Math.abs(p.x - seen[0].x) < 2, `${set.id} ${anchor.name} x walked: ${xs}`);
+        // Only where Google's framing pins the row too — see anchorHoldsY.
+        if (set.anchorHoldsY) {
+          assert.ok(Math.abs(p.y - seen[0].y) < 2, `${set.id} ${anchor.name} y walked: ${ys}`);
+        }
+      }
+      assert.ok(seen[0].x > 640, `${set.id}: the hit sits east of centre, beside the results panel`);
+    }
+  });
+
   it("draws overlay POI markers from place links in the content script", () => {
     assert.match(contentJs, /collectPoisFromAnchors/);
     assert.match(contentJs, /gcj02-poi/);
     assert.match(contentCss, /\.gcj02-poi-icon/);
     assert.match(contentJs, /syncPoisIfVisible/);
     assert.match(contentJs, /\/maps\/place\//);
+  });
+});
+
+describe("street tiles and POI markers share one screen mapping", () => {
+  const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
+  const W = 1280;
+  const H = 720;
+
+  it("returns the true tile centre on both axes", () => {
+    for (const [x, y, z] of [[0, 0, 1], [13000, 6300, 14], [108517, 56284, 17]]) {
+      const ll = lib.tileCenterLatLon(x, y, z);
+      const p = lib.worldPixel(ll.lat, ll.lon, z);
+      // x used to come back as the tile's west edge while y was the centre.
+      assert.ok(Math.abs(p.x - (x + 0.5) * 256) < 1e-6, `tile ${x},${y},z${z} lon: ${p.x}`);
+      assert.ok(Math.abs(p.y - (y + 0.5) * 256) < 1e-6, `tile ${x},${y},z${z} lat: ${p.y}`);
+    }
+  });
+
+  // Mirror of content.js redraw(): where does tile wx/ty land on screen?
+  function tileTopLeft(wx, ty, zTile, st) {
+    const cam = lib.overlayCamera(st.lat, st.lon);
+    const center = lib.worldPixel(cam.lat, cam.lon, st.zoom);
+    const shift = lib.overlayShiftPx(cam.lat, cam.lon, st.zoom);
+    const scale = 2 ** (st.zoom - zTile);
+    const tileSize = 256 * scale;
+    const ll = lib.tileCenterLatLon(wx, ty, zTile);
+    const pW = lib.worldPixel(ll.lat, ll.lon, st.zoom);
+    return {
+      left: pW.x - center.x + W / 2 - tileSize / 2 + shift.dx,
+      top: pW.y - center.y + H / 2 - tileSize / 2 + shift.dy,
+      scale
+    };
+  }
+
+  // The invariant the drift bugs broke: a GCJ coordinate must land on the same
+  // screen pixel whether you get there through the street tile that draws it or
+  // through the POI marker we place for it. Camera and shift cancel out of this
+  // comparison, so it isolates tile placement from datum handling.
+  it("draws a GCJ coordinate at one pixel via the tile and via the marker", () => {
+    const poi = WUZHANGYUAN.townPoi;
+    const states = [
+      ...WUZHANGYUAN.zoomSets.flatMap((set) => set.steps.map((s) => lib.parseMapHref(s.href))),
+      ...WUZHANGYUAN.tileAlignHrefs.map((s) => lib.parseMapHref(s.href)),
+      // tileSize is not 256 at these zooms, so the half-tile error scales with
+      // it. Maps only reaches them via satellite `Nm` URLs, so they are built
+      // here rather than parsed from a street href it would rewrite to z16.
+      ...WUZHANGYUAN.fractionalZooms.map((zoom) => ({
+        lat: WUZHANGYUAN.lat,
+        lon: WUZHANGYUAN.lon,
+        zoom
+      }))
+    ];
+    let checked = 0;
+    for (const st of states) {
+      const zTile = Math.round(st.zoom);
+      const q = lib.worldPixel(poi.lat, poi.lon, zTile);
+      const wx = Math.floor(q.x / 256);
+      const ty = Math.floor(q.y / 256);
+      const t = tileTopLeft(wx, ty, zTile, st);
+      const viaTile = {
+        x: t.left + (q.x - wx * 256) * t.scale,
+        y: t.top + (q.y - ty * 256) * t.scale
+      };
+      const marker = lib.overlayPoiScreenPx(poi.lat, poi.lon, st.lat, st.lon, st.zoom, W, H);
+      const dx = viaTile.x - marker.x;
+      const dy = viaTile.y - marker.y;
+      const why = `z=${st.zoom} tile=(${wx},${ty}) via tile (${viaTile.x.toFixed(1)},${viaTile.y.toFixed(1)}) vs marker (${marker.x.toFixed(1)},${marker.y.toFixed(1)})`;
+      assert.ok(Math.abs(dx) < 0.01, `x off by ${dx.toFixed(2)}px: ${why}`);
+      assert.ok(Math.abs(dy) < 0.01, `y off by ${dy.toFixed(2)}px: ${why}`);
+      checked += 1;
+    }
+    assert.ok(checked >= 14, `only ${checked} zoom cases checked`);
+  });
+
+  it("keeps the tile grid seamless: neighbours abut exactly", () => {
+    const st = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon, zoom: 16.5 };
+    const zTile = Math.round(st.zoom);
+    const a = tileTopLeft(13000, 6300, zTile, st);
+    const east = tileTopLeft(13001, 6300, zTile, st);
+    const south = tileTopLeft(13000, 6301, zTile, st);
+    const tileSize = 256 * a.scale;
+    assert.ok(Math.abs(east.left - (a.left + tileSize)) < 1e-6, `east seam: ${east.left - a.left}`);
+    assert.ok(Math.abs(south.top - (a.top + tileSize)) < 1e-6, `south seam: ${south.top - a.top}`);
+  });
+
+  it("places tiles from the true centre in the content script", () => {
+    assert.match(contentJs, /const ll = tileCenterLatLon\(wx, ty, zTile\)/);
+    assert.match(contentJs, /left = pW\.x - center\.x \+ w \/ 2 - tileSize \/ 2/);
+    assert.match(contentJs, /top = pW\.y - center\.y \+ h \/ 2 - tileSize \/ 2/);
   });
 });

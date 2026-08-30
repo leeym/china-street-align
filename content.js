@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.19";
+  let VERSION = "0.6.21";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -363,7 +363,9 @@
     }
   }
 
-  function syncPois(st, w, h, center) {
+  // Placement lives in overlayPoiScreenPx, which does its own GCJ→WGS camera
+  // step, so this takes the raw URL state and no precomputed center.
+  function syncPois(st, w, h) {
     if (!root) return;
     const pois = collectPoisFromDocument();
     const poiKey = [
@@ -399,7 +401,7 @@
     if (!st) return;
     const w = Math.max(root.clientWidth || root.getBoundingClientRect().width, 1);
     const h = Math.max(root.clientHeight || root.getBoundingClientRect().height, 1);
-    syncPois(st, w, h, worldPixel(st.lat, st.lon, st.zoom));
+    syncPois(st, w, h);
   }
 
   function hideOverlay() {
@@ -440,7 +442,10 @@
     const w = root.clientWidth || box.width;
     const h = root.clientHeight || box.height;
     if (!(w >= 32) || !(h >= 32)) return;
-    const center = worldPixel(st.lat, st.lon, st.zoom);
+    // URL `@` is GCJ-02 here; the overlay world is WGS-84. Center on the same
+    // real place so toggling On never slides the view (see overlayCamera).
+    const cam = globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon);
+    const center = worldPixel(cam.lat, cam.lon, st.zoom);
     const tl = { x: center.x - w / 2, y: center.y - h / 2 };
     const pad = 3;
     const x0 = Math.floor(tl.x / tileSize) - pad;
@@ -458,7 +463,7 @@
       lastPoiKey = "";
       root.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
 
-      const sample = globalThis.Gcj02Aligner.overlayShiftPx(st.lat, st.lon, st.zoom);
+      const sample = globalThis.Gcj02Aligner.overlayShiftPx(cam.lat, cam.lon, st.zoom);
       const offsetPx = sample.hypot;
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
       setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
@@ -471,7 +476,9 @@
         shiftDx: sample.dx.toFixed(2),
         shiftDy: sample.dy.toFixed(2),
         lat: st.lat.toFixed(6),
-        lon: st.lon.toFixed(6)
+        lon: st.lon.toFixed(6),
+        camLat: cam.lat.toFixed(6),
+        camLon: cam.lon.toFixed(6)
       });
 
       const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
@@ -507,7 +514,7 @@
         }
       }
     }
-    syncPois(st, w, h, center);
+    syncPois(st, w, h);
   }
 
   function setMode(v) {

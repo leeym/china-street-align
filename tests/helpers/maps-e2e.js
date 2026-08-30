@@ -129,6 +129,59 @@ async function overlayPoiScreen(page) {
   });
 }
 
+// Screenshot a map-only rectangle: right of the results panel, above the zoom
+// cluster, so the crop holds street geometry and no Maps chrome.
+const MAP_CROP = { x: 500, y: 100, width: 640, height: 380 };
+
+// Hide the overlay's own markers/status for a screenshot so an image compare
+// sees map content only, not decorations that exist in On and not in Off.
+async function withOverlayDecorHidden(page, fn) {
+  await page.addStyleTag({
+    content: "#gcj02-aligner-root .gcj02-poi,#gcj02-aligner-status{visibility:hidden !important}"
+  }).catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    await page.evaluate(() => {
+      [...document.querySelectorAll("style")]
+        .filter((s) => /gcj02-poi\{|gcj02-aligner-status\{|\.gcj02-poi,/.test(s.textContent || ""))
+        .forEach((s) => s.remove());
+    }).catch(() => {});
+  }
+}
+
+// href + overlay rect + the place anchors the overlay reads, in one round trip.
+async function collectPlaceSnapshot(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    const r = root ? root.getBoundingClientRect() : { width: 0, height: 0 };
+    const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => {
+      let category = "";
+      let node = a;
+      for (let i = 0; i < 10 && node; i++) {
+        const t = (node.innerText || "").replace(/\s+/g, " ").trim();
+        if (/旅遊景點|旅游景点|歷史|历史|Tourist|Historic|Museum|博物館|遺址/.test(t)) {
+          category = t.slice(0, 240);
+          break;
+        }
+        node = node.parentElement;
+      }
+      return { href: a.href || "", label: a.getAttribute("aria-label") || a.textContent || "", category };
+    });
+    if (/\/maps\/place\//.test(location.href)) {
+      anchors.unshift({ href: location.href, label: document.querySelector("h1")?.textContent || "" });
+    }
+    return {
+      href: location.href,
+      width: root ? root.clientWidth || r.width : r.width,
+      height: root ? root.clientHeight || r.height : r.height,
+      camLat: Number(root?.dataset.camLat || 0),
+      camLon: Number(root?.dataset.camLon || 0),
+      anchors
+    };
+  });
+}
+
 async function ensureStreetLayer(page) {
   const sat = await page.evaluate(() => {
     const href = location.href;
@@ -231,7 +284,29 @@ async function collectNativeMapPins(page) {
   });
 }
 
-function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
+// Plain WGS mercator, deliberately not routed through aligner-lib: this is the
+// oracle the overlay is measured against, so it must not share code with it.
+function mercatorPx(lat, lon, zoom) {
+  const n = 2 ** Number(zoom) * 256;
+  const s = Math.sin((Number(lat) * Math.PI) / 180);
+  return {
+    x: ((Number(lon) + 180) / 360) * n,
+    y: (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n
+  };
+}
+
+// Google's !3d/!4d and the URL `@` are one datum (GCJ-02 in China), which is
+// why the Off-mode pin sits on the Off-mode street map. So plain mercator from
+// the URL camera reproduces the Off pin pixel with no GCJ math at all, and On
+// mode must land on that same pixel: toggling the extension moves the roads
+// under the pin, never the pin across the screen.
+function nativePinScreenPx(placeLat, placeLon, st, width, height) {
+  const p = mercatorPx(placeLat, placeLon, st.zoom);
+  const c = mercatorPx(st.lat, st.lon, st.zoom);
+  return { x: p.x - c.x + Number(width) / 2, y: p.y - c.y + Number(height) / 2 };
+}
+
+function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 12) {
   const { expect } = require("@playwright/test");
   const st = lib.parseMapHref(snap.href);
   expect(st, snap.href).toBeTruthy();
@@ -240,32 +315,25 @@ function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
   expect(pois.length, JSON.stringify(snap.anchors.slice(0, 4))).toBeGreaterThan(0);
   const expected = pois
     .map((p) => {
-      const screen = lib.overlayPoiScreenPx(p.lat, p.lon, st.lat, st.lon, st.zoom, snap.width, snap.height);
-      const raw = lib.worldPixel(p.lat, p.lon, st.zoom);
-      const center = lib.worldPixel(st.lat, st.lon, st.zoom);
-      return {
-        text: p.name,
-        left: screen.x,
-        top: screen.y,
-        lat: screen.lat,
-        lon: screen.lon,
-        rawLeft: raw.x - center.x + snap.width / 2,
-        rawTop: raw.y - center.y + snap.height / 2
-      };
+      const native = nativePinScreenPx(p.lat, p.lon, st, snap.width, snap.height);
+      return { text: p.name, left: native.x, top: native.y };
     })
     .sort((a, b) => a.left - b.left || a.top - b.top);
   const got = overlayPins.slice().sort((a, b) => a.left - b.left || a.top - b.top);
   const n = Math.min(expected.length, got.length);
+  // The pre-fix bug centered the overlay on the raw GCJ `@`, so every pin sat
+  // one overlayShiftPx away from the Off pin — 107px at z15 doubling per level.
+  const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
   for (let i = 0; i < n; i++) {
-    expect(Math.abs(got[i].left - expected[i].left), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
-    expect(Math.abs(got[i].top - expected[i].top), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
+    const why = JSON.stringify({ i, expected: expected[i], got: got[i], shift });
+    expect(Math.abs(got[i].left - expected[i].left), why).toBeLessThan(tolerance);
+    expect(Math.abs(got[i].top - expected[i].top), why).toBeLessThan(tolerance);
     expect(Math.abs(got[i].dx || 0), "POI must not extra-translate off the street tiles").toBeLessThan(2);
     expect(Math.abs(got[i].dy || 0)).toBeLessThan(2);
-    // Same rigid camera CSS vector as street tiles (EW and NS); never a 2× pixel hack.
-    const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
-    expect(Math.abs(expected[i].left - (expected[i].rawLeft + shift.dx))).toBeLessThan(4);
-    expect(Math.abs(expected[i].top - (expected[i].rawTop + shift.dy))).toBeLessThan(4);
-    expect(Math.abs(expected[i].left - (expected[i].rawLeft + 2 * shift.dx))).toBeGreaterThan(20);
+    expect(
+      Math.hypot(got[i].left - (expected[i].left + shift.dx), got[i].top - (expected[i].top + shift.dy)),
+      `POI must not carry the camera GCJ offset on top of the Off pin: ${why}`
+    ).toBeGreaterThan(20);
   }
 }
 
@@ -344,7 +412,12 @@ module.exports = {
   overlayAlignmentStats,
   overlayPoiScreen,
   collectNativeMapPins,
+  collectPlaceSnapshot,
+  MAP_CROP,
+  withOverlayDecorHidden,
   assertOverlayPoisMatchModel,
+  mercatorPx,
+  nativePinScreenPx,
   parseVtSrc,
   tileVt,
   assertStreetsShiftedOntoSatellite,

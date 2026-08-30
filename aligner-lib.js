@@ -75,9 +75,14 @@
     return { x, y };
   }
 
+  // Centre of tile x/y/z, both axes. The +0.5 on x used to be missing, so this
+  // returned the tile's WEST EDGE longitude with its CENTRE latitude. Callers
+  // that subtract tileSize/2 to get a top-left corner then placed every tile
+  // half a tile (128px at scale 1) too far west, at every zoom — POIs sat on
+  // the correct pixel while the roads under them did not.
   function tileCenterLatLon(x, y, z) {
     const n = 2 ** Number(z);
-    const lon = (Number(x) / n) * 360 - 180;
+    const lon = ((Number(x) + 0.5) / n) * 360 - 180;
     const yy = (Number(y) + 0.5) / n;
     const lat = (180 / Math.PI) * Math.atan(Math.sinh(Math.PI * (1 - 2 * yy)));
     return { lat, lon };
@@ -113,14 +118,26 @@
     };
   }
 
+  // The URL `@lat,lon` is GCJ-02 in China — the same datum as the sidebar
+  // !3d/!4d, which is why the native pin lands on the native street map. The
+  // overlay draws a WGS-84 world, so its camera is that same real place in
+  // WGS-84. Centering on the raw `@` instead slid the whole view (roads and
+  // POIs together) by one GCJ offset, and that offset doubles per zoom level:
+  // 107px at z15, 214px at z16, 428px at z17 — the drift 五丈原 showed.
+  function overlayCamera(camLat, camLon) {
+    return gcjToWgs(Number(camLat), Number(camLon));
+  }
+
   // Sidebar !3d is GCJ-02 and matches Off pin mercator. Overlay street tiles all
   // take one camera overlayShiftPx (rigid) so POIs must use that same vector —
   // per-tile shifts made pins drift vs roads across zoom. Never multiply the
   // pixel shift; EW/NS follow overlayShiftPx at every z.
+  // camLat/camLon are the raw URL `@` values; the GCJ→WGS step happens here.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
-    const center = worldPixel(camLat, camLon, zoom);
+    const cam = overlayCamera(camLat, camLon);
+    const center = worldPixel(cam.lat, cam.lon, zoom);
     const raw = worldPixel(placeLat, placeLon, zoom);
-    const s = overlayShiftPx(camLat, camLon, zoom);
+    const s = overlayShiftPx(cam.lat, cam.lon, zoom);
     const wgs = gcjToWgs(placeLat, placeLon);
     return {
       x: raw.x - center.x + Number(width) / 2 + s.dx,
@@ -459,6 +476,7 @@
     tileCenterLatLon,
     overlayShiftPx,
     overlayRoadTile,
+    overlayCamera,
     overlayPoiScreenPx,
     cleanPoiName,
     placeNameFromHref,

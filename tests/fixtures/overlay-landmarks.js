@@ -33,6 +33,91 @@ const WUZHANGYUAN = {
   meters: 5053,
   expectZoom: 15,
   samplePoi: { name: "五丈原", lat: 34.282582, lon: 107.618568 },
+  // 五丈原鎮: the hit whose marker sat 128px east of the town on the tiles.
+  townPoi: { name: "五丈原鎮", lat: 34.282017, lon: 107.61922 },
+  // Street-map URLs for the On-vs-Off image compare. `expectZoom` is asserted
+  // against the live page because Maps rewrites the zoom it does not like: both
+  // `16.5z` on a /maps/search/ URL and `16.74z` on a bare /maps/@ URL come back
+  // as `16z`. So a live street view cannot exercise a fractional tileSize at
+  // all, and that coverage lives in the unit test (FRACTIONAL_ZOOMS) instead.
+  tileAlignHrefs: [
+    {
+      label: "z14",
+      href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826809,107.5979687,14z/data=!4m2!2m1!6e1",
+      expectZoom: 14
+    },
+    {
+      label: "z18",
+      href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826803,107.6172806,18z/data=!4m2!2m1!6e1",
+      expectZoom: 18
+    }
+  ],
+  // Zooms the overlay must handle where tileSize is not 256 (Maps reaches these
+  // through satellite `Nm` URLs). Pure math, so no live page is involved.
+  fractionalZooms: [15.3, 16.5, 16.74, 17.42],
+  // Google frames a search so the hit keeps one screen offset from `@`, the lon
+  // delta halving per level. Each set below is framed on a different hit, so
+  // `anchor` says which POI must not move on screen as z rises. A POI that
+  // walks across the viewport means the overlay camera is in the wrong datum.
+  zoomSets: [
+    {
+      id: "framed-on-town",
+      anchorKey: "townPoi",
+      // Here `@` lat equals the hit's !3d lat, so the hit holds its screen row
+      // as well as its column.
+      anchorHoldsY: true,
+      steps: [
+        {
+          zoom: 15,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2820186,107.6089231,15z/data=!4m2!2m1!6e1"
+        },
+        {
+          zoom: 16,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2820184,107.6140729,16z/data=!4m2!2m1!6e1"
+        },
+        {
+          zoom: 17,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2820183,107.6166478,17z/data=!4m2!2m1!6e1"
+        }
+      ]
+    },
+    {
+      id: "framed-on-plain",
+      anchorKey: "samplePoi",
+      // Horizontally Google offsets `@` by a fixed pixel count to clear the
+      // results panel, so the hit holds its column. Vertically there is no panel
+      // to clear and `@` pins a fixed LATITUDE ~0.0001° off the hit, so the hit
+      // drifts down the screen as z rises (1px at z14, 44px at z19). That drift
+      // is Google's own — Off does it too — so do not assert on y here.
+      anchorHoldsY: false,
+      steps: [
+        {
+          zoom: 14,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826809,107.5979687,14z/data=!4m2!2m1!6e1"
+        },
+        {
+          zoom: 15,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826805,107.6082684,15z/data=!4m2!2m1!6e1"
+        },
+        {
+          zoom: 16,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826804,107.6134182,16z/data=!4m2!2m1!6e1"
+        },
+        {
+          zoom: 17,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826803,107.6159931,17z/data=!4m2!2m1!6e1"
+        },
+        {
+          zoom: 18,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826803,107.6172806,18z/data=!4m2!2m1!6e1"
+        },
+        {
+          zoom: 19,
+          href: "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826803,107.6179243,19z/data=!4m2!2m1!6e1"
+        }
+      ]
+    }
+  ],
   // WGS-84 of that GCJ !3d (single gcjToWgs — south of G310 / west of X235 gate).
   poiWgsSouthOfG310Lat: 34.286,
   poiWgsWestOfX235Lon: 107.617

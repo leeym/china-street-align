@@ -12,6 +12,7 @@ const {
   overlayAlignmentStats,
   overlayPoiScreen,
   collectNativeMapPins,
+  collectPlaceSnapshot,
   assertOverlayPoisMatchModel,
   assertStreetsShiftedOntoSatellite,
   ensureStreetLayer,
@@ -121,30 +122,7 @@ test.describe("Parameterized search landmarks", () => {
           const kinds = overlayPins.map((p) => p.kind);
           expect(kinds.some((k) => k === "attraction" || k === "historic"), JSON.stringify(kinds)).toBeTruthy();
         }
-        const snap = await page.evaluate(() => {
-          const r = document.getElementById("gcj02-aligner-root").getBoundingClientRect();
-          const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => {
-            let category = "";
-            let node = a;
-            for (let i = 0; i < 10 && node; i++) {
-              const t = (node.innerText || "").replace(/\s+/g, " ").trim();
-              if (/旅遊景點|旅游景点|歷史|历史|Tourist|Historic|Museum|博物館|遺址/.test(t)) {
-                category = t.slice(0, 240);
-                break;
-              }
-              node = node.parentElement;
-            }
-            return {
-              href: a.href || "",
-              label: a.getAttribute("aria-label") || a.textContent || "",
-              category
-            };
-          });
-          if (/\/maps\/place\//.test(location.href)) {
-            anchors.unshift({ href: location.href, label: document.querySelector("h1")?.textContent || "" });
-          }
-          return { href: location.href, width: r.width, height: r.height, anchors };
-        });
+        const snap = await collectPlaceSnapshot(page);
         assertOverlayPoisMatchModel(snap, overlayPins);
         if (nativePins.length >= 2 && overlayPins.length >= 2) {
           const ndx = nativePins[1].x - nativePins[0].x;

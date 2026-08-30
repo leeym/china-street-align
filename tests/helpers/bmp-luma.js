@@ -8,8 +8,12 @@ function isHybridRoadPixel(r, g, b) {
   return r > 150 && g > 100 && r - b > 20 && g > b - 5 && b < 190 && !(r > 230 && g > 230 && b > 220);
 }
 
+let bmpSeq = 0;
+
 function pngToBmp(pngPath) {
-  const bmpPath = path.join(os.tmpdir(), `gcj02-chrome-${Date.now()}.bmp`);
+  // Counter as well as the clock: two conversions in the same millisecond
+  // otherwise pick the same temp path.
+  const bmpPath = path.join(os.tmpdir(), `gcj02-chrome-${Date.now()}-${bmpSeq++}.bmp`);
   execFileSync("sips", ["-s", "format", "bmp", pngPath, "--out", bmpPath], {
     stdio: "pipe"
   });

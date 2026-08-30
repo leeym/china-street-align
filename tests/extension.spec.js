@@ -3,6 +3,10 @@ const path = require("path");
 const { pngRegionStats, chromeClusterVisible } = require("./helpers/bmp-luma");
 const { XIAMEN_XINGLIN } = require("./fixtures/overlay-landmarks");
 
+// Read the shipped version rather than pinning it, so a version bump is not a
+// test failure.
+const { version: EXT_VERSION } = require("../manifest.json");
+
 const EXT_PATH = path.resolve(__dirname, "..");
 const SAT_URL = XIAMEN_XINGLIN.href;
 const MAP_URL =
@@ -159,7 +163,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
 
     expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.status).toMatch(/v0\.6\.19/);
+    expect(stats.status).toContain(`v${EXT_VERSION}`);
     expect(Number(stats.zoom)).toBeGreaterThan(15.8);
     expect(Number(stats.zoom)).toBeLessThan(17.5);
     expect(stats.layer).toBe("satellite");
