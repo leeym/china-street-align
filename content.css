@@ -47,14 +47,25 @@
   pointer-events: none !important;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
 }
+.gcj02-poi.is-hover {
+  z-index: 6;
+  transform: translate(-14px, -100%);
+}
 .gcj02-poi-mark {
   flex: 0 0 auto;
   line-height: 0;
+  position: relative;
 }
 .gcj02-poi-icon {
   display: block;
   width: 26px;
   height: 26px;
+  overflow: visible;
+}
+.gcj02-poi-teardrop {
+  display: none;
+  width: 28px;
+  height: 40px;
   overflow: visible;
 }
 .gcj02-poi-label {
@@ -72,4 +83,27 @@
     -1px 1px 0 #fff,
     1px 1px 0 #fff,
     0 0 3px #fff;
+}
+.gcj02-poi-tooltip {
+  display: none;
+  flex: 0 0 auto;
+  margin: 0 0 28px 2px;
+  padding: 5px 8px;
+  max-width: 200px;
+  color: #202124;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  font: 500 13px/1.2 "Google Sans", Roboto, "Noto Sans TC", "Noto Sans SC", sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gcj02-poi.is-hover .gcj02-poi-icon,
+.gcj02-poi.is-hover .gcj02-poi-label {
+  display: none !important;
+}
+.gcj02-poi.is-hover .gcj02-poi-teardrop,
+.gcj02-poi.is-hover .gcj02-poi-tooltip {
+  display: block !important;
 }

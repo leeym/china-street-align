@@ -594,7 +594,11 @@ describe("search result POIs on the overlay", () => {
     assert.equal(pois[0].kind, "attraction");
     assert.match(contentJs, /appendPoiGlyph/);
     assert.match(contentJs, /poiMarkerSpec/);
+    assert.match(contentJs, /poiHoverTeardropSpec/);
     assert.match(contentCss, /\.gcj02-poi-icon/);
+    assert.match(contentCss, /\.gcj02-poi-teardrop/);
+    assert.match(contentCss, /\.gcj02-poi\.is-hover/);
+    assert.match(contentJs, /onSidebarPointerOver/);
     assert.doesNotMatch(contentJs, /gcj02-poi-pin/);
   });
 

@@ -182,6 +182,53 @@ async function collectPlaceSnapshot(page) {
   });
 }
 
+async function hoverSearchResult(page, needle) {
+  const spec = typeof needle === "string" ? { name: needle } : { ...(needle || {}) };
+  const box = await page.evaluate((spec) => {
+    const links = [...document.querySelectorAll('a[href*="/maps/place/"]')];
+    const hit = links.find((a) => {
+      const href = a.href || a.getAttribute("href") || "";
+      const label = (a.getAttribute("aria-label") || a.textContent || "").trim();
+      let pathName = "";
+      try {
+        pathName = decodeURIComponent((href.match(/\/maps\/place\/([^/@]+)/) || [])[1] || "");
+      } catch (_e) {}
+      if (spec.name) {
+        const n = spec.name;
+        if (label === n || pathName === n) return true;
+        if (label.startsWith(`${n}:`) || label.startsWith(`${n}：`)) return true;
+        // Path segment exact after decode; avoid 五丈原 matching 五丈原鎮.
+        if (href.includes(`/place/${encodeURIComponent(n)}/` ) || href.includes(`/place/${encodeURIComponent(n)}?`)) return true;
+      }
+      if (spec.lat != null && spec.lon != null) {
+        const m = href.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+        if (m && Math.abs(+m[1] - spec.lat) < 1e-4 && Math.abs(+m[2] - spec.lon) < 1e-4) return true;
+      }
+      return false;
+    });
+    if (!hit) return null;
+    const r = hit.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return null;
+    return {
+      x: r.x,
+      y: r.y,
+      w: r.width,
+      h: r.height,
+      label: (hit.getAttribute("aria-label") || hit.textContent || "").trim().slice(0, 80),
+      href: hit.href || ""
+    };
+  }, spec);
+  if (!box) throw new Error(`search result not found: ${JSON.stringify(spec)}`);
+  await page.mouse.move(box.x + Math.min(48, box.w / 2), box.y + Math.min(28, box.h / 2));
+  await page.waitForTimeout(600);
+  return box;
+}
+
+async function clearSearchHover(page) {
+  await page.mouse.move(8, 8);
+  await page.waitForTimeout(300);
+}
+
 async function ensureStreetLayer(page) {
   const sat = await page.evaluate(() => {
     const href = location.href;
@@ -421,6 +468,8 @@ module.exports = {
   parseVtSrc,
   tileVt,
   assertStreetsShiftedOntoSatellite,
+  hoverSearchResult,
+  clearSearchHover,
   ensureStreetLayer,
   ensureSatelliteLayer
 };

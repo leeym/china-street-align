@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.21";
+  let VERSION = "0.6.22";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -18,6 +18,7 @@
   let lastHref = "";
   let lastPoiKey = "";
   let lastHost = null;
+  let hoveredPoiKey = "";
   let alive = true;
   const obs = new MutationObserver(() => {
     if (!alive) return;
@@ -333,15 +334,32 @@
 
   function appendPoiGlyph(el, kind, name) {
     const spec = globalThis.Gcj02Aligner.poiMarkerSpec(kind);
+    const hover = globalThis.Gcj02Aligner.poiHoverTeardropSpec();
     const mark = document.createElement("div");
     mark.className = "gcj02-poi-mark";
     const ns = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("class", "gcj02-poi-icon");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("width", "26");
-    svg.setAttribute("height", "26");
-    svg.setAttribute("aria-hidden", "true");
+
+    function makeSvg(className, fill, d, w, h, viewBox) {
+      const svg = document.createElementNS(ns, "svg");
+      svg.setAttribute("class", className);
+      svg.setAttribute("viewBox", viewBox);
+      svg.setAttribute("width", String(w));
+      svg.setAttribute("height", String(h));
+      svg.setAttribute("aria-hidden", "true");
+      const path = document.createElementNS(ns, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", fill);
+      path.setAttribute("fill-rule", "evenodd");
+      svg.appendChild(path);
+      return svg;
+    }
+
+    const icon = document.createElementNS(ns, "svg");
+    icon.setAttribute("class", "gcj02-poi-icon");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("width", "26");
+    icon.setAttribute("height", "26");
+    icon.setAttribute("aria-hidden", "true");
     const bg = document.createElementNS(ns, "circle");
     bg.setAttribute("cx", "12");
     bg.setAttribute("cy", "12");
@@ -350,9 +368,17 @@
     const path = document.createElementNS(ns, "path");
     path.setAttribute("d", spec.path);
     path.setAttribute("fill", "#fff");
-    svg.appendChild(bg);
-    svg.appendChild(path);
-    mark.appendChild(svg);
+    icon.appendChild(bg);
+    icon.appendChild(path);
+    mark.appendChild(icon);
+    const tear = makeSvg("gcj02-poi-teardrop", hover.fill, hover.path, 28, 40, "0 0 24 24");
+    const hole = document.createElementNS(ns, "circle");
+    hole.setAttribute("cx", "12");
+    hole.setAttribute("cy", "9");
+    hole.setAttribute("r", "2.6");
+    hole.setAttribute("fill", "#fff");
+    tear.appendChild(hole);
+    mark.appendChild(tear);
     el.appendChild(mark);
     const labelText = String(name || "").trim();
     if (labelText) {
@@ -360,7 +386,56 @@
       label.className = "gcj02-poi-label";
       label.textContent = labelText;
       el.appendChild(label);
+      const tip = document.createElement("span");
+      tip.className = "gcj02-poi-tooltip";
+      tip.textContent = labelText;
+      el.appendChild(tip);
     }
+  }
+
+  function poiCoordKey(lat, lon) {
+    return `${Number(lat).toFixed(5)},${Number(lon).toFixed(5)}`;
+  }
+
+  function setHoveredPoi(key) {
+    const next = String(key || "");
+    if (next === hoveredPoiKey) return;
+    hoveredPoiKey = next;
+    if (!root) return;
+    root.querySelectorAll(".gcj02-poi").forEach((el) => {
+      el.classList.toggle("is-hover", !!next && el.dataset.key === next);
+    });
+  }
+
+  function placeLinkHoverKey(el) {
+    if (!el || el.closest?.("#gcj02-aligner-root")) return "";
+    const a = el.closest?.('a[href*="/maps/place/"]')
+      || (el.matches?.('a[href*="/maps/place/"]') ? el : null);
+    if (!a) return "";
+    const href = a.href || a.getAttribute("href") || "";
+    const c = globalThis.Gcj02Aligner.parsePlaceCoords(href);
+    return c ? poiCoordKey(c.lat, c.lon) : "";
+  }
+
+  function onSidebarPointerOver(e) {
+    if (!alive || !root || root.style.display === "none") return;
+    const key = placeLinkHoverKey(e.target);
+    if (key) setHoveredPoi(key);
+  }
+
+  function onSidebarPointerOut(e) {
+    if (!alive || !hoveredPoiKey) return;
+    const from = placeLinkHoverKey(e.target);
+    if (!from) return;
+    const rel = e.relatedTarget instanceof Element
+      ? e.relatedTarget
+      : (e.relatedTarget && e.relatedTarget.parentElement) || null;
+    const to = placeLinkHoverKey(rel);
+    if (to) {
+      setHoveredPoi(to);
+      return;
+    }
+    setHoveredPoi("");
   }
 
   // Placement lives in overlayPoiScreenPx, which does its own GCJ→WGS camera
@@ -372,7 +447,14 @@
       w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
       pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind},${p.name}`).join("|")
     ].join(";");
-    if (poiKey === lastPoiKey) return;
+    if (poiKey === lastPoiKey) {
+      if (hoveredPoiKey) {
+        root.querySelectorAll(".gcj02-poi").forEach((el) => {
+          el.classList.toggle("is-hover", el.dataset.key === hoveredPoiKey);
+        });
+      }
+      return;
+    }
     lastPoiKey = poiKey;
     root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
     pois.forEach((poi) => {
@@ -381,6 +463,7 @@
       );
       const el = document.createElement("div");
       el.className = "gcj02-poi";
+      el.dataset.key = poiCoordKey(poi.lat, poi.lon);
       el.dataset.wgsLat = String(screen.lat);
       el.dataset.wgsLon = String(screen.lon);
       el.dataset.kind = poi.kind || "place";
@@ -388,6 +471,7 @@
       el.style.left = `${screen.x}px`;
       el.style.top = `${screen.y}px`;
       el.style.transform = "translate(-13px, -100%)";
+      if (hoveredPoiKey && el.dataset.key === hoveredPoiKey) el.classList.add("is-hover");
       appendPoiGlyph(el, poi.kind, poi.name);
       root.appendChild(el);
     });
@@ -522,6 +606,7 @@
     mode = normalizeMode(v);
     lastKey = "";
     lastPoiKey = "";
+    if (mode === "off") setHoveredPoi("");
     storageSet({ mode });
     redraw();
   }
@@ -556,6 +641,13 @@
     if (ev.data?.source !== "gcj02-aligner" || ev.data?.type !== "setMode") return;
     setMode(ev.data.mode);
   });
+
+  // Off paints the red teardrop+tooltip on the native canvas when the sidebar
+  // result is hovered. On hides that canvas, so mirror the same hover here.
+  document.addEventListener("pointerover", onSidebarPointerOver, true);
+  document.addEventListener("pointerout", onSidebarPointerOut, true);
+  document.addEventListener("mouseover", onSidebarPointerOver, true);
+  document.addEventListener("mouseout", onSidebarPointerOut, true);
 
   obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
 

@@ -358,6 +358,14 @@
     return "place";
   }
 
+  // Classic Maps hover pin (red teardrop). Sidebar hover swaps the category
+  // glyph for this while the name rides in a white tooltip, Off and On alike.
+  const POI_HOVER_TEARDROP = {
+    fill: "#EA4335",
+    // Tip at bottom-centre so translate(-50%, -100%) parks the point on the place.
+    path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
+  };
+
   // Google Maps draws these as vector glyphs on the native canvas (camera =
   // tourist attraction, gate tower = historic site). Overlay recreates them.
   function poiMarkerSpec(kind) {
@@ -381,6 +389,10 @@
       fill: "#EA4335",
       path: "M12 4.2c-2.7 0-4.9 2.1-4.9 4.8 0 3.6 4.9 8.8 4.9 8.8s4.9-5.2 4.9-8.8c0-2.7-2.2-4.8-4.9-4.8zm0 6.5a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4z"
     };
+  }
+
+  function poiHoverTeardropSpec() {
+    return { kind: "hover", fill: POI_HOVER_TEARDROP.fill, path: POI_HOVER_TEARDROP.path };
   }
 
   function dataParam(href) {
@@ -491,6 +503,7 @@
     parsePlaceCoords,
     classifyPoiKind,
     poiMarkerSpec,
+    poiHoverTeardropSpec,
     collectPoisFromAnchors,
     dataParam,
     mapDisplayType,

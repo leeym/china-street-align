@@ -30,8 +30,10 @@ function bmpLumaStats(bmpPath, crop) {
   const row = Math.floor((w * 3 + 3) / 4) * 4;
   const x0 = crop ? Math.max(0, crop.x) : 0;
   const y0 = crop ? Math.max(0, crop.y) : 0;
-  const x1 = crop ? Math.min(w, crop.x + crop.w) : w;
-  const y1 = crop ? Math.min(h, crop.y + crop.h) : h;
+  const cw = crop ? (crop.w ?? crop.width) : w;
+  const ch = crop ? (crop.h ?? crop.height) : h;
+  const x1 = crop ? Math.min(w, x0 + cw) : w;
+  const y1 = crop ? Math.min(h, y0 + ch) : h;
   const lumas = [];
   for (let y = y0; y < y1; y++) {
     const rowY = topDown ? y : h - 1 - y;
@@ -77,8 +79,129 @@ function pngRegionStats(pngPath, crop) {
   return bmpLumaStats(pngToBmp(pngPath), crop);
 }
 
+function isSaturatedMapRed(r, g, b) {
+  // Classic Google pin red (~#EA4335) and nearby search-hit reds on the canvas.
+  return r > 180 && g < 120 && b < 110 && r - g > 70 && r - b > 80;
+}
+
+function bmpRedPinStats(bmpPath, crop) {
+  const buf = fs.readFileSync(bmpPath);
+  const w = Math.abs(buf.readInt32LE(18));
+  const rawH = buf.readInt32LE(22);
+  const topDown = rawH < 0;
+  const h = Math.abs(rawH);
+  const off = buf.readUInt32LE(10);
+  const row = Math.floor((w * 3 + 3) / 4) * 4;
+  const x0 = crop ? Math.max(0, crop.x) : 0;
+  const y0 = crop ? Math.max(0, crop.y) : 0;
+  const cw = crop ? (crop.w ?? crop.width) : w;
+  const ch = crop ? (crop.h ?? crop.height) : h;
+  const x1 = crop ? Math.min(w, x0 + cw) : w;
+  const y1 = crop ? Math.min(h, y0 + ch) : h;
+  let red = 0;
+  let n = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let y = y0; y < y1; y++) {
+    const rowY = topDown ? y : h - 1 - y;
+    for (let x = x0; x < x1; x++) {
+      const o = off + rowY * row + x * 3;
+      const b = buf[o];
+      const g = buf[o + 1];
+      const r = buf[o + 2];
+      n += 1;
+      if (!isSaturatedMapRed(r, g, b)) continue;
+      red += 1;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const bboxH = red ? maxY - minY + 1 : 0;
+  const bboxW = red ? maxX - minX + 1 : 0;
+  return {
+    redCount: red,
+    redShare: red / (n || 1),
+    bboxW,
+    bboxH,
+    // Teardrop is taller than the idle circle (~26px); require a tall red cluster.
+    tallPin: bboxH >= 32 && bboxH > bboxW * 1.15
+  };
+}
+
+function pngRedPinStats(pngPath, crop) {
+  return bmpRedPinStats(pngToBmp(pngPath), crop);
+}
+
+// Red pixels that appear (or grow) in `hover` relative to `idle` — isolates the
+// teardrop that Maps paints on sidebar hover from the idle circular hits.
+function pngNewRedPinStats(idlePng, hoverPng, crop) {
+  const idleBmp = pngToBmp(idlePng);
+  const hoverBmp = pngToBmp(hoverPng);
+  const idle = fs.readFileSync(idleBmp);
+  const hover = fs.readFileSync(hoverBmp);
+  const w = Math.abs(hover.readInt32LE(18));
+  const rawH = hover.readInt32LE(22);
+  const topDown = rawH < 0;
+  const h = Math.abs(rawH);
+  const off = hover.readUInt32LE(10);
+  const row = Math.floor((w * 3 + 3) / 4) * 4;
+  const x0 = crop ? Math.max(0, crop.x) : 0;
+  const y0 = crop ? Math.max(0, crop.y) : 0;
+  const cw = crop ? (crop.w ?? crop.width) : w;
+  const ch = crop ? (crop.h ?? crop.height) : h;
+  const x1 = crop ? Math.min(w, x0 + cw) : w;
+  const y1 = crop ? Math.min(h, y0 + ch) : h;
+  let red = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let y = y0; y < y1; y++) {
+    const rowY = topDown ? y : h - 1 - y;
+    for (let x = x0; x < x1; x++) {
+      const o = off + rowY * row + x * 3;
+      const hb = hover[o];
+      const hg = hover[o + 1];
+      const hr = hover[o + 2];
+      if (!isSaturatedMapRed(hr, hg, hb)) continue;
+      const ib = idle[o];
+      const ig = idle[o + 1];
+      const ir = idle[o + 2];
+      if (isSaturatedMapRed(ir, ig, ib)) continue;
+      red += 1;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const bboxH = red ? maxY - minY + 1 : 0;
+  const bboxW = red ? maxX - minX + 1 : 0;
+  return {
+    redCount: red,
+    bboxW,
+    bboxH,
+    // Idle hits are ~26px circles; the classic hover teardrop is taller.
+    tallPin: red >= 80 && bboxH >= 28
+  };
+}
+
 function chromeClusterVisible(stats) {
   return stats.darkShare > 0.05 && stats.brightShare > 0.004;
 }
 
-module.exports = { isHybridRoadPixel, pngToBmp, bmpLumaStats, pngRegionStats, chromeClusterVisible };
+module.exports = {
+  isHybridRoadPixel,
+  isSaturatedMapRed,
+  pngToBmp,
+  bmpLumaStats,
+  bmpRedPinStats,
+  pngRegionStats,
+  pngRedPinStats,
+  pngNewRedPinStats,
+  chromeClusterVisible
+};
