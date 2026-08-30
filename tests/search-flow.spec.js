@@ -92,7 +92,7 @@ test.describe("Parameterized search landmarks", () => {
         expect(stats.mode, JSON.stringify(stats)).toBe("on");
         expect(stats.layer).toBe("map");
         expect(stats.offsetPx).toBeGreaterThan(20);
-        expect(stats.roadShift).toBeLessThan(3);
+        expect(stats.roadShift).toBeGreaterThan(20);
         await assertStreetsShiftedOntoSatellite(page);
         expect(stats.poiCount).toBeGreaterThan(0);
         const overlayPins = await overlayPoiScreen(page);
@@ -102,6 +102,10 @@ test.describe("Parameterized search landmarks", () => {
           "search hits must not render as numbered dots"
         ).toBe(0);
         expect(await page.locator(".gcj02-poi-icon").count()).toBe(overlayPins.length);
+        if (place.id === "wuzhangyuan") {
+          const hits = overlayPins.filter((p) => /五丈原/.test(p.text));
+          expect(hits.length, JSON.stringify(overlayPins)).toBeGreaterThan(0);
+        }
         if (place.id === "forbidden-city") {
           const kinds = overlayPins.map((p) => p.kind);
           expect(kinds.some((k) => k === "attraction" || k === "historic"), JSON.stringify(kinds)).toBeTruthy();

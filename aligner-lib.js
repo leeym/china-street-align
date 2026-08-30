@@ -113,9 +113,8 @@
     };
   }
 
-  // Sidebar !3d is GCJ-02, same as native pins. Street tiles use that GCJ
-  // drawing, then CSS overlayShiftPx (camera). POIs must take the same
-  // vector: lon-only gcjToWgs leaves Beijing pins east of the palace axis.
+  // Sidebar !3d is GCJ-02. Streets are WGS-indexed tiles CSS-shifted by
+  // overlayShiftPx; POIs take the same camera vector so they sit on the roads.
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
     const raw = worldPixel(placeLat, placeLon, zoom);

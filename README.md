@@ -17,6 +17,11 @@ In practice, civilian internet maps implement that system as **GCJ-02** (often c
 
 This project does **not** change the satellite layer. When enabled, it overlays street tiles and **translates them GCJ-02 → WGS-84** so they match the satellite.
 
+**Datum rules (in China, mode On):**
+
+1. **Satellite is WGS-84** — never shift, remap, or otherwise move satellite tiles.
+2. **Streets, terrain, POIs, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera (same WGS tile `x,y` as satellite for hybrid roads).
+
 Outside China the overlay stays off.
 
 ## Install (unpacked)
@@ -26,7 +31,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. The default mode is **On**.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.12**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.13**).
 
 ## Usage
 

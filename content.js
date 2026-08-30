@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.12";
+  let VERSION = "0.6.13";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -445,9 +445,7 @@
       const sample = globalThis.Gcj02Aligner.overlayShiftPx(st.lat, st.lon, st.zoom);
       const offsetPx = sample.hypot;
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
-      const hasBase = spec.baseLyrs.length > 0;
-      const how = hasBase ? "hybrid shifted GCJ→WGS" : "WGS roadmap";
-      setStatus(`On · ${spec.label}${extras} · ${how} · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
+      setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
         layer: spec.label,
         version: VERSION,
@@ -461,9 +459,7 @@
       });
 
       const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
-      // Opaque `m`/`p` at WGS x/y already match WGS POIs. CSS-shifting them
-      // (like hybrid `h` over satellite) drags the palace west of the pins.
-      const shiftRoads = hasBase;
+      const hasBase = spec.baseLyrs.length > 0;
 
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
@@ -476,13 +472,15 @@
           const left = pW.x - center.x + w / 2 - tileSize / 2;
           const top = pW.y - center.y + h / 2 - tileSize / 2;
 
+          // Satellite `s` stays on WGS. Streets (`h`/`m`/`p`) use the same WGS
+          // tile index then CSS-shift GCJ drawing onto that satellite.
           for (const lyrs of spec.baseLyrs) {
             placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }
           if (spec.roadLyrs) {
             placeTile(
               hasBase ? "gcj02-road" : "gcj02-tile",
-              spec.roadLyrs, left, top, tileSize, shiftRoads ? shift(s.dx, s.dy) : "", wx, ty, zTile
+              spec.roadLyrs, left, top, tileSize, shift(s.dx, s.dy), wx, ty, zTile
             );
           }
           for (const lyrs of spec.extraLyrs) {

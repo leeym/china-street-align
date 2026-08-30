@@ -314,11 +314,11 @@ async function assertStreetsShiftedOntoSatellite(page) {
     };
   });
   expect(s.offsetPx, JSON.stringify(s)).toBeGreaterThan(20);
+  expect(s.road.hypot, JSON.stringify(s)).toBeGreaterThan(20);
   expect(s.road.ok, JSON.stringify(s)).toBe(true);
+  expect(Math.abs(s.road.dx - s.expectedDx), JSON.stringify(s)).toBeLessThan(48);
+  expect(Math.abs(s.road.dy - s.expectedDy), JSON.stringify(s)).toBeLessThan(48);
   if (s.layer === "satellite") {
-    expect(s.road.hypot, JSON.stringify(s)).toBeGreaterThan(20);
-    expect(Math.abs(s.road.dx - s.expectedDx), JSON.stringify(s)).toBeLessThan(48);
-    expect(Math.abs(s.road.dy - s.expectedDy), JSON.stringify(s)).toBeLessThan(48);
     expect(s.sat.hypot, "satellite tiles must stay unshifted").toBeLessThan(3);
     expect(s.paired, JSON.stringify(s)).toBeTruthy();
     expect(s.paired.sat.left, JSON.stringify(s.paired)).toBe(s.paired.road.left);
@@ -332,8 +332,6 @@ async function assertStreetsShiftedOntoSatellite(page) {
     expect(roadVt.x, "roads must use the same WGS tile index as satellite").toBe(satVt.x);
     expect(roadVt.y, JSON.stringify({ satVt, roadVt })).toBe(satVt.y);
     expect(roadVt.z).toBe(satVt.z);
-  } else {
-    expect(s.road.hypot, "opaque WGS roadmap must not CSS-shift away from POIs").toBeLessThan(3);
   }
 }
 

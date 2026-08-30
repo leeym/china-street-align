@@ -9,6 +9,89 @@ const rootDir = path.join(__dirname, "..", "..");
 const contentJs = fs.readFileSync(path.join(rootDir, "content.js"), "utf8");
 const contentCss = fs.readFileSync(path.join(rootDir, "content.css"), "utf8");
 
+describe("CORE: WGS satellite, GCJ layers shift in China", () => {
+  // Product rules (do not weaken):
+  // 1. Satellite imagery is WGS-84 — never CSS-shift or remap satellite tiles.
+  // 2. Streets, terrain, POIs, and other overlays are GCJ-02 — inside China,
+  //    translate them onto the WGS-84 camera with overlayShiftPx.
+  const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
+
+  it("never transforms satellite base tiles (WGS-84 stays put)", () => {
+    const href = XIAMEN_XINGLIN.href;
+    const spec = lib.overlaySpec(href);
+    assert.deepEqual(spec.baseLyrs, ["s"]);
+    assert.match(
+      contentJs,
+      /placeTile\("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile\)/
+    );
+    assert.doesNotMatch(
+      contentJs,
+      /placeTile\("gcj02-tile", lyrs, left, top, tileSize, shift\(/
+    );
+  });
+
+  it("always CSS-shifts street/terrain/extra tiles onto WGS inside China", () => {
+    assert.equal(lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z").roadLyrs, "m");
+    assert.equal(
+      lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").roadLyrs,
+      "p"
+    );
+    assert.equal(lib.overlaySpec(XIAMEN_XINGLIN.href).roadLyrs, "h");
+    assert.match(
+      contentJs,
+      /placeTile\(\s*hasBase \? "gcj02-road" : "gcj02-tile",\s*spec\.roadLyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile\s*\)/
+    );
+    assert.match(
+      contentJs,
+      /placeTile\("gcj02-road", lyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile\)/
+    );
+    assert.doesNotMatch(contentJs, /shiftRoads/);
+    assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
+  });
+
+  it("shifts overlay POIs with the same GCJ→WGS vector as street tiles", () => {
+    const poi = WUZHANGYUAN.samplePoi;
+    const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
+    const shift = lib.overlayShiftPx(cam.lat, cam.lon, 15);
+    const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
+    assert.ok(shift.hypot > 40);
+    assert.equal(plotted.dx, shift.dx);
+    assert.equal(plotted.dy, shift.dy);
+    assert.match(contentJs, /overlayPoiScreenPx\(/);
+  });
+
+  it("requires a large GCJ→WGS pixel shift at China landmarks", () => {
+    for (const place of [XIAMEN_XINGLIN, WUZHANGYUAN]) {
+      const st = lib.parseMapHref(place.satHref || place.href);
+      const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
+      assert.ok(shift.hypot > 40, `${place.name} shift ${shift.hypot}`);
+      assert.ok(shift.dx < -20, `${place.name} must move streets west, dx=${shift.dx}`);
+    }
+  });
+
+  it("keeps satellite baseLyrs=s and roadLyrs=h for satellite URLs", () => {
+    const spec = lib.overlaySpec(XIAMEN_XINGLIN.href);
+    assert.equal(spec.label, "satellite");
+    assert.deepEqual(spec.baseLyrs, ["s"]);
+    assert.equal(spec.roadLyrs, "h");
+    assert.equal(spec.nativeOnly, false);
+  });
+
+  it("leaves the overlay off outside China (Taiwan island)", () => {
+    assert.equal(lib.outOfChina(25.033, 121.565), true);
+    assert.match(contentJs, /outOfChina\(/);
+    assert.match(contentJs, /effectiveMode/);
+  });
+
+  it("rejects the 0.6.8 remap pattern: overlayRoadTile xy differs from WGS slot", () => {
+    const x = 108517;
+    const y = 56284;
+    const z = 17;
+    const r = lib.overlayRoadTile(x, y, z);
+    assert.ok(r.x !== x || r.y !== y, JSON.stringify(r));
+  });
+});
+
 describe("Maps chrome vs overlay stacking", () => {
   it("treats overlay on <html> as covering Maps chrome", () => {
     assert.equal(lib.overlayWouldCoverMapsChrome("HTML", "absolute", 1), true);
@@ -433,9 +516,9 @@ describe("search result POIs on the overlay", () => {
   });
 
   it("plots overlay POIs with the same CSS vector as street tiles", () => {
-    const { FORBIDDEN_CITY } = require("../fixtures/overlay-landmarks");
-    const poi = FORBIDDEN_CITY.samplePoi;
-    const cam = { lat: FORBIDDEN_CITY.lat, lon: FORBIDDEN_CITY.lon };
+    const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
+    const poi = WUZHANGYUAN.samplePoi;
+    const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
     const center = lib.worldPixel(cam.lat, cam.lon, 15);
     const raw = lib.worldPixel(poi.lat, poi.lon, 15);
     const unshifted = {
@@ -446,19 +529,22 @@ describe("search result POIs on the overlay", () => {
     const plotted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
     assert.ok(Math.abs(plotted.x - (unshifted.x + shift.dx)) < 1, JSON.stringify({ plotted, unshifted, shift }));
     assert.ok(Math.abs(plotted.y - (unshifted.y + shift.dy)) < 1);
-    assert.ok(plotted.x < unshifted.x - 40, "故宫 must move west with overlay streets");
-    assert.ok(shift.dx < -20, `Beijing streets move west, dx=${shift.dx}`);
+    assert.ok(plotted.x < unshifted.x - 40, "五丈原 must move west with overlay streets");
+    assert.ok(shift.dx < -20, `streets move west, dx=${shift.dx}`);
     assert.match(contentJs, /overlayPoiScreenPx\(/);
-    assert.match(contentJs, /translate3d\(\$\{rdx\}px/);
     assert.match(contentJs, /shift\(s\.dx, s\.dy\)/);
     assert.doesNotMatch(contentJs, /overlayRoadTile\(/);
   });
 
   it("draws satellite and roads from the same WGS tile x/y then CSS-shifts only roads", () => {
     assert.match(contentJs, /placeTile\(\s*hasBase \? "gcj02-road" : "gcj02-tile"/);
-    assert.match(contentJs, /shiftRoads \? shift\(s\.dx, s\.dy\) : ""/);
+    assert.match(
+      contentJs,
+      /spec\.roadLyrs, left, top, tileSize, shift\(s\.dx, s\.dy\), wx, ty, zTile/
+    );
     assert.match(contentJs, /placeTile\("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile\)/);
     assert.doesNotMatch(contentJs, /src\.x,\s*src\.y/);
+    assert.doesNotMatch(contentJs, /shiftRoads/);
     assert.match(contentJs, /img\.dataset\.lyrs/);
     assert.match(contentJs, /img\.dataset\.x = String\(wx\)/);
   });
