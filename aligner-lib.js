@@ -91,6 +91,27 @@
     return TILE * 2 ** (z - zTile);
   }
 
+  // Classic WGS↔GCJ literature box. It is not a political border; it includes
+  // Taiwan even though Google Maps there is WGS-84 on both layers.
+  function inChinaGcjBox(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    return lo >= 72.004 && lo <= 137.8347 && la >= 0.8293 && la <= 55.8271;
+  }
+
+  // Taiwan main island (Formosa). West of 120.03°E stays on the Fujian side
+  // of the strait (Xiamen ~118.07°E, Pingtan ~119.8°E).
+  function inTaiwanIsland(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    return la >= 21.88 && la <= 25.32 && lo >= 120.03 && lo <= 122.01;
+  }
+
+  function outOfChina(lat, lon) {
+    if (inTaiwanIsland(lat, lon)) return true;
+    return !inChinaGcjBox(lat, lon);
+  }
+
   function parseMapHref(href) {
     const url = String(href || "");
     const zMatch = url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)z\b/);
@@ -119,6 +140,9 @@
     metersToZoom,
     zoomToGroundMeters,
     overlayTileSize,
+    inChinaGcjBox,
+    inTaiwanIsland,
+    outOfChina,
     parseMapHref
   };
 })(typeof globalThis !== "undefined" ? globalThis : self);

@@ -155,3 +155,45 @@ describe("Google Maps URL zoom vs satellite meters", () => {
     assert.match(contentJs, /parseMapHref\(\s*location\.href\s*\)/);
   });
 });
+
+describe("GCJ overlay region excludes Taiwan island", () => {
+  const TAIPEI_URL =
+    "https://www.google.com/maps/@25.0747931,121.5292321,1954m/data=!3m1!1e3";
+
+  it("treats Taipei as outside the overlay region", () => {
+    assert.equal(lib.outOfChina(25.0747931, 121.5292321), true);
+    assert.equal(lib.inTaiwanIsland(25.0747931, 121.5292321), true);
+    const st = lib.parseMapHref(TAIPEI_URL);
+    assert.ok(st);
+    assert.equal(lib.outOfChina(st.lat, st.lon), true);
+  });
+
+  it("treats other Taiwan-island cities as outside the overlay region", () => {
+    const island = [
+      [25.033, 121.565], // Taipei 101
+      [25.128, 121.739], // Keelung
+      [24.147, 120.673], // Taichung
+      [22.627, 120.301], // Kaohsiung
+      [22.999, 120.227], // Tainan
+      [23.973, 121.601], // Hualien
+      [22.758, 121.144], // Taitung
+      [21.902, 120.853]  // Eluanbi
+    ];
+    for (const [lat, lon] of island) {
+      assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
+      assert.equal(lib.inTaiwanIsland(lat, lon), true, `${lat},${lon}`);
+    }
+  });
+
+  it("still treats mainland GCJ cities as inside the overlay region", () => {
+    assert.equal(lib.outOfChina(39.9167135, 116.3868853), false); // Beijing
+    assert.equal(lib.outOfChina(24.6013341, 118.0704538), false); // Xiamen
+    assert.equal(lib.outOfChina(31.2304, 121.4737), false); // Shanghai
+    assert.equal(lib.inTaiwanIsland(24.6013341, 118.0704538), false);
+  });
+
+  it("uses the shared outOfChina helper from the content script", () => {
+    assert.match(contentJs, /Gcj02Aligner\.outOfChina\(/);
+    assert.doesNotMatch(contentJs, /lon < 72\.004/);
+  });
+});
