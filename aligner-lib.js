@@ -66,6 +66,32 @@
 
   const TILE = 256;
   const EARTH_CIRCUMFERENCE = 40075016.686;
+
+  function worldPixel(lat, lon, z) {
+    const n = 2 ** Number(z);
+    const x = ((Number(lon) + 180) / 360) * n * TILE;
+    const s = Math.sin((Number(lat) * Math.PI) / 180);
+    const y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n * TILE;
+    return { x, y };
+  }
+
+  function tileCenterLatLon(x, y, z) {
+    const n = 2 ** Number(z);
+    const lon = (Number(x) / n) * 360 - 180;
+    const yy = (Number(y) + 0.5) / n;
+    const lat = (180 / Math.PI) * Math.atan(Math.sinh(Math.PI * (1 - 2 * yy)));
+    return { lat, lon };
+  }
+
+  // Pixel translation that moves a GCJ-02 tile onto the WGS-84 camera.
+  function overlayShiftPx(lat, lon, zoom) {
+    const wgs = worldPixel(lat, lon, zoom);
+    const gcj = wgsToGcj(lat, lon);
+    const shifted = worldPixel(gcj.lat, gcj.lon, zoom);
+    const dx = wgs.x - shifted.x;
+    const dy = wgs.y - shifted.y;
+    return { dx, dy, hypot: Math.hypot(dx, dy) };
+  }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.
   // That meter value is the mercator ground width of a 5-tile (1280px) viewport,
   // not the browser window. Using innerWidth on a 1920–2560px display inflates
@@ -307,6 +333,9 @@
     metersToZoom,
     zoomToGroundMeters,
     overlayTileSize,
+    worldPixel,
+    tileCenterLatLon,
+    overlayShiftPx,
     inChinaGcjBox,
     inTaiwanIsland,
     inXiamenMainland,

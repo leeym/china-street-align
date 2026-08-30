@@ -1,10 +1,10 @@
 const { test, expect, chromium } = require("@playwright/test");
 const path = require("path");
 const { pngRegionStats, chromeClusterVisible } = require("./helpers/bmp-luma");
+const { FORBIDDEN_CITY, DUISHAN, XIAMEN_XINGLIN } = require("./fixtures/overlay-landmarks");
 
 const EXT_PATH = path.resolve(__dirname, "..");
-const SAT_URL =
-  "https://www.google.com/maps/@24.6013341,118.0704538,1674m/data=!3m1!1e3";
+const SAT_URL = XIAMEN_XINGLIN.href;
 const MAP_URL =
   "https://www.google.com/maps/@24.6013341,118.0704538,16.74z";
 
@@ -46,6 +46,45 @@ async function waitForOverlay(page) {
     const tiles = [...root.querySelectorAll(".gcj02-tile")];
     return tiles.length > 0 && tiles.some((img) => img.complete && img.naturalWidth >= 256);
   }, { timeout: 120000 });
+}
+
+async function overlayAlignmentStats(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    const road = document.querySelector(".gcj02-road");
+    const t = road ? getComputedStyle(road).transform : "";
+    const m = t.match(/matrix\(([^)]+)\)/);
+    const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
+    const roadShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
+    const hidden = [...document.querySelectorAll("canvas.gcj02-hide-native")];
+    const opacities = hidden.map((c) => getComputedStyle(c).opacity);
+    return {
+      href: location.href,
+      mode: root?.dataset.mode || "",
+      layer: root?.dataset.layer || "",
+      display: root?.style.display || "",
+      offsetPx: Number(root?.dataset.offsetPx || 0),
+      status: document.getElementById("gcj02-aligner-status")?.textContent || "",
+      tileCount: root ? root.querySelectorAll(".gcj02-tile").length : 0,
+      roadCount: root ? root.querySelectorAll(".gcj02-road").length : 0,
+      roadShift,
+      nativeHidden: hidden.length,
+      nativeOpacity: opacities[0] || "",
+      nativeVisibility: hidden[0] ? getComputedStyle(hidden[0]).visibility : ""
+    };
+  });
+}
+
+function expectSatelliteAligned(stats) {
+  expect(stats.mode, JSON.stringify(stats)).toBe("on");
+  expect(stats.layer).toBe("satellite");
+  expect(stats.display).not.toBe("none");
+  expect(stats.offsetPx).toBeGreaterThan(20);
+  expect(stats.roadShift).toBeGreaterThan(20);
+  expect(stats.tileCount).toBeGreaterThan(4);
+  expect(stats.nativeHidden).toBeGreaterThan(0);
+  expect(stats.nativeOpacity, "native canvas must be CSS-hidden").toBe("0");
+  expect(stats.nativeVisibility).toBe("hidden");
 }
 
 test.describe("GCJ-02 Google Maps extension", () => {
@@ -120,7 +159,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
 
     expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.status).toMatch(/v0\.6\.4/);
+    expect(stats.status).toMatch(/v0\.6\.5/);
     expect(Number(stats.zoom)).toBeGreaterThan(15.8);
     expect(Number(stats.zoom)).toBeLessThan(17.5);
     expect(stats.layer).toBe("satellite");
@@ -261,58 +300,32 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
   });
 
-  test("aligns overlay on Jimei 兑山村 place URL", async () => {
-    const url =
-      "https://www.google.com/maps/place/%E4%B8%AD%E5%9C%8B%E7%A6%8F%E5%BB%BA%E7%9C%81%E5%BB%88%E9%96%80%E5%B8%82%E9%9B%86%E7%BE%8E%E5%8D%80%E5%85%8C%E5%B1%B1%E6%9D%91+%E9%82%AE%E6%94%BF%E7%BC%86%E7%A0%81:+361021/@24.6060291,118.0838401,2796m/data=!3m2!1e3!4b1!4m6!3m5!1s0x34148e6ab5fe7f93:0x9985637b6ac4b21e!8m2!3d24.6060199!4d118.08899";
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
+  test("aligns overlay on Forbidden City satellite search", async () => {
+    await page.goto(FORBIDDEN_CITY.href, { waitUntil: "domcontentloaded", timeout: 120000 });
     await dismissConsent(page);
     await page.waitForTimeout(4000);
     await waitForOverlay(page);
     await page.waitForTimeout(2500);
-
-    const stats = await page.evaluate(() => {
-      const root = document.getElementById("gcj02-aligner-root");
-      const canvases = [...document.querySelectorAll("canvas")].map((c) => {
-        const r = c.getBoundingClientRect();
-        return {
-          cssW: Math.round(r.width),
-          cssH: Math.round(r.height),
-          bufW: c.width,
-          bufH: c.height,
-          hidden: c.classList.contains("gcj02-hide-native")
-        };
-      });
-      const road = document.querySelector(".gcj02-road");
-      const t = road ? getComputedStyle(road).transform : "";
-      const m = t.match(/matrix\(([^)]+)\)/);
-      const p = m ? m[1].split(",").map((x) => Number(x.trim())) : [];
-      const roadShift = p.length === 6 ? Math.hypot(p[4], p[5]) : 0;
-      return {
-        href: location.href,
-        hasRoot: !!root,
-        display: root?.style.display || "",
-        mode: root?.dataset.mode || "",
-        layer: root?.dataset.layer || "",
-        offsetPx: root?.dataset.offsetPx || "",
-        status: document.getElementById("gcj02-aligner-status")?.textContent || "",
-        tileCount: root ? root.querySelectorAll(".gcj02-tile").length : 0,
-        roadCount: root ? root.querySelectorAll(".gcj02-road").length : 0,
-        roadShift,
-        canvases
-      };
+    const stats = await overlayAlignmentStats(page);
+    await page.screenshot({
+      path: path.join(__dirname, "..", "test-results", "forbidden-city-search.png"),
+      fullPage: false
     });
+    expectSatelliteAligned(stats);
+    expect(stats.status).toMatch(/v0\.6\.5/);
+  });
 
+  test("aligns overlay on Jimei 兑山村 place URL", async () => {
+    await page.goto(DUISHAN.href, { waitUntil: "domcontentloaded", timeout: 120000 });
+    await dismissConsent(page);
+    await page.waitForTimeout(4000);
+    await waitForOverlay(page);
+    await page.waitForTimeout(2500);
+    const stats = await overlayAlignmentStats(page);
     await page.screenshot({
       path: path.join(__dirname, "..", "test-results", "jimei-duishan-place.png"),
       fullPage: false
     });
-
-    expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.layer).toBe("satellite");
-    expect(stats.display).not.toBe("none");
-    expect(Number(stats.offsetPx)).toBeGreaterThan(20);
-    expect(stats.roadShift).toBeGreaterThan(20);
-    expect(stats.tileCount).toBeGreaterThan(4);
-    expect(stats.canvases.some((c) => c.hidden && c.cssW * c.cssH >= 80000)).toBe(true);
+    expectSatelliteAligned(stats);
   });
 });

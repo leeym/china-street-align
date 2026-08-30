@@ -26,7 +26,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. The default mode is **On**.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.4**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.5**).
 
 ## Usage
 
@@ -49,8 +49,9 @@ npx playwright install chromium
 npm test
 ```
 
-- `npm run test:unit` — Node test runner (`tests/unit`)
+- `npm run test:unit` — Node test runner (`tests/unit`), including Forbidden City / 兑山村 / Xinglin URLs
 - `npm run test:e2e` — Playwright, loads the unpacked extension against Google Maps
+- CI runs `npm run test:unit` on every push and pull request
 
 ## Limits
 

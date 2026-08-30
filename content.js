@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.4";
+  let VERSION = "0.6.5";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -99,19 +99,11 @@
   }
 
   function worldPixel(lat, lon, z) {
-    const n = 2 ** z;
-    const x = ((lon + 180) / 360) * n * TILE;
-    const s = Math.sin((lat * Math.PI) / 180);
-    const y = (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n * TILE;
-    return { x, y };
+    return globalThis.Gcj02Aligner.worldPixel(lat, lon, z);
   }
 
   function tileCenterLatLon(x, y, z) {
-    const n = 2 ** z;
-    const lon = (x / n) * 360 - 180;
-    const yy = (y + 0.5) / n;
-    const lat = (180 / Math.PI) * Math.atan(Math.sinh(Math.PI * (1 - 2 * yy)));
-    return { lat, lon };
+    return globalThis.Gcj02Aligner.tileCenterLatLon(x, y, z);
   }
 
   function tileUrl(lyrs, x, y, z) {
@@ -148,16 +140,26 @@
   }
 
   function fitOverlayToCanvas(host, canvas) {
-    if (!root || !host || !canvas) return;
+    if (!root || !host || !canvas) return false;
     const cr = canvas.getBoundingClientRect();
     const hr = host.getBoundingClientRect();
+    const left = `${cr.left - hr.left}px`;
+    const top = `${cr.top - hr.top}px`;
+    const width = `${Math.max(cr.width, 1)}px`;
+    const height = `${Math.max(cr.height, 1)}px`;
+    const changed =
+      root.style.left !== left
+      || root.style.top !== top
+      || root.style.width !== width
+      || root.style.height !== height;
     root.style.inset = "auto";
-    root.style.left = `${cr.left - hr.left}px`;
-    root.style.top = `${cr.top - hr.top}px`;
-    root.style.width = `${Math.max(cr.width, 1)}px`;
-    root.style.height = `${Math.max(cr.height, 1)}px`;
+    root.style.left = left;
+    root.style.top = top;
+    root.style.width = width;
+    root.style.height = height;
     root.style.right = "auto";
     root.style.bottom = "auto";
+    return changed;
   }
 
   function clipHostForChrome(host) {
@@ -302,8 +304,8 @@
     if (!alive || !root || root.style.display === "none") return;
     const st = parseMapState();
     if (!st) return;
-    const w = Math.max(root.clientWidth || innerWidth, 1);
-    const h = Math.max(root.clientHeight || innerHeight, 1);
+    const w = Math.max(root.clientWidth || root.getBoundingClientRect().width, 1);
+    const h = Math.max(root.clientHeight || root.getBoundingClientRect().height, 1);
     syncPois(st, w, h, worldPixel(st.lat, st.lon, st.zoom));
   }
 
@@ -341,8 +343,10 @@
     const zTile = Math.min(21, Math.max(0, Math.round(st.zoom)));
     const scale = 2 ** (st.zoom - zTile);
     const tileSize = TILE * scale;
-    const w = Math.max(root.clientWidth || innerWidth, 1);
-    const h = Math.max(root.clientHeight || innerHeight, 1);
+    const box = root.getBoundingClientRect();
+    const w = root.clientWidth || box.width;
+    const h = root.clientHeight || box.height;
+    if (!(w >= 32) || !(h >= 32)) return;
     const center = worldPixel(st.lat, st.lon, st.zoom);
     const tl = { x: center.x - w / 2, y: center.y - h / 2 };
     const pad = 3;
@@ -353,16 +357,16 @@
     const max = 2 ** zTile;
     const key = [
       active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), spec.extraLyrs.join("+"),
-      zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y)
+      zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y),
+      Math.round(w), Math.round(h)
     ].join(",");
     if (key !== lastKey) {
       lastKey = key;
       lastPoiKey = "";
       root.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
 
-      const sample = wgsToGcj(st.lat, st.lon);
-      const samplePx = worldPixel(sample.lat, sample.lon, st.zoom);
-      const offsetPx = Math.hypot(samplePx.x - center.x, samplePx.y - center.y);
+      const sample = globalThis.Gcj02Aligner.overlayShiftPx(st.lat, st.lon, st.zoom);
+      const offsetPx = sample.hypot;
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
       setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
@@ -483,12 +487,14 @@
       if (found) {
         if (root.parentElement !== found.host) {
           found.host.insertBefore(root, found.host.firstChild);
+          lastKey = "";
         }
         clipHostForChrome(found.host);
-        fitOverlayToCanvas(found.host, found.canvas);
+        if (fitOverlayToCanvas(found.host, found.canvas)) lastKey = "";
       }
       setNativeMapHidden(true);
-      syncPoisIfVisible();
+      if (!lastKey) redraw();
+      else syncPoisIfVisible();
     }
   }, 400);
 

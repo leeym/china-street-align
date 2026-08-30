@@ -18,6 +18,10 @@
 .gcj02-road {
   opacity: 0.95;
 }
+.gcj02-hide-native {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
 #gcj02-aligner-status {
   position: fixed;
   left: 50%;

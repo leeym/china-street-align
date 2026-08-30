@@ -104,6 +104,14 @@ describe("native hide must not remove Maps controls", () => {
     assert.equal(lib.shouldHideNativeCanvas(48, 48, 96, 96), false);
     assert.equal(lib.shouldHideNativeCanvas(80, 80, 80, 80), false);
   });
+
+  it("keeps CSS that actually hides the native map under the overlay", () => {
+    const block = contentCss.match(/\.gcj02-hide-native\s*\{([^}]+)\}/);
+    assert.ok(block, "POI styles must not delete .gcj02-hide-native");
+    assert.match(block[1], /opacity:\s*0/);
+    assert.match(block[1], /visibility:\s*hidden/);
+    assert.match(contentJs, /gcj02-hide-native/);
+  });
 });
 
 describe("Google Maps URL zoom vs satellite meters", () => {
@@ -158,6 +166,37 @@ describe("Google Maps URL zoom vs satellite meters", () => {
   it("does not convert meters with innerWidth in the content script", () => {
     assert.doesNotMatch(contentJs, /metersToZoom\(/);
     assert.match(contentJs, /parseMapHref\(\s*location\.href\s*\)/);
+    assert.doesNotMatch(contentJs, /clientWidth \|\| innerWidth/);
+  });
+});
+
+describe("China landmark URLs stay in the overlay and get a GCJ pixel shift", () => {
+  const { LANDMARKS } = require("../fixtures/overlay-landmarks");
+
+  for (const place of LANDMARKS) {
+    it(`aligns ${place.name}`, () => {
+      const st = lib.parseMapHref(place.href);
+      const spec = lib.overlaySpec(place.href);
+      assert.ok(st, place.href);
+      assert.equal(st.lat, place.lat);
+      assert.equal(st.lon, place.lon);
+      const fromMeters = lib.metersToZoom(place.lat, place.meters);
+      assert.ok(Math.abs(st.zoom - fromMeters) < 0.02, `${place.name} zoom ${st.zoom}`);
+      if (place.expectZoom != null) {
+        assert.ok(Math.abs(st.zoom - place.expectZoom) < 0.05, `${place.name} zoom ${st.zoom}`);
+      }
+      assert.equal(lib.outOfChina(st.lat, st.lon), false, place.name);
+      assert.equal(spec.nativeOnly, false, place.name);
+      assert.equal(spec.label, "satellite", place.name);
+      assert.deepEqual(spec.baseLyrs, ["s"]);
+      assert.equal(spec.roadLyrs, "h");
+      const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
+      assert.ok(shift.hypot > 20, `${place.name} shift ${shift.hypot}px`);
+    });
+  }
+
+  it("uses overlayShiftPx from the content script", () => {
+    assert.match(contentJs, /overlayShiftPx\(/);
   });
 });
 
