@@ -190,7 +190,10 @@
       return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", extraLyrs };
     }
     if (terrain) {
-      return { nativeOnly: false, label: "terrain", baseLyrs: ["t"], roadLyrs: "h", extraLyrs };
+      // Native terrain is the colored roadmap plus hillshade (`lyrs=p`).
+      // `lyrs=t` is grayscale relief only; stacking it with satellite `h`
+      // labels made the overlay look black-and-white.
+      return { nativeOnly: false, label: "terrain", baseLyrs: [], roadLyrs: "p", extraLyrs };
     }
     return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", extraLyrs };
   }

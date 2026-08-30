@@ -243,12 +243,28 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(spec.roadLyrs, "h");
   });
 
-  it("uses terrain raster tiles instead of the default roadmap", () => {
+  it("uses colored terrain map tiles, not grayscale relief plus satellite labels", () => {
     const spec = lib.overlaySpec(TERRAIN);
     assert.equal(spec.nativeOnly, false);
     assert.equal(spec.label, "terrain");
-    assert.deepEqual(spec.baseLyrs, ["t"]);
-    assert.equal(spec.roadLyrs, "h");
+    assert.deepEqual(spec.baseLyrs, []);
+    assert.equal(spec.roadLyrs, "p");
+    assert.notEqual(spec.roadLyrs, "h");
+    assert.ok(!spec.baseLyrs.includes("t"));
+  });
+
+  it("reads terrain from a search URL that already has other data tokens", () => {
+    const off =
+      "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2473397,107.6112456,14.06z/data=!4m2!2m1!6e1";
+    const on =
+      "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2473397,107.6112456,14.06z/data=!4m2!2m1!6e1!5m1!1e4";
+    const offSpec = lib.overlaySpec(off);
+    const onSpec = lib.overlaySpec(on);
+    assert.equal(offSpec.label, "map");
+    assert.equal(offSpec.roadLyrs, "m");
+    assert.equal(onSpec.label, "terrain");
+    assert.equal(onSpec.roadLyrs, "p");
+    assert.deepEqual(onSpec.baseLyrs, []);
   });
 
   it("adds traffic, transit, bicycling, and Street View coverage tiles", () => {
