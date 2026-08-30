@@ -166,23 +166,36 @@
   }
 
   // aria-label often appends ":開啟過的連結" / "Opened link"; place pages use h1 "結果".
+  // Maps may omit the colon, use uncommon colon glyphs, or insert ZWSP.
+  const POI_VISITED_SUFFIX =
+    "開啟過的連結|打开过的链接|已造訪的連結|已访问的链接|Opened link|Previously visited|Visited link";
+
   function cleanPoiName(label) {
-    let s = String(label || "").replace(/\s+/g, " ").trim();
+    let s = String(label || "")
+      .replace(/[\u200b\u200c\u200d\ufeff]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
     s = s.replace(
-      /[:：]\s*(開啟過的連結|打开过的链接|已造訪的連結|Opened link|Previously visited|Visited).*$/i,
+      new RegExp(`[:：﹕︰]\\s*(?:${POI_VISITED_SUFFIX})(?:\\s.*)?$`, "i"),
       ""
     );
     s = s.replace(
-      /\s*[–—-]\s*(開啟過的連結|打开过的链接|Opened link|Previously visited).*$/i,
+      new RegExp(`\\s*[–—\\-·•,]\\s*(?:${POI_VISITED_SUFFIX})(?:\\s.*)?$`, "i"),
       ""
     );
     s = s.replace(
-      /\s*[\(（]\s*(開啟過的連結|打开过的链接|Opened link|Previously visited)\s*[\)）]\s*$/i,
+      new RegExp(`\\s*[\\(（]\\s*(?:${POI_VISITED_SUFFIX})\\s*[\\)）]\\s*$`, "i"),
       ""
     );
+    // No separator: "五丈原鎮開啟過的連結" / "五丈原鎮 Opened link"
+    s = s.replace(new RegExp(`\\s*(?:${POI_VISITED_SUFFIX})\\s*$`, "i"), "");
     s = s.split(" · ")[0].trim();
     if (isGenericPoiName(s)) return "";
     return s.slice(0, 48);
+  }
+
+  function labelHasVisitedSuffix(label) {
+    return new RegExp(POI_VISITED_SUFFIX, "i").test(String(label || ""));
   }
 
   function collectPoisFromAnchors(anchors) {
@@ -198,10 +211,17 @@
       seen.add(key);
       // Search result links often use /maps/place/A/…; the real name is in aria-label.
       // Place pages set h1 to「結果」— cleanPoiName drops that so the path name wins.
+      // Visited arias like「五丈原鎮：開啟過的連結」are stripped in cleanPoiName.
       const fromPath = cleanPoiName(placeNameFromHref(href));
       const fromLabel = cleanPoiName(a.label);
-      const name = fromLabel || fromPath;
-      if (!name) continue;
+      let name = fromLabel || fromPath;
+      // If cleaning failed and the name still carries a visited suffix, fall back
+      // to the path — but never prefer a path over a successfully cleaned label
+      // (Maps often uses an English slug in the href).
+      if (labelHasVisitedSuffix(name) && fromPath && !labelHasVisitedSuffix(fromPath)) {
+        name = fromPath;
+      }
+      if (!name || labelHasVisitedSuffix(name)) continue;
       const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""} ${name}`, name);
       out.push({ lat: c.lat, lon: c.lon, name, kind });
       if (out.length >= 24) break;
@@ -491,6 +511,7 @@
     overlayCamera,
     overlayPoiScreenPx,
     cleanPoiName,
+    labelHasVisitedSuffix,
     placeNameFromHref,
     isGenericPoiName,
     inChinaGcjBox,

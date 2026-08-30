@@ -123,6 +123,12 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(lib.cleanPoiName("五丈原 · 旅遊景點"), "五丈原");
     assert.equal(lib.cleanPoiName("結果"), "");
     assert.equal(lib.cleanPoiName("Results"), "");
+    // Maps sometimes concatenates with no colon, or uses uncommon colon glyphs / ZWSP.
+    assert.equal(lib.cleanPoiName("五丈原鎮開啟過的連結"), "五丈原鎮");
+    assert.equal(lib.cleanPoiName("五丈原鎮：開啟過的連結"), "五丈原鎮");
+    assert.equal(lib.cleanPoiName("五丈原鎮﹕開啟過的連結"), "五丈原鎮");
+    assert.equal(lib.cleanPoiName("五丈原鎮\u200b：開啟過的連結"), "五丈原鎮");
+    assert.equal(lib.cleanPoiName("五丈原鎮 Opened link"), "五丈原鎮");
     assert.equal(
       lib.placeNameFromHref(
         "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/data=!8m2!3d34.28!4d107.61"
@@ -135,12 +141,19 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
         label: "結果"
       },
       {
-        href: "https://www.google.com/maps/place/A/data=!8m2!3d34.29!4d107.62",
-        label: "五丈原:開啟過的連結"
+        href: "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F%E9%8E%AE/data=!8m2!3d34.282017!4d107.61922",
+        label: "五丈原鎮：開啟過的連結"
       }
     ]);
     assert.equal(pois[0].name, "五丈原");
-    assert.equal(pois[1].name, "五丈原");
+    assert.equal(pois[1].name, "五丈原鎮");
+    const noColon = lib.collectPoisFromAnchors([
+      {
+        href: "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F%E9%8E%AE/data=!8m2!3d34.282017!4d107.61922",
+        label: "五丈原鎮開啟過的連結"
+      }
+    ]);
+    assert.equal(noColon[0].name, "五丈原鎮");
   });
 
   it("requires a large GCJ→WGS pixel shift at China landmarks", () => {
