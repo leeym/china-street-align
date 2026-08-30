@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.5";
+  let VERSION = "0.6.6";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -86,9 +86,6 @@
     return globalThis.Gcj02Aligner.wgsToGcj(lat, lon);
   }
 
-  function gcjToWgs(lat, lon) {
-    return globalThis.Gcj02Aligner.gcjToWgs(lat, lon);
-  }
 
   function overlaySpec() {
     return globalThis.Gcj02Aligner.overlaySpec(location.href);
@@ -270,6 +267,12 @@
       href: a.href || a.getAttribute("href") || "",
       label: a.getAttribute("aria-label") || a.textContent || ""
     }));
+    if (/\/maps\/place\//.test(location.href)) {
+      const heading = (document.querySelector("h1")?.textContent || "").trim();
+      const fromPath = decodeURIComponent(location.pathname).split("/").filter(Boolean).pop() || "";
+      const label = heading || fromPath.replace(/\+/g, " ");
+      anchors.unshift({ href: location.href, label });
+    }
     return globalThis.Gcj02Aligner.collectPoisFromAnchors(anchors);
   }
 
@@ -281,8 +284,7 @@
     lastPoiKey = poiKey;
     root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
     pois.forEach((poi, i) => {
-      const wgs = gcjToWgs(poi.lat, poi.lon);
-      const p = worldPixel(wgs.lat, wgs.lon, st.zoom);
+      const p = worldPixel(poi.lat, poi.lon, st.zoom);
       const el = document.createElement("div");
       el.className = "gcj02-poi";
       el.style.left = `${p.x - center.x + w / 2}px`;
@@ -435,6 +437,24 @@
   } catch (_e) {
     teardown();
   }
+
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (!alive || area !== "local" || !changes.mode) return;
+      const next = normalizeMode(changes.mode.newValue);
+      if (next === mode) return;
+      mode = next;
+      lastKey = "";
+      lastPoiKey = "";
+      redraw();
+    });
+  } catch (_e) {}
+
+  addEventListener("message", (ev) => {
+    if (!alive || ev.source !== window) return;
+    if (ev.data?.source !== "gcj02-aligner" || ev.data?.type !== "setMode") return;
+    setMode(ev.data.mode);
+  });
 
   obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
 

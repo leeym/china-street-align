@@ -6,6 +6,7 @@ module.exports = defineConfig({
   timeout: 180000,
   expect: { timeout: 30000 },
   fullyParallel: false,
+  workers: 1,
   retries: 0,
   use: {
     viewport: { width: 1440, height: 900 },

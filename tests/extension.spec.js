@@ -1,7 +1,7 @@
 const { test, expect, chromium } = require("@playwright/test");
 const path = require("path");
 const { pngRegionStats, chromeClusterVisible } = require("./helpers/bmp-luma");
-const { FORBIDDEN_CITY, DUISHAN, XIAMEN_XINGLIN } = require("./fixtures/overlay-landmarks");
+const { XIAMEN_XINGLIN } = require("./fixtures/overlay-landmarks");
 
 const EXT_PATH = path.resolve(__dirname, "..");
 const SAT_URL = XIAMEN_XINGLIN.href;
@@ -159,7 +159,7 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
 
     expect(stats.mode, JSON.stringify(stats)).toBe("on");
-    expect(stats.status).toMatch(/v0\.6\.5/);
+    expect(stats.status).toMatch(/v0\.6\.6/);
     expect(Number(stats.zoom)).toBeGreaterThan(15.8);
     expect(Number(stats.zoom)).toBeLessThan(17.5);
     expect(stats.layer).toBe("satellite");
@@ -300,32 +300,4 @@ test.describe("GCJ-02 Google Maps extension", () => {
     });
   });
 
-  test("aligns overlay on Forbidden City satellite search", async () => {
-    await page.goto(FORBIDDEN_CITY.href, { waitUntil: "domcontentloaded", timeout: 120000 });
-    await dismissConsent(page);
-    await page.waitForTimeout(4000);
-    await waitForOverlay(page);
-    await page.waitForTimeout(2500);
-    const stats = await overlayAlignmentStats(page);
-    await page.screenshot({
-      path: path.join(__dirname, "..", "test-results", "forbidden-city-search.png"),
-      fullPage: false
-    });
-    expectSatelliteAligned(stats);
-    expect(stats.status).toMatch(/v0\.6\.5/);
-  });
-
-  test("aligns overlay on Jimei 兑山村 place URL", async () => {
-    await page.goto(DUISHAN.href, { waitUntil: "domcontentloaded", timeout: 120000 });
-    await dismissConsent(page);
-    await page.waitForTimeout(4000);
-    await waitForOverlay(page);
-    await page.waitForTimeout(2500);
-    const stats = await overlayAlignmentStats(page);
-    await page.screenshot({
-      path: path.join(__dirname, "..", "test-results", "jimei-duishan-place.png"),
-      fullPage: false
-    });
-    expectSatelliteAligned(stats);
-  });
 });

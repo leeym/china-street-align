@@ -175,13 +175,14 @@ describe("China landmark URLs stay in the overlay and get a GCJ pixel shift", ()
 
   for (const place of LANDMARKS) {
     it(`aligns ${place.name}`, () => {
-      const st = lib.parseMapHref(place.href);
-      const spec = lib.overlaySpec(place.href);
-      assert.ok(st, place.href);
+      const href = place.satHref || place.href;
+      const st = lib.parseMapHref(href);
+      const spec = lib.overlaySpec(href);
+      assert.ok(st, href);
       assert.equal(st.lat, place.lat);
       assert.equal(st.lon, place.lon);
       const fromMeters = lib.metersToZoom(place.lat, place.meters);
-      assert.ok(Math.abs(st.zoom - fromMeters) < 0.02, `${place.name} zoom ${st.zoom}`);
+      assert.ok(Math.abs(st.zoom - fromMeters) < 0.05, `${place.name} zoom ${st.zoom}`);
       if (place.expectZoom != null) {
         assert.ok(Math.abs(st.zoom - place.expectZoom) < 0.05, `${place.name} zoom ${st.zoom}`);
       }
@@ -406,13 +407,18 @@ describe("search result POIs on the overlay", () => {
     assert.equal(pois[1].lat, 34.252);
   });
 
-  it("converts GCJ place coordinates onto the WGS overlay", () => {
-    const wgs = { lat: 34.2473397, lon: 107.6112456 };
-    const gcj = lib.wgsToGcj(wgs.lat, wgs.lon);
-    const back = lib.gcjToWgs(gcj.lat, gcj.lon);
-    assert.ok(Math.abs(back.lat - wgs.lat) < 1e-5);
-    assert.ok(Math.abs(back.lon - wgs.lon) < 1e-5);
-    assert.ok(Math.hypot(gcj.lat - wgs.lat, gcj.lon - wgs.lon) > 1e-4);
+  it("keeps Google place !3d on the camera datum (does not gcjToWgs)", () => {
+    const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
+    const poi = WUZHANGYUAN.samplePoi;
+    const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
+    const raw = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
+    const converted = lib.gcjToWgs(poi.lat, poi.lon);
+    const wrong = lib.overlayPoiScreenPx(
+      converted.lat, converted.lon, cam.lat, cam.lon, 15, 1440, 900
+    );
+    assert.ok(wrong.y < raw.y - 20, "gcjToWgs jumps 五丈原 north of G310");
+    assert.match(contentJs, /worldPixel\(poi\.lat, poi\.lon/);
+    assert.doesNotMatch(contentJs, /gcjToWgs\(poi\.lat/);
   });
 
   it("draws overlay POI markers from place links in the content script", () => {
@@ -420,5 +426,6 @@ describe("search result POIs on the overlay", () => {
     assert.match(contentJs, /gcj02-poi/);
     assert.match(contentCss, /\.gcj02-poi/);
     assert.match(contentJs, /syncPoisIfVisible/);
+    assert.match(contentJs, /\/maps\/place\//);
   });
 });

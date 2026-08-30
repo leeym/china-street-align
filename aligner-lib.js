@@ -92,6 +92,15 @@
     const dy = wgs.y - shifted.y;
     return { dx, dy, hypot: Math.hypot(dx, dy) };
   }
+
+  function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
+    const center = worldPixel(camLat, camLon, zoom);
+    const p = worldPixel(placeLat, placeLon, zoom);
+    return {
+      x: p.x - center.x + Number(width) / 2,
+      y: p.y - center.y + Number(height) / 2
+    };
+  }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.
   // That meter value is the mercator ground width of a 5-tile (1280px) viewport,
   // not the browser window. Using innerWidth on a 1920–2560px display inflates
@@ -336,6 +345,7 @@
     worldPixel,
     tileCenterLatLon,
     overlayShiftPx,
+    overlayPoiScreenPx,
     inChinaGcjBox,
     inTaiwanIsland,
     inXiamenMainland,
