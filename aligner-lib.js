@@ -96,9 +96,12 @@
   function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
     const center = worldPixel(camLat, camLon, zoom);
     const p = worldPixel(placeLat, placeLon, zoom);
+    const s = overlayShiftPx(placeLat, placeLon, zoom);
     return {
-      x: p.x - center.x + Number(width) / 2,
-      y: p.y - center.y + Number(height) / 2
+      x: p.x - center.x + Number(width) / 2 + s.dx,
+      y: p.y - center.y + Number(height) / 2 + s.dy,
+      dx: s.dx,
+      dy: s.dy
     };
   }
   // Google Maps satellite URLs encode camera span as `Nm`, not `z`.

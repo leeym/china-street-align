@@ -1,5 +1,7 @@
 const { chromium } = require("@playwright/test");
 const path = require("path");
+require("../../aligner-lib.js");
+const lib = globalThis.Gcj02Aligner;
 
 const EXT_PATH = path.resolve(__dirname, "..", "..");
 
@@ -70,7 +72,8 @@ async function waitForNativePois(page, needles) {
     const blob = links
       .map((a) => a.getAttribute("aria-label") || a.textContent || "")
       .join("\n");
-    const href = decodeURIComponent(location.href);
+    let href = location.href;
+    try { href += " " + decodeURIComponent(location.pathname); } catch (_e) {}
     const extra = document.body.innerText || "";
     return texts.some((t) => blob.includes(t) || extra.includes(t) || href.includes(t));
   }, list, { timeout: 90000 });
@@ -92,6 +95,8 @@ async function overlayAlignmentStats(page) {
       layer: root?.dataset.layer || "",
       display: root?.style.display || "",
       offsetPx: Number(root?.dataset.offsetPx || 0),
+      shiftDx: Number(root?.dataset.shiftDx || 0),
+      shiftDy: Number(root?.dataset.shiftDy || 0),
       poiCount: Number(root?.dataset.poiCount || 0),
       overlayPoiLabels: pois,
       status: document.getElementById("gcj02-aligner-status")?.textContent || "",
@@ -107,20 +112,37 @@ async function overlayAlignmentStats(page) {
 async function overlayPoiScreen(page) {
   return page.evaluate(() => {
     return [...document.querySelectorAll(".gcj02-poi")].map((el) => {
-      const r = el.getBoundingClientRect();
-      return { text: el.textContent || "", x: r.x + r.width / 2, y: r.y + r.height };
+      const t = el.style.transform || "";
+      const m = t.match(/translate3d\(\s*([-\d.]+)px\s*,\s*([-\d.]+)px/);
+      return {
+        text: el.textContent || "",
+        left: parseFloat(el.style.left) || 0,
+        top: parseFloat(el.style.top) || 0,
+        dx: m ? Number(m[1]) : 0,
+        dy: m ? Number(m[2]) : 0
+      };
     });
   });
 }
 
 async function ensureStreetLayer(page) {
-  const layer = () => page.evaluate(() => document.getElementById("gcj02-aligner-root")?.dataset.layer || "");
-  if (await layer() === "map") return;
-  const btn = page.locator('[aria-label="Layers"], [aria-label="Map type"]').first();
+  const sat = await page.evaluate(() => {
+    const href = location.href;
+    const layer = document.getElementById("gcj02-aligner-root")?.dataset.layer || "";
+    return /!1e3/.test(href) || layer === "satellite";
+  });
+  if (!sat) return;
+  const btn = page.getByRole("button", { name: /^Layers$/i }).first();
   if (await btn.isVisible({ timeout: 4000 }).catch(() => false)) {
     await btn.click();
-    await page.getByText("Default", { exact: true }).click({ timeout: 4000 }).catch(() => {});
-    await page.getByText(/^Map$/, { exact: true }).click({ timeout: 2000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    for (const name of ["Default", "Map", "Road map", "Roadmap"]) {
+      const item = page.getByRole("button", { name }).or(page.getByText(name, { exact: true }));
+      if (await item.first().isVisible({ timeout: 1200 }).catch(() => false)) {
+        await item.first().click();
+        break;
+      }
+    }
     await page.keyboard.press("Escape").catch(() => {});
     await page.waitForTimeout(1500);
   }
@@ -138,6 +160,105 @@ async function ensureSatelliteLayer(page) {
   }
 }
 
+async function collectNativeMapPins(page) {
+  const scan = () => {
+    const canvas = [...document.querySelectorAll("canvas")].sort(
+      (a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height
+        - a.getBoundingClientRect().width * a.getBoundingClientRect().height
+    )[0];
+    if (!canvas) return [];
+    const cr = canvas.getBoundingClientRect();
+    const seen = [];
+    const nodes = document.querySelectorAll("div, span, button, a, img, label");
+    for (const el of nodes) {
+      if (el.closest("#gcj02-aligner-root") || el.closest("#gcj02-aligner-status")) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 14 || r.width > 48 || r.height < 14 || r.height > 48) continue;
+      if (r.x < Math.max(cr.left + 80, 420)) continue;
+      if (r.left < cr.left || r.top < cr.top) continue;
+      if (r.right > cr.right || r.bottom > cr.bottom) continue;
+      const text = (el.textContent || "").replace(/\s+/g, "").trim();
+      const label = (el.getAttribute("aria-label") || "").trim();
+      if (!/^\d{1,2}$/.test(text) && !/^\d{1,2}$/.test(label)) continue;
+      const x = r.x + r.width / 2 - cr.left;
+      const y = r.bottom - cr.top;
+      if (seen.some((p) => Math.hypot(p.x - x, p.y - y) < 12)) continue;
+      seen.push({ text: text || label, x, y });
+    }
+    seen.sort((a, b) => a.x - b.x || a.y - b.y);
+    return seen;
+  };
+  await page.waitForTimeout(1500);
+  const fromDom = await page.evaluate(scan);
+  if (fromDom.length) return fromDom;
+  const snap = await page.evaluate(() => {
+    const canvas = [...document.querySelectorAll("canvas")].sort(
+      (a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height
+        - a.getBoundingClientRect().width * a.getBoundingClientRect().height
+    )[0];
+    const cr = canvas
+      ? canvas.getBoundingClientRect()
+      : { left: 0, top: 0, width: innerWidth, height: innerHeight };
+    const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => ({
+      href: a.href || "",
+      label: a.getAttribute("aria-label") || a.textContent || ""
+    }));
+    if (/\/maps\/place\//.test(location.href)) {
+      anchors.unshift({ href: location.href, label: document.querySelector("h1")?.textContent || "" });
+    }
+    return {
+      href: location.href,
+      cr: { left: cr.left, top: cr.top, width: cr.width, height: cr.height },
+      anchors
+    };
+  });
+  const st = lib.parseMapHref(snap.href);
+  if (!st) return [];
+  const pois = lib.collectPoisFromAnchors(snap.anchors);
+  const center = lib.worldPixel(st.lat, st.lon, st.zoom);
+  return pois.map((p) => {
+    const raw = lib.worldPixel(p.lat, p.lon, st.zoom);
+      return {
+        text: p.name,
+        x: raw.x - center.x + snap.cr.width / 2,
+        y: raw.y - center.y + snap.cr.height / 2,
+        synthetic: true
+      };
+  });
+}
+
+function assertOverlayPoisMatchModel(snap, overlayPins, tolerance = 28) {
+  const { expect } = require("@playwright/test");
+  const st = lib.parseMapHref(snap.href);
+  expect(st, snap.href).toBeTruthy();
+  const pois = lib.collectPoisFromAnchors(snap.anchors);
+  expect(overlayPins.length, JSON.stringify(overlayPins)).toBeGreaterThan(0);
+  expect(pois.length, JSON.stringify(snap.anchors.slice(0, 4))).toBeGreaterThan(0);
+  const expected = pois
+    .map((p) => {
+      const s = lib.overlayShiftPx(p.lat, p.lon, st.zoom);
+      const center = lib.worldPixel(st.lat, st.lon, st.zoom);
+      const raw = lib.worldPixel(p.lat, p.lon, st.zoom);
+      return {
+        text: p.name,
+        left: raw.x - center.x + snap.width / 2,
+        top: raw.y - center.y + snap.height / 2,
+        dx: s.dx,
+        dy: s.dy
+      };
+    })
+    .sort((a, b) => a.left - b.left || a.top - b.top);
+  const got = overlayPins.slice().sort((a, b) => a.left - b.left || a.top - b.top);
+  const n = Math.min(expected.length, got.length);
+  for (let i = 0; i < n; i++) {
+    expect(Math.abs(got[i].left - expected[i].left), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
+    expect(Math.abs(got[i].top - expected[i].top), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(tolerance);
+    expect(Math.abs(got[i].dx - expected[i].dx), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(2);
+    expect(Math.abs(got[i].dy - expected[i].dy), JSON.stringify({ i, expected: expected[i], got: got[i] })).toBeLessThan(2);
+    expect(Math.hypot(got[i].dx, got[i].dy)).toBeGreaterThan(20);
+  }
+}
+
 module.exports = {
   EXT_PATH,
   launchExtensionContext,
@@ -148,6 +269,8 @@ module.exports = {
   waitForNativePois,
   overlayAlignmentStats,
   overlayPoiScreen,
+  collectNativeMapPins,
+  assertOverlayPoisMatchModel,
   ensureStreetLayer,
   ensureSatelliteLayer
 };

@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.6";
+  let VERSION = "0.6.7";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -201,6 +201,32 @@
       }
       img.classList.toggle("gcj02-hide-native", hidden);
     });
+    setNativePlaceMarkersHidden(hidden);
+  }
+
+  function setNativePlaceMarkersHidden(hidden) {
+    if (!hidden) {
+      document.querySelectorAll("[data-gcj02-native-pin]").forEach((el) => {
+        el.removeAttribute("data-gcj02-native-pin");
+        el.classList.remove("gcj02-hide-native");
+      });
+      return;
+    }
+    const canvas = overlayHost()?.canvas;
+    if (!canvas) return;
+    const cr = canvas.getBoundingClientRect();
+    document.querySelectorAll(".gm-style a, .gm-style button, .gm-style img, .gm-style [aria-label]").forEach((el) => {
+      if (el.closest("#gcj02-aligner-root")) return;
+      const r = el.getBoundingClientRect();
+      if (r.width < 12 || r.width > 56 || r.height < 12 || r.height > 72) return;
+      if (r.left < cr.left + 8 || r.top < cr.top + 8) return;
+      if (r.right > cr.right - 8 || r.bottom > cr.bottom - 8) return;
+      const text = (el.textContent || "").trim();
+      const label = (el.getAttribute("aria-label") || "").trim();
+      if (!/^\d{1,2}$/.test(text) && !/^\d{1,2}(\.|:|\s)/.test(label) && !/^\d{1,2}$/.test(label)) return;
+      el.setAttribute("data-gcj02-native-pin", "1");
+      el.classList.add("gcj02-hide-native");
+    });
   }
 
   function ensureRoot() {
@@ -285,10 +311,12 @@
     root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
     pois.forEach((poi, i) => {
       const p = worldPixel(poi.lat, poi.lon, st.zoom);
+      const s = globalThis.Gcj02Aligner.overlayShiftPx(poi.lat, poi.lon, st.zoom);
       const el = document.createElement("div");
       el.className = "gcj02-poi";
       el.style.left = `${p.x - center.x + w / 2}px`;
       el.style.top = `${p.y - center.y + h / 2}px`;
+      el.style.transform = `translate(-50%, -100%) translate3d(${s.dx}px,${s.dy}px,0)`;
       const pin = document.createElement("span");
       pin.className = "gcj02-poi-pin";
       pin.textContent = String(i + 1);
@@ -377,6 +405,8 @@
         zoom: st.zoom.toFixed(3),
         zTile: String(zTile),
         offsetPx: offsetPx.toFixed(2),
+        shiftDx: sample.dx.toFixed(2),
+        shiftDy: sample.dy.toFixed(2),
         lat: st.lat.toFixed(6),
         lon: st.lon.toFixed(6)
       });

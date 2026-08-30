@@ -10,6 +10,8 @@ const {
   waitForNativePois,
   overlayAlignmentStats,
   overlayPoiScreen,
+  collectNativeMapPins,
+  assertOverlayPoisMatchModel,
   ensureStreetLayer,
   ensureSatelliteLayer
 } = require("./helpers/maps-e2e");
@@ -65,22 +67,52 @@ test.describe("Parameterized search landmarks", () => {
       });
 
       test("3 on street map keeps POIs with the roads", async () => {
+        await page.goto("about:blank");
         await page.goto(place.mapHref, { waitUntil: "domcontentloaded", timeout: 120000 });
         await dismissConsent(page);
+        await setAlignerMode(context, page, "off");
+        await waitForOverlayOff(page);
+        await ensureStreetLayer(page);
+        await waitForNativePois(page, place.poiNeedles);
+        await page.waitForTimeout(2000);
+        const nativePins = await collectNativeMapPins(page);
+        await page.screenshot({
+          path: path.join(__dirname, "..", "test-results", `${place.id}-off-map.png`),
+          fullPage: false
+        });
+
         await setAlignerMode(context, page, "on");
         await waitForOverlay(page);
         await ensureStreetLayer(page);
         await waitForOverlay(page);
         await page.waitForTimeout(1500);
-        await waitForNativePois(page, place.poiNeedles);
         const stats = await overlayAlignmentStats(page);
         expect(stats.mode, JSON.stringify(stats)).toBe("on");
         expect(stats.layer).toBe("map");
         expect(stats.offsetPx).toBeGreaterThan(20);
         expect(stats.roadShift).toBeGreaterThan(20);
         expect(stats.poiCount).toBeGreaterThan(0);
-        const pins = await overlayPoiScreen(page);
-        expect(pins.length, JSON.stringify(pins)).toBeGreaterThan(0);
+        const overlayPins = await overlayPoiScreen(page);
+        const snap = await page.evaluate(() => {
+          const r = document.getElementById("gcj02-aligner-root").getBoundingClientRect();
+          const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => ({
+            href: a.href || "",
+            label: a.getAttribute("aria-label") || a.textContent || ""
+          }));
+          if (/\/maps\/place\//.test(location.href)) {
+            anchors.unshift({ href: location.href, label: document.querySelector("h1")?.textContent || "" });
+          }
+          return { href: location.href, width: r.width, height: r.height, anchors };
+        });
+        assertOverlayPoisMatchModel(snap, overlayPins);
+        if (nativePins.length >= 2 && overlayPins.length >= 2) {
+          const ndx = nativePins[1].x - nativePins[0].x;
+          const odx = overlayPins[1].left - overlayPins[0].left;
+          const ndy = nativePins[1].y - nativePins[0].y;
+          const ody = overlayPins[1].top - overlayPins[0].top;
+          expect(Math.abs(ndx - odx), JSON.stringify({ nativePins, overlayPins })).toBeLessThan(24);
+          expect(Math.abs(ndy - ody), JSON.stringify({ nativePins, overlayPins })).toBeLessThan(24);
+        }
         await page.screenshot({
           path: path.join(__dirname, "..", "test-results", `${place.id}-on-map.png`),
           fullPage: false

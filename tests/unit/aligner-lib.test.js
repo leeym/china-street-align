@@ -407,18 +407,23 @@ describe("search result POIs on the overlay", () => {
     assert.equal(pois[1].lat, 34.252);
   });
 
-  it("keeps Google place !3d on the camera datum (does not gcjToWgs)", () => {
+  it("shifts overlay POIs with the same vector as street tiles", () => {
     const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
     const poi = WUZHANGYUAN.samplePoi;
     const cam = { lat: WUZHANGYUAN.lat, lon: WUZHANGYUAN.lon };
-    const raw = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
-    const converted = lib.gcjToWgs(poi.lat, poi.lon);
-    const wrong = lib.overlayPoiScreenPx(
-      converted.lat, converted.lon, cam.lat, cam.lon, 15, 1440, 900
-    );
-    assert.ok(wrong.y < raw.y - 20, "gcjToWgs jumps 五丈原 north of G310");
-    assert.match(contentJs, /worldPixel\(poi\.lat, poi\.lon/);
-    assert.doesNotMatch(contentJs, /gcjToWgs\(poi\.lat/);
+    const center = lib.worldPixel(cam.lat, cam.lon, 15);
+    const raw = lib.worldPixel(poi.lat, poi.lon, 15);
+    const unshifted = {
+      x: raw.x - center.x + 720,
+      y: raw.y - center.y + 450
+    };
+    const shifted = lib.overlayPoiScreenPx(poi.lat, poi.lon, cam.lat, cam.lon, 15, 1440, 900);
+    const tile = lib.overlayShiftPx(poi.lat, poi.lon, 15);
+    assert.ok(shifted.x < unshifted.x - 20, "POI must move west with X235");
+    assert.ok(Math.abs(shifted.dx - tile.dx) < 1e-6);
+    assert.ok(Math.abs(shifted.dy - tile.dy) < 1e-6);
+    assert.match(contentJs, /overlayShiftPx\(poi\.lat, poi\.lon/);
+    assert.match(contentJs, /translate3d\(\$\{s\.dx\}px/);
   });
 
   it("draws overlay POI markers from place links in the content script", () => {
