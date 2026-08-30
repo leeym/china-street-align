@@ -1,13 +1,11 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.1";
+  let VERSION = "0.6.2";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
   const TILE = globalThis.Gcj02Aligner?.TILE ?? 256;
-  const A = 6378245.0;
-  const EE = 0.00669342162296594323;
   const OVERLAY_Z = globalThis.Gcj02Aligner?.OVERLAY_Z ?? 0;
   const CHROME_Z = globalThis.Gcj02Aligner?.CHROME_Z ?? 1000010;
 
@@ -18,13 +16,17 @@
   let pollTimer = null;
   let lastKey = "";
   let lastHref = "";
-  let lastHost = null;
+  let lastPoiKey = "";
   let alive = true;
   const obs = new MutationObserver(() => {
     if (!alive) return;
-    if (location.href === lastHref) return;
+    if (location.href === lastHref) {
+      syncPoisIfVisible();
+      return;
+    }
     lastHref = location.href;
     lastKey = "";
+    lastPoiKey = "";
     clearTimeout(timer);
     timer = setTimeout(redraw, 120);
   });
@@ -79,32 +81,12 @@
     return globalThis.Gcj02Aligner.outOfChina(lat, lon);
   }
 
-  function transformLat(x, y) {
-    let r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
-    r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
-    r += (20 * Math.sin(y * Math.PI) + 40 * Math.sin(y / 3 * Math.PI)) * 2 / 3;
-    r += (160 * Math.sin(y / 12 * Math.PI) + 320 * Math.sin(y * Math.PI / 30)) * 2 / 3;
-    return r;
-  }
-
-  function transformLon(x, y) {
-    let r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
-    r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
-    r += (20 * Math.sin(x * Math.PI) + 40 * Math.sin(x / 3 * Math.PI)) * 2 / 3;
-    r += (150 * Math.sin(x / 12 * Math.PI) + 300 * Math.sin(x / 30 * Math.PI)) * 2 / 3;
-    return r;
-  }
-
   function wgsToGcj(lat, lon) {
-    if (outOfChina(lat, lon)) return { lat, lon };
-    let dLat = transformLat(lon - 105, lat - 35);
-    let dLon = transformLon(lon - 105, lat - 35);
-    const rad = lat * Math.PI / 180;
-    const magic = 1 - EE * Math.sin(rad) ** 2;
-    const sqrtMagic = Math.sqrt(magic);
-    dLat = (dLat * 180) / ((A * (1 - EE)) / (magic * sqrtMagic) * Math.PI);
-    dLon = (dLon * 180) / (A / sqrtMagic * Math.cos(rad) * Math.PI);
-    return { lat: lat + dLat, lon: lon + dLon };
+    return globalThis.Gcj02Aligner.wgsToGcj(lat, lon);
+  }
+
+  function gcjToWgs(lat, lon) {
+    return globalThis.Gcj02Aligner.gcjToWgs(lat, lon);
   }
 
   function overlaySpec() {
@@ -260,13 +242,59 @@
     bindTile(img, tileUrl(lyrs, wx, ty, zTile));
   }
 
+  function collectPoisFromDocument() {
+    const anchors = [...document.querySelectorAll('a[href*="/maps/place/"]')].map((a) => ({
+      href: a.href || a.getAttribute("href") || "",
+      label: a.getAttribute("aria-label") || a.textContent || ""
+    }));
+    return globalThis.Gcj02Aligner.collectPoisFromAnchors(anchors);
+  }
+
+  function syncPois(st, w, h, center) {
+    if (!root) return;
+    const pois = collectPoisFromDocument();
+    const poiKey = pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join("|");
+    if (poiKey === lastPoiKey) return;
+    lastPoiKey = poiKey;
+    root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
+    pois.forEach((poi, i) => {
+      const wgs = gcjToWgs(poi.lat, poi.lon);
+      const p = worldPixel(wgs.lat, wgs.lon, st.zoom);
+      const el = document.createElement("div");
+      el.className = "gcj02-poi";
+      el.style.left = `${p.x - center.x + w / 2}px`;
+      el.style.top = `${p.y - center.y + h / 2}px`;
+      const pin = document.createElement("span");
+      pin.className = "gcj02-poi-pin";
+      pin.textContent = String(i + 1);
+      const label = document.createElement("span");
+      label.className = "gcj02-poi-label";
+      label.textContent = poi.name;
+      el.appendChild(pin);
+      if (poi.name) el.appendChild(label);
+      root.appendChild(el);
+    });
+    root.dataset.poiCount = String(pois.length);
+  }
+
+  function syncPoisIfVisible() {
+    if (!alive || !root || root.style.display === "none") return;
+    const st = parseMapState();
+    if (!st) return;
+    const w = Math.max(root.clientWidth || innerWidth, 1);
+    const h = Math.max(root.clientHeight || innerHeight, 1);
+    syncPois(st, w, h, worldPixel(st.lat, st.lon, st.zoom));
+  }
+
   function hideOverlay() {
     if (root) {
       root.style.display = "none";
       root.dataset.mode = "off";
       root.dataset.tileOk = "0";
       root.dataset.tileError = "0";
+      root.dataset.poiCount = "0";
     }
+    lastPoiKey = "";
     if (statusEl) statusEl.style.display = "none";
     if (lastHost) {
       try { lastHost.style.clipPath = ""; lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
@@ -306,63 +334,66 @@
       active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), spec.extraLyrs.join("+"),
       zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y)
     ].join(",");
-    if (key === lastKey) return;
-    lastKey = key;
+    if (key !== lastKey) {
+      lastKey = key;
+      lastPoiKey = "";
+      root.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
 
-    root.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
+      const sample = wgsToGcj(st.lat, st.lon);
+      const samplePx = worldPixel(sample.lat, sample.lon, st.zoom);
+      const offsetPx = Math.hypot(samplePx.x - center.x, samplePx.y - center.y);
+      const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
+      setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
+        mode: "on",
+        layer: spec.label,
+        version: VERSION,
+        zoom: st.zoom.toFixed(3),
+        zTile: String(zTile),
+        offsetPx: offsetPx.toFixed(2),
+        lat: st.lat.toFixed(6),
+        lon: st.lon.toFixed(6)
+      });
 
-    const sample = wgsToGcj(st.lat, st.lon);
-    const samplePx = worldPixel(sample.lat, sample.lon, st.zoom);
-    const offsetPx = Math.hypot(samplePx.x - center.x, samplePx.y - center.y);
-    const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
-    setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
-      mode: "on",
-      layer: spec.label,
-      version: VERSION,
-      zoom: st.zoom.toFixed(3),
-      zTile: String(zTile),
-      offsetPx: offsetPx.toFixed(2),
-      lat: st.lat.toFixed(6),
-      lon: st.lon.toFixed(6)
-    });
+      const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
+      const hasBase = spec.baseLyrs.length > 0;
 
-    const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
-    const hasBase = spec.baseLyrs.length > 0;
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const wx = ((tx % max) + max) % max;
+          if (ty < 0 || ty >= max) continue;
 
-    for (let ty = y0; ty <= y1; ty++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        const wx = ((tx % max) + max) % max;
-        if (ty < 0 || ty >= max) continue;
+          const ll = tileCenterLatLon(wx, ty, zTile);
+          const pW = worldPixel(ll.lat, ll.lon, st.zoom);
+          const gcj = wgsToGcj(ll.lat, ll.lon);
+          const pG = worldPixel(gcj.lat, gcj.lon, st.zoom);
+          const rdx = pW.x - pG.x;
+          const rdy = pW.y - pG.y;
+          const left = pW.x - center.x + w / 2 - tileSize / 2;
+          const top = pW.y - center.y + h / 2 - tileSize / 2;
 
-        const ll = tileCenterLatLon(wx, ty, zTile);
-        const pW = worldPixel(ll.lat, ll.lon, st.zoom);
-        const gcj = wgsToGcj(ll.lat, ll.lon);
-        const pG = worldPixel(gcj.lat, gcj.lon, st.zoom);
-        const rdx = pW.x - pG.x;
-        const rdy = pW.y - pG.y;
-        const left = pW.x - center.x + w / 2 - tileSize / 2;
-        const top = pW.y - center.y + h / 2 - tileSize / 2;
-
-        for (const lyrs of spec.baseLyrs) {
-          placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
-        }
-        if (spec.roadLyrs) {
-          placeTile(
-            hasBase ? "gcj02-road" : "gcj02-tile",
-            spec.roadLyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile
-          );
-        }
-        for (const lyrs of spec.extraLyrs) {
-          placeTile("gcj02-road", lyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile);
+          for (const lyrs of spec.baseLyrs) {
+            placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
+          }
+          if (spec.roadLyrs) {
+            placeTile(
+              hasBase ? "gcj02-road" : "gcj02-tile",
+              spec.roadLyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile
+            );
+          }
+          for (const lyrs of spec.extraLyrs) {
+            placeTile("gcj02-road", lyrs, left, top, tileSize, shift(rdx, rdy), wx, ty, zTile);
+          }
         }
       }
     }
+    syncPois(st, w, h, center);
   }
 
   function setMode(v) {
     if (!alive) return;
     mode = normalizeMode(v);
     lastKey = "";
+    lastPoiKey = "";
     storageSet({ mode });
     redraw();
   }
@@ -417,6 +448,7 @@
     if (root && root.style.display !== "none") {
       clipHostForChrome(root.parentElement);
       setNativeMapHidden(true);
+      syncPoisIfVisible();
     }
   }, 400);
 

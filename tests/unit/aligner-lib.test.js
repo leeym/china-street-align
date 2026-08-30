@@ -299,3 +299,59 @@ describe("Google Maps layer overlay spec", () => {
     assert.match(contentJs, /spec\.nativeOnly/);
   });
 });
+
+describe("search result POIs on the overlay", () => {
+  it("prefers !3d/!4d place coordinates over the camera @ in a place URL", () => {
+    const href =
+      "https://www.google.com/maps/place/%E8%AB%B8%E8%91%9B%E4%BA%AE%E5%BB%9F/@34.2473397,107.6112456,17z/data=!8m2!3d34.26112!4d107.62548";
+    const c = lib.parsePlaceCoords(href);
+    assert.equal(c.lat, 34.26112);
+    assert.equal(c.lon, 107.62548);
+  });
+
+  it("reads four Wuzhangyuan search hits from place links", () => {
+    const anchors = [
+      {
+        href: "https://www.google.com/maps/place/A/@34.24,107.61,17z/data=!8m2!3d34.26112!4d107.62548",
+        label: "诸葛庙"
+      },
+      {
+        href: "https://www.google.com/maps/place/B/@34.24,107.61,17z/data=!8m2!3d34.252!4d107.618",
+        label: "五丈原风景区"
+      },
+      {
+        href: "https://www.google.com/maps/place/C/data=!8m2!3d34.255!4d107.62",
+        label: "C"
+      },
+      {
+        href: "https://www.google.com/maps/place/D/data=!8m2!3d34.258!4d107.63",
+        label: "D"
+      },
+      { href: "https://www.google.com/maps/search/五丈原", label: "ignore search" },
+      {
+        href: "https://www.google.com/maps/place/A/@34.24,107.61,17z/data=!8m2!3d34.26112!4d107.62548",
+        label: "诸葛庙 duplicate"
+      }
+    ];
+    const pois = lib.collectPoisFromAnchors(anchors);
+    assert.equal(pois.length, 4);
+    assert.equal(pois[0].name, "诸葛庙");
+    assert.equal(pois[1].lat, 34.252);
+  });
+
+  it("converts GCJ place coordinates onto the WGS overlay", () => {
+    const wgs = { lat: 34.2473397, lon: 107.6112456 };
+    const gcj = lib.wgsToGcj(wgs.lat, wgs.lon);
+    const back = lib.gcjToWgs(gcj.lat, gcj.lon);
+    assert.ok(Math.abs(back.lat - wgs.lat) < 1e-5);
+    assert.ok(Math.abs(back.lon - wgs.lon) < 1e-5);
+    assert.ok(Math.hypot(gcj.lat - wgs.lat, gcj.lon - wgs.lon) > 1e-4);
+  });
+
+  it("draws overlay POI markers from place links in the content script", () => {
+    assert.match(contentJs, /collectPoisFromAnchors/);
+    assert.match(contentJs, /gcj02-poi/);
+    assert.match(contentCss, /\.gcj02-poi/);
+    assert.match(contentJs, /syncPoisIfVisible/);
+  });
+});

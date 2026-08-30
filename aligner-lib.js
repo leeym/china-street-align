@@ -137,6 +137,76 @@
     return !inChinaGcjBox(lat, lon);
   }
 
+  const A = 6378245.0;
+  const EE = 0.00669342162296594323;
+
+  function transformLat(x, y) {
+    let r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+    r += (20 * Math.sin(y * Math.PI) + 40 * Math.sin(y / 3 * Math.PI)) * 2 / 3;
+    r += (160 * Math.sin(y / 12 * Math.PI) + 320 * Math.sin(y * Math.PI / 30)) * 2 / 3;
+    return r;
+  }
+
+  function transformLon(x, y) {
+    let r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    r += (20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2 / 3;
+    r += (20 * Math.sin(x * Math.PI) + 40 * Math.sin(x / 3 * Math.PI)) * 2 / 3;
+    r += (150 * Math.sin(x / 12 * Math.PI) + 300 * Math.sin(x / 30 * Math.PI)) * 2 / 3;
+    return r;
+  }
+
+  function wgsToGcj(lat, lon) {
+    if (outOfChina(lat, lon)) return { lat, lon };
+    let dLat = transformLat(lon - 105, lat - 35);
+    let dLon = transformLon(lon - 105, lat - 35);
+    const rad = lat * Math.PI / 180;
+    const magic = 1 - EE * Math.sin(rad) ** 2;
+    const sqrtMagic = Math.sqrt(magic);
+    dLat = (dLat * 180) / ((A * (1 - EE)) / (magic * sqrtMagic) * Math.PI);
+    dLon = (dLon * 180) / (A / sqrtMagic * Math.cos(rad) * Math.PI);
+    return { lat: lat + dLat, lon: lon + dLon };
+  }
+
+  function gcjToWgs(lat, lon) {
+    if (outOfChina(lat, lon)) return { lat, lon };
+    let wgsLat = lat;
+    let wgsLon = lon;
+    for (let i = 0; i < 4; i++) {
+      const g = wgsToGcj(wgsLat, wgsLon);
+      wgsLat += lat - g.lat;
+      wgsLon += lon - g.lon;
+    }
+    return { lat: wgsLat, lon: wgsLon };
+  }
+
+  function parsePlaceCoords(href) {
+    const url = String(href || "");
+    const d = url.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+    if (d) return { lat: +d[1], lon: +d[2] };
+    const placeAt = url.match(/\/maps\/place\/[^/@]*\/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+    if (placeAt) return { lat: +placeAt[1], lon: +placeAt[2] };
+    return null;
+  }
+
+  function collectPoisFromAnchors(anchors) {
+    const seen = new Set();
+    const out = [];
+    for (const a of anchors || []) {
+      const href = String(a.href || "");
+      if (!/\/maps\/place\//.test(href)) continue;
+      const c = parsePlaceCoords(href);
+      if (!c) continue;
+      const key = `${c.lat.toFixed(5)},${c.lon.toFixed(5)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const name = String(a.label || "").replace(/\s+/g, " ").trim().split(" · ")[0].slice(0, 48);
+      out.push({ lat: c.lat, lon: c.lon, name });
+      if (out.length >= 24) break;
+    }
+    return out;
+  }
+
   function dataParam(href) {
     const m = String(href || "").match(/[?&/]data=([^&#]*)/);
     return m ? decodeURIComponent(m[1]) : "";
@@ -230,6 +300,10 @@
     inTaiwanIsland,
     inPenghuKinmenMatsu,
     outOfChina,
+    wgsToGcj,
+    gcjToWgs,
+    parsePlaceCoords,
+    collectPoisFromAnchors,
     dataParam,
     mapDisplayType,
     mapLayerIds,
