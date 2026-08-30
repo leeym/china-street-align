@@ -100,3 +100,58 @@ describe("native hide must not remove Maps controls", () => {
     assert.equal(lib.shouldHideNativeCanvas(48, 48, 96, 96), false);
   });
 });
+
+describe("Google Maps URL zoom vs satellite meters", () => {
+  const PALACE_LAT = 39.9167135;
+  const PALACE_LON = 116.3868853;
+  const PALACE_Z = 15;
+  const PALACE_M = 4718;
+  const MAP_URL = `https://www.google.com/maps/@${PALACE_LAT},${PALACE_LON},${PALACE_Z}z`;
+  const SAT_URL = `https://www.google.com/maps/@${PALACE_LAT},${PALACE_LON},${PALACE_M}m/data=!3m1!1e3`;
+  const XIAMEN_LAT = 24.6013341;
+  const XIAMEN_M = 1674;
+  const XIAMEN_Z = 16.74;
+
+  it("encodes satellite meters as ground width of a 1280px (5-tile) viewport", () => {
+    assert.equal(lib.MAPS_URL_METERS_VIEW_PX, 1280);
+    const meters = lib.zoomToGroundMeters(PALACE_LAT, PALACE_Z);
+    assert.ok(Math.abs(meters - PALACE_M) < 40, `expected ~${PALACE_M}m at 15z, got ${meters}`);
+  });
+
+  it("treats Forbidden City 15z and 4718m as the same camera", () => {
+    const fromZ = lib.parseMapHref(MAP_URL);
+    const fromM = lib.parseMapHref(SAT_URL);
+    assert.equal(fromZ.lat, PALACE_LAT);
+    assert.equal(fromM.lon, PALACE_LON);
+    assert.equal(fromZ.zoom, PALACE_Z);
+    assert.ok(Math.abs(fromM.zoom - PALACE_Z) < 0.02, `4718m zoom ${fromM.zoom} should be ~15`);
+    const sizeZ = lib.overlayTileSize(fromZ.zoom);
+    const sizeM = lib.overlayTileSize(fromM.zoom);
+    assert.ok(
+      Math.abs(sizeZ - sizeM) / sizeZ < 0.01,
+      `street tile ${sizeZ}px vs satellite tile ${sizeM}px`
+    );
+  });
+
+  it("does not inflate satellite zoom when the browser window is wider than 1280px", () => {
+    const correct = lib.metersToZoom(PALACE_LAT, PALACE_M);
+    const wideWindow = lib.metersToZoom(PALACE_LAT, PALACE_M, 2560);
+    assert.ok(Math.abs(correct - PALACE_Z) < 0.02);
+    assert.ok(wideWindow - correct > 0.9, "innerWidth=2560 used to look one zoom level too large");
+  });
+
+  it("matches the Xiamen 1674m / 16.74z pair", () => {
+    const z = lib.metersToZoom(XIAMEN_LAT, XIAMEN_M);
+    assert.ok(Math.abs(z - XIAMEN_Z) < 0.02, `got ${z}`);
+  });
+
+  it("prefers explicit z over m when both appear in the href", () => {
+    const st = lib.parseMapHref("https://www.google.com/maps/@39.9,116.3,15z,4718m");
+    assert.equal(st.zoom, 15);
+  });
+
+  it("does not convert meters with innerWidth in the content script", () => {
+    assert.doesNotMatch(contentJs, /metersToZoom\(/);
+    assert.match(contentJs, /parseMapHref\(\s*location\.href\s*\)/);
+  });
+});

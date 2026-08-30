@@ -1,12 +1,11 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.5.5";
+  let VERSION = "0.5.6";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
-  const TILE = 256;
-  const EARTH_CIRCUMFERENCE = 40075016.686;
+  const TILE = globalThis.Gcj02Aligner?.TILE ?? 256;
   const A = 6378245.0;
   const EE = 0.00669342162296594323;
   const OVERLAY_Z = globalThis.Gcj02Aligner?.OVERLAY_Z ?? 0;
@@ -108,28 +107,12 @@
     return { lat: lat + dLat, lon: lon + dLon };
   }
 
-  function metersToZoom(lat, meters) {
-    const groundWidth = Math.max(meters, 1);
-    const viewW = Math.max(innerWidth, 256);
-    const mPerPxAtZ0 = (EARTH_CIRCUMFERENCE / TILE) * Math.cos((lat * Math.PI) / 180);
-    return Math.log2((mPerPxAtZ0 * viewW) / groundWidth);
-  }
-
   function isSatelliteView() {
     return /!1e3\b/.test(location.href);
   }
 
   function parseMapState() {
-    const href = location.href;
-    const mMatch = href.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)m\b/);
-    if (mMatch) {
-      const lat = +mMatch[1];
-      const lon = +mMatch[2];
-      return { lat, lon, zoom: metersToZoom(lat, +mMatch[3]) };
-    }
-    const zMatch = href.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)z\b/);
-    if (zMatch) return { lat: +zMatch[1], lon: +zMatch[2], zoom: +zMatch[3] };
-    return null;
+    return globalThis.Gcj02Aligner.parseMapHref(location.href);
   }
 
   function worldPixel(lat, lon, z) {

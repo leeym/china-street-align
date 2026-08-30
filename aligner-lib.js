@@ -62,14 +62,63 @@
     return Number(chromeZ) > Number(overlayZ);
   }
 
+  const TILE = 256;
+  const EARTH_CIRCUMFERENCE = 40075016.686;
+  // Google Maps satellite URLs encode camera span as `Nm`, not `z`.
+  // That meter value is the mercator ground width of a 5-tile (1280px) viewport,
+  // not the browser window. Using innerWidth on a 1920–2560px display inflates
+  // zoom by about one level vs the matching `15z` street URL.
+  const MAPS_URL_METERS_VIEW_PX = TILE * 5;
+
+  function metersPerPixelAtZoom0(lat) {
+    return (EARTH_CIRCUMFERENCE / TILE) * Math.cos((Number(lat) * Math.PI) / 180);
+  }
+
+  function metersToZoom(lat, meters, viewPx) {
+    const groundWidth = Math.max(Number(meters) || 0, 1);
+    const width = Math.max(Number(viewPx) || MAPS_URL_METERS_VIEW_PX, 1);
+    return Math.log2((metersPerPixelAtZoom0(lat) * width) / groundWidth);
+  }
+
+  function zoomToGroundMeters(lat, zoom, viewPx) {
+    const width = Math.max(Number(viewPx) || MAPS_URL_METERS_VIEW_PX, 1);
+    return (metersPerPixelAtZoom0(lat) * width) / 2 ** Number(zoom);
+  }
+
+  function overlayTileSize(zoom) {
+    const z = Number(zoom);
+    const zTile = Math.min(21, Math.max(0, Math.round(z)));
+    return TILE * 2 ** (z - zTile);
+  }
+
+  function parseMapHref(href) {
+    const url = String(href || "");
+    const zMatch = url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)z\b/);
+    const mMatch = url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)m\b/);
+    if (zMatch) {
+      return { lat: +zMatch[1], lon: +zMatch[2], zoom: +zMatch[3] };
+    }
+    if (mMatch) {
+      return { lat: +mMatch[1], lon: +mMatch[2], zoom: metersToZoom(+mMatch[1], +mMatch[3]) };
+    }
+    return null;
+  }
+
   root.Gcj02Aligner = {
     OVERLAY_Z,
     CHROME_Z,
+    TILE,
+    EARTH_CIRCUMFERENCE,
+    MAPS_URL_METERS_VIEW_PX,
     overlayWouldCoverMapsChrome,
     shouldHideNativeImage,
     shouldHideNativeCanvas,
     chromeStacksAboveOverlay,
     chromeClipPath,
-    defaultChromeHoles
+    defaultChromeHoles,
+    metersToZoom,
+    zoomToGroundMeters,
+    overlayTileSize,
+    parseMapHref
   };
 })(typeof globalThis !== "undefined" ? globalThis : self);
