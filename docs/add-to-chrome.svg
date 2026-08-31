@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="196" height="60" viewBox="0 0 196 60" role="img" aria-label="Add to Chrome">
+  <title>Add to Chrome</title>
+  <!-- Classic Chrome Web Store–style blue CTA (zip download until Store listing) -->
+  <rect width="196" height="60" rx="4" ry="4" fill="#4285f4"/>
+  <rect x="1" y="1" width="194" height="58" rx="3" ry="3" fill="none" stroke="#3367d6" stroke-opacity="0.35"/>
+  <g transform="translate(16,14)">
+    <!-- Chrome logo -->
+    <circle cx="16" cy="16" r="16" fill="#fff"/>
+    <path fill="#ea4335" d="M16 2a14 14 0 0 1 12.124 7H16z"/>
+    <path fill="#fbbc04" d="M28.124 9A14 14 0 0 1 23.124 27.124L16 16z"/>
+    <path fill="#34a853" d="M23.124 27.124A14 14 0 0 1 3.876 9L16 16z"/>
+    <path fill="#ea4335" d="M3.876 9A14 14 0 0 1 16 2h0L16 16z"/>
+    <circle cx="16" cy="16" r="6.5" fill="#fff"/>
+    <circle cx="16" cy="16" r="5" fill="#4285f4"/>
+  </g>
+  <text x="56" y="37" font-family="Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="500" fill="#fff">Add to Chrome</text>
+</svg>

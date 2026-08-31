@@ -1,5 +1,9 @@
 # China Street Align
 
+[![Add to Chrome](docs/add-to-chrome.svg)](https://github.com/leeym/china-street-align/releases/latest/download/china-street-align.zip)
+
+Download the latest Load-unpacked zip → see [Install](#install) below. (Chrome Web Store listing coming later; until then this is the install path.)
+
 A Chrome extension that, **inside China**, shifts Google Maps **street tiles onto satellite imagery** so roads sit on the physical features you see in photos.
 
 The Chrome Web Store / toolbar name is **Google Maps China Street Align**. This repository is `china-street-align`.
@@ -32,7 +36,7 @@ Outside China the overlay stays off.
 
 **One-click install** only works via the [Chrome Web Store](https://chrome.google.com/webstore). Chrome blocks installing extensions from arbitrary links or `.crx` downloads for regular users (outside enterprise policy). When this extension is listed, the store link will go here.
 
-Until then, install from a GitHub Release zip (no `git` required):
+Until then, install from a GitHub Release zip (no `git` required) — same file as the **Add to Chrome** button at the top:
 
 1. Download **[china-street-align.zip](https://github.com/leeym/china-street-align/releases/latest/download/china-street-align.zip)** (or the versioned `china-street-align-x.y.z.zip` on the [Releases](https://github.com/leeym/china-street-align/releases) page).
 2. Unzip it. You should get a `china-street-align` folder that contains `manifest.json`.
