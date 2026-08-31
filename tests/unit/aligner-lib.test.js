@@ -644,6 +644,9 @@ describe("Google Maps layer overlay spec", () => {
     assert.match(contentCss, /gcj02-shade/);
     assert.match(contentCss, /mix-blend-mode:\s*multiply/);
     assert.match(contentCss, /invert\(1\)/);
+    assert.match(contentCss, /brightness\(0\.68\)/);
+    assert.match(contentCss, /contrast\(2\.2\)/);
+    assert.match(contentCss, /opacity:\s*0\.5/);
   });
 
   it("reads terrain from a search URL that already has other data tokens", () => {

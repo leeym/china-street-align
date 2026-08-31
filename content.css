@@ -36,13 +36,14 @@
   opacity: 0.95;
 }
 /* Terrain = shifted street `m` + unshifted WGS `t` shade.
-   Raw `t` is near-black with light ridges — multiply as-is crushes the whole
-   map. Invert first: flats → white (multiply is a no-op), ridges → dark
-   (cliff shade only), matching outside-China “streets + soft relief”. */
+   Raw `t` is near-black (mean~6, max~70): invert alone leaves ridges ~180–255
+   so multiply barely marks cliffs. Pull toward mid-gray then contrast so ridges
+   darken while flats stay near-white — tuned vs Seattle terrain (opacity 0.28
+   was too faint; heavier brightness crush darkened the whole frame). */
 #gcj02-aligner-root[data-layer="terrain"] .gcj02-shade[data-lyrs="t"] {
-  filter: invert(1);
+  filter: invert(1) brightness(0.68) contrast(2.2);
   mix-blend-mode: multiply;
-  opacity: 0.28;
+  opacity: 0.5;
   z-index: 1;
 }
 .gcj02-hide-native {

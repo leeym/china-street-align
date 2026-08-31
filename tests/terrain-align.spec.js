@@ -84,6 +84,8 @@ test.describe("terrain keeps X235 in the west valley", () => {
       return sh ? getComputedStyle(sh).filter : "";
     });
     expect(shadeFilter, "invert so flats stay bright").toMatch(/invert/i);
+    expect(shadeFilter, "amplify weak t ridges").toMatch(/brightness/i);
+    expect(shadeFilter, "amplify weak t ridges").toMatch(/contrast/i);
 
     await assertStreetsShiftedOntoSatellite(page);
 
@@ -91,10 +93,12 @@ test.describe("terrain keeps X235 in the west valley", () => {
     await withOverlayDecorHidden(page, async () => {
       await page.screenshot({ path: shot, fullPage: false });
     });
-    // Street colours should stay close to map mode — not a full-frame dark wash.
+    // Street colours stay readable; shade is deeper than invert-only 0.28.
     const color = pngRegionColorStats(shot, MAP_CROP);
     expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(12);
     expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.92);
-    expect((color.meanR + color.meanG + color.meanB) / 3, JSON.stringify(color)).toBeGreaterThan(140);
+    const meanLuma = (color.meanR + color.meanG + color.meanB) / 3;
+    expect(meanLuma, JSON.stringify(color)).toBeGreaterThan(190);
+    expect(meanLuma, "must not stay as bright as invert-only 0.28").toBeLessThan(225);
   });
 });
