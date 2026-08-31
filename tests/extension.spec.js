@@ -210,7 +210,8 @@ test.describe("GCJ-02 Google Maps extension", () => {
         hasLib: typeof globalThis.Gcj02Aligner?.chromeClipPath
       };
     });
-    expect(clipInfo.inline, JSON.stringify(clipInfo)).toMatch(/polygon\(/);
+    expect(clipInfo.inline || "", JSON.stringify(clipInfo)).not.toMatch(/polygon/i);
+    expect(clipInfo.clip || "", JSON.stringify(clipInfo)).not.toMatch(/polygon/i);
 
     const fullPng = path.join(__dirname, "..", "test-results", "xiamen-satellite-align.png");
     const cluster = pngRegionStats(fullPng, { x: 1360, y: 660, w: 80, h: 240 });
@@ -218,6 +219,10 @@ test.describe("GCJ-02 Google Maps extension", () => {
       chromeClusterVisible(cluster),
       `zoom cluster missing from full screenshot: ${JSON.stringify(cluster)}`
     ).toBe(true);
+    // Former clip holes must show map tiles, not the page's white background.
+    const brCorner = pngRegionStats(fullPng, { x: 1380, y: 820, w: 36, h: 36 });
+    expect(brCorner.mean, `bottom-right under chrome: ${JSON.stringify(brCorner)}`).toBeLessThan(248);
+    expect(brCorner.variance, JSON.stringify(brCorner)).toBeGreaterThan(20);
 
     const chromeOk = await page.evaluate(() => {
       const zoom = document.querySelector('[aria-label="Zoom in"]');

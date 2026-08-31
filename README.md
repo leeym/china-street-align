@@ -40,7 +40,7 @@ Until then, load it unpacked from this repo:
 4. Open Google Maps. Alignment runs automatically inside China.
 5. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.41**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.42**).
 
 ## Usage
 
@@ -53,7 +53,7 @@ The toolbar icon is a status lamp (no click action):
 
 A small status line on the map shows layer (`satellite` / `terrain` / `map`), version, and zoom when aligning.
 
-Map zoom, search, layers, and other Google chrome stay clickable; the overlay is clipped away from those controls. Terrain, traffic, transit, bicycling, and Street View coverage use matching Google tiles (streets still shifted). Search result pins are redrawn on the overlay from the sidebar place links; hovering a result shows the same classic red teardrop and name tooltip as native Maps (title plus the sidebar description blurb when Maps provides one). Full Street View and 3D Earth stay on Google’s native view.
+Map zoom, search, layers, and other Google chrome stay clickable (overlay is `pointer-events: none` under them); aligned tiles paint under those corner controls so the map edge matches outside China. Terrain, traffic, transit, bicycling, and Street View coverage use matching Google tiles (streets still shifted). Search result pins are redrawn on the overlay from the sidebar place links; hovering a result shows the same classic red teardrop and name tooltip as native Maps (title plus the sidebar description blurb when Maps provides one). Full Street View and 3D Earth stay on Google’s native view.
 
 ## Development
 

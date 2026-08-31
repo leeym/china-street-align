@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.41";
+  let VERSION = "0.6.42";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -230,23 +230,26 @@
   }
 
   function clipHostForChrome(host) {
-    if (!host || host === document.body || host === document.documentElement) {
-      if (lastHost && lastHost !== host) {
-        try { lastHost.style.clipPath = ""; } catch (_e) {}
-      }
-      return;
-    }
+    // Never notch the host for chrome — that left white page background in the
+    // corner holes after native canvases were hidden. Clear any prior clip.
     if (lastHost && lastHost !== host) {
-      try { lastHost.style.clipPath = ""; } catch (_e) {}
+      try {
+        lastHost.style.clipPath = "";
+        lastHost.style.webkitClipPath = "";
+        lastHost.style.maskImage = "";
+        lastHost.style.webkitMaskImage = "";
+      } catch (_e) {}
     }
-    lastHost = host;
-    const clip = globalThis.Gcj02Aligner?.chromeClipPath;
-    const hr = host.getBoundingClientRect();
-    const value = clip ? clip(hr.width, hr.height) : "";
-    host.style.clipPath = value;
-    host.style.webkitClipPath = value;
-    host.style.maskImage = "";
-    host.style.webkitMaskImage = "";
+    lastHost = host && host !== document.body && host !== document.documentElement
+      ? host
+      : null;
+    if (!lastHost) return;
+    try {
+      lastHost.style.clipPath = "";
+      lastHost.style.webkitClipPath = "";
+      lastHost.style.maskImage = "";
+      lastHost.style.webkitMaskImage = "";
+    } catch (_e) {}
   }
 
   function setNativeMapHidden(hidden) {

@@ -46,18 +46,12 @@
     ];
   }
 
-  function chromeClipPath(hostW, hostH, _holes) {
-    const w = Number(hostW);
-    const h = Number(hostH);
-    if (!(w > 0) || !(h > 0)) return "";
-    const [zoom, search, layers] = defaultChromeHoles(w, h);
-    const searchRight = search.x + search.w;
-    const searchBottom = search.y + search.h;
-    const zoomLeft = zoom.x;
-    const zoomTop = zoom.y;
-    const layerRight = layers.x + layers.w;
-    const layerTop = layers.y;
-    return `polygon(0px ${searchBottom}px, ${searchRight}px ${searchBottom}px, ${searchRight}px 0px, ${w}px 0px, ${w}px ${zoomTop}px, ${zoomLeft}px ${zoomTop}px, ${zoomLeft}px ${h}px, ${layerRight}px ${h}px, ${layerRight}px ${layerTop}px, 0px ${layerTop}px)`;
+  function chromeClipPath(_hostW, _hostH, _holes) {
+    // Empty on purpose: notching the canvas host exposed the page background
+    // (white) once native tiles were hidden. Overlay is z-index 0 with
+    // pointer-events:none, so Maps chrome stays above and clickable while
+    // aligned tiles paint under the corner controls — same as outside China.
+    return "";
   }
 
   function chromeStacksAboveOverlay(chromeZ, overlayZ) {

@@ -376,12 +376,11 @@ describe("Maps chrome vs overlay stacking", () => {
     assert.ok(holes.some((h) => h.x < 20 && h.w >= 280 && h.h >= 350));
   });
 
-  it("builds a single polygon that notches out zoom, search, and layers", () => {
-    const p = lib.chromeClipPath(1440, 900);
-    assert.match(p, /^polygon\(/);
-    assert.match(p, /1360px/);
-    assert.match(p, /660px/);
+  it("does not clip the canvas host (tiles paint under corner chrome)", () => {
+    assert.equal(lib.chromeClipPath(1440, 900), "");
     assert.equal(lib.chromeClipPath(0, 0), "");
+    assert.match(contentJs, /Never notch the host for chrome/);
+    assert.match(contentJs, /lastHost\.style\.clipPath = ""/);
   });
 
   it("does not append the overlay root to documentElement", () => {
