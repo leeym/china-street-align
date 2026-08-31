@@ -70,22 +70,24 @@ test.describe("terrain relief stays WGS while roads shift", () => {
     expect(info.hasP, "must not paint skewed p roads").toBeFalsy();
     expect(info.tShifted, "relief must not CSS-shift").toBeFalsy();
     expect(info.hShifted, "roads must CSS-shift").toBeTruthy();
-    expect(info.blend, JSON.stringify(info)).toMatch(/^(normal|)$/i);
-    expect(info.filter, "colorize dark t tiles").toMatch(/invert/i);
-    expect(info.filter, "sepia tint").toMatch(/sepia/i);
+    expect(info.filter, "soft invert wash").toMatch(/invert/i);
+    expect(info.filter, "must not fluorescent-saturate").not.toMatch(/saturate\(/i);
+    expect(info.filter, "must not sepia neon").not.toMatch(/sepia\(/i);
 
     const shot = path.join(OUT, "terrain-on.png");
     await withOverlayDecorHidden(page, async () => {
       await page.screenshot({ path: shot, fullPage: false });
     });
 
-    // Regression: 0.6.27/0.6.33 looked nearly black-and-white. Fail if the map
-    // crop is mostly gray or not green-biased.
+    // Not near-B&W, and not fluorescent neon green (0.6.34 oversaturated).
+    // Soft sage is light (mean ~200) with low sat — reject high sat / channel spikes.
     const color = pngRegionColorStats(shot, MAP_CROP);
-    expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.72);
-    expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(22);
-    expect(color.greenBias, JSON.stringify(color)).toBeGreaterThan(6);
-    expect(color.greenishShare, JSON.stringify(color)).toBeGreaterThan(0.08);
-    expect(color.meanG, JSON.stringify(color)).toBeGreaterThan(color.meanR + 4);
+    expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.9);
+    expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(8);
+    expect(color.meanSat, JSON.stringify(color)).toBeLessThan(55);
+    expect(color.greenBias, JSON.stringify(color)).toBeGreaterThan(1.5);
+    expect(color.greenBias, JSON.stringify(color)).toBeLessThan(28);
+    expect(color.meanG, JSON.stringify(color)).toBeGreaterThan(color.meanB + 2);
+    expect(color.meanG - color.meanR, JSON.stringify(color)).toBeLessThan(35);
   });
 });

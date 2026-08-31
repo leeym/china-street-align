@@ -633,8 +633,10 @@ describe("Google Maps layer overlay spec", () => {
     assert.match(contentCss, /data-layer="terrain"/);
     assert.match(contentCss, /data-lyrs="t"/);
     assert.match(contentCss, /invert\(1\)/);
-    assert.match(contentCss, /sepia\(/);
-    assert.match(contentCss, /hue-rotate\(/);
+    assert.match(contentCss, /#d5deca/);
+    assert.doesNotMatch(contentCss, /sepia\(/);
+    assert.doesNotMatch(contentCss, /saturate\(/);
+    assert.doesNotMatch(contentCss, /hue-rotate\(/);
     assert.doesNotMatch(contentCss, /mix-blend-mode:\s*multiply/);
   });
 
