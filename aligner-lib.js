@@ -573,16 +573,94 @@
 
   function isNativeOnlyView(href) {
     const url = String(href || "");
-    if (isDirectionsView(url)) return true;
     if (/@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,[\d.]+a,/.test(url)) return true;
     const type = mapDisplayType(dataParam(url));
     return type === 1 || type === 2;
   }
 
-  // Route polylines and step markers are canvas-painted; hiding the native map
-  // for alignment removes them. Hand /maps/dir/ back to Google until we redraw routes.
   function isDirectionsView(href) {
     return /\/maps\/dir\//i.test(String(href || ""));
+  }
+
+  function decodeGooglePolyline(str) {
+    const coords = [];
+    let index = 0;
+    let lat = 0;
+    let lon = 0;
+    const s = String(str || "");
+    while (index < s.length) {
+      let shift = 0;
+      let result = 0;
+      let b;
+      do {
+        b = s.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+      lat += dlat;
+      shift = 0;
+      result = 0;
+      do {
+        b = s.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+      lon += dlng;
+      coords.push({ lat: lat / 1e5, lon: lon / 1e5 });
+    }
+    return coords;
+  }
+
+  // Google Maps /preview/directions embeds step polylines as encoded strings and
+  // explicit [null,null,lat,lon] pairs. Encoded strings are often step-relative.
+  function dedupeConsecutivePoints(pts) {
+    const out = [];
+    for (const p of pts) {
+      const last = out[out.length - 1];
+      if (last && Math.abs(last.lat - p.lat) < 1e-8 && Math.abs(last.lon - p.lon) < 1e-8) {
+        continue;
+      }
+      out.push(p);
+    }
+    return out;
+  }
+
+  function extractDirectionsLatLonPairs(text) {
+    const pts = [];
+    const re = /\[null,null,(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]/g;
+    let m;
+    while ((m = re.exec(String(text || "")))) {
+      pts.push({ lat: +m[1], lon: +m[2] });
+    }
+    const line = dedupeConsecutivePoints(pts);
+    return line.length >= 2 ? [line] : [];
+  }
+
+  function extractDirectionsPolylines(body) {
+    const text = String(body || "").replace(/\\u003d/g, "=");
+    const lines = extractDirectionsLatLonPairs(text);
+    const anchor = lines[0]?.[0] || null;
+    const seen = new Set();
+    const re = /"(B[A-Za-z0-9\-_]+=*)"/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const enc = m[1];
+      if (seen.has(enc)) continue;
+      seen.add(enc);
+      try {
+        let pts = decodeGooglePolyline(enc);
+        if (!pts.length) continue;
+        if (pts.every((p) => Math.abs(p.lat) < 2 && Math.abs(p.lon) < 2) && anchor) {
+          pts = pts.map((p) => ({ lat: anchor.lat + p.lat, lon: anchor.lon + p.lon }));
+        }
+        if (pts.length >= 2 && pts.some((p) => p.lat > 18 && p.lat < 54 && p.lon > 73 && p.lon < 136)) {
+          lines.push(pts);
+        }
+      } catch (_e) {}
+    }
+    return lines;
   }
 
   function overlaySpec(href) {
@@ -736,6 +814,8 @@
     mapLayerIds,
     isNativeOnlyView,
     isDirectionsView,
+    decodeGooglePolyline,
+    extractDirectionsPolylines,
     overlaySpec,
     withStreetViewCoverage,
     streetViewCoverageTileUrl,

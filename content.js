@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.46";
+  let VERSION = "0.6.47";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -35,6 +35,11 @@
   // Pegman drag: Maps paints SV coverage on the (hidden) native canvas without
   // `!1e5` in the URL — keep overlay `svv` tiles while the drag is active.
   let pegmanCover = false;
+  // Directions routes are canvas-painted; fetch /preview/directions polylines and redraw.
+  let directionsPolylines = [];
+  let lastRouteKey = "";
+  let lastDirectionsPreviewUrl = "";
+  let directionsFetchTimer = null;
   // While the user drags, Maps updates the camera only on release (URL `@`).
   // Native canvas is hidden, so translate the overlay with the pointer so tiles
   // follow the cursor the way Off does outside China.
@@ -54,6 +59,11 @@
     lastHref = location.href;
     lastKey = "";
     lastPoiKey = "";
+    lastRouteKey = "";
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) {
+      directionsPolylines = [];
+      lastDirectionsPreviewUrl = "";
+    }
     clearTimeout(timer);
     timer = setTimeout(redraw, 120);
   });
@@ -625,6 +635,79 @@
     root.dataset.poiKinds = pois.map((p) => p.kind).join(",");
   }
 
+  function queueDirectionsFetch(previewUrl) {
+    const url = String(previewUrl || "");
+    if (!url || url === lastDirectionsPreviewUrl) return;
+    lastDirectionsPreviewUrl = url;
+    clearTimeout(directionsFetchTimer);
+    directionsFetchTimer = setTimeout(() => {
+      fetch(url)
+        .then((r) => r.text())
+        .then((body) => {
+          const lines = globalThis.Gcj02Aligner.extractDirectionsPolylines(body);
+          if (!lines.length) return;
+          directionsPolylines = lines;
+          lastRouteKey = "";
+          if (!gestureBusy()) redraw();
+        })
+        .catch(() => {});
+    }, 120);
+  }
+
+  function scanBufferedDirectionsResources() {
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return;
+    if (directionsPolylines.length) return;
+    for (const e of performance.getEntriesByType("resource")) {
+      if (/\/maps\/preview\/directions/i.test(e.name)) {
+        queueDirectionsFetch(e.name);
+        return;
+      }
+    }
+  }
+
+  function syncRoute(st, w, h) {
+    if (!panEl) return;
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) {
+      panEl.querySelectorAll(".gcj02-route").forEach((e) => e.remove());
+      lastRouteKey = "";
+      return;
+    }
+    scanBufferedDirectionsResources();
+    const routeKey = [
+      w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
+      directionsPolylines.map((line) => line.length).join(";")
+    ].join(",");
+    if (routeKey === lastRouteKey) return;
+    lastRouteKey = routeKey;
+    panEl.querySelectorAll(".gcj02-route").forEach((e) => e.remove());
+    if (!directionsPolylines.length) return;
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "gcj02-route");
+    svg.setAttribute("width", String(w));
+    svg.setAttribute("height", String(h));
+    svg.setAttribute("aria-hidden", "true");
+    for (const line of directionsPolylines) {
+      const pts = line.map((pt) => {
+        const s = globalThis.Gcj02Aligner.overlayPoiScreenPx(
+          pt.lat, pt.lon, st.lat, st.lon, st.zoom, w, h, urlCoordOpts()
+        );
+        return `${s.x},${s.y}`;
+      }).join(" ");
+      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      poly.setAttribute("points", pts);
+      poly.setAttribute("fill", "none");
+      poly.setAttribute("stroke", "#1a73e8");
+      poly.setAttribute("stroke-width", "6");
+      poly.setAttribute("stroke-linecap", "round");
+      poly.setAttribute("stroke-linejoin", "round");
+      poly.setAttribute("opacity", "0.92");
+      svg.appendChild(poly);
+    }
+    panEl.appendChild(svg);
+    if (root) root.dataset.routeSegments = String(directionsPolylines.length);
+  }
+
   function syncPoisIfVisible() {
     if (!alive || !root || root.style.display === "none") return;
     const st = parseMapState();
@@ -632,6 +715,7 @@
     const w = Math.max(root.clientWidth || root.getBoundingClientRect().width, 1);
     const h = Math.max(root.clientHeight || root.getBoundingClientRect().height, 1);
     syncPois(st, w, h);
+    syncRoute(st, w, h);
   }
 
   function hideOverlay() {
@@ -944,6 +1028,7 @@
       }
     }
     syncPois(st, w, h);
+    syncRoute(st, w, h);
   }
 
   function setMode(v) {
@@ -986,11 +1071,13 @@
       for (const e of list.getEntries()) {
         if (/\/maps\/vt\/pb=.*!2ssvv/i.test(e.name)) {
           setPegmanCover(true);
-          break;
+        }
+        if (/\/maps\/preview\/directions/i.test(e.name)) {
+          queueDirectionsFetch(e.name);
         }
       }
     });
-    po.observe({ type: "resource", buffered: false });
+    po.observe({ type: "resource", buffered: true });
   } catch (_e) {}
   // Smooth zoom preview for wheel and the corner +/- controls.
   document.addEventListener("wheel", onMapWheel, { capture: true, passive: true });

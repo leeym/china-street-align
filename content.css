@@ -69,7 +69,14 @@
   pointer-events: none;
   max-width: 520px;
 }
-.gcj02-poi {
+.gcj02-route {
+  position: absolute !important;
+  left: 0;
+  top: 0;
+  overflow: visible !important;
+  pointer-events: none !important;
+  z-index: 4 !important;
+}
   position: absolute !important;
   transform: translate(-13px, -100%);
   z-index: 2;
