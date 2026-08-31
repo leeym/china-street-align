@@ -112,13 +112,13 @@
     };
   }
 
-  // The URL `@lat,lon` is GCJ-02 in China — the same datum as the sidebar
-  // !3d/!4d, which is why the native pin lands on the native street map. The
-  // overlay draws a WGS-84 world, so its camera is that same real place in
-  // WGS-84. Centering on the raw `@` instead slid the whole view (roads and
-  // POIs together) by one GCJ offset, and that offset doubles per zoom level:
-  // 107px at z15, 214px at z16, 428px at z17 — the drift 五丈原 showed.
-  function overlayCamera(camLat, camLon) {
+  // The URL `@lat,lon` is usually GCJ-02 in China — the same datum as sidebar
+  // !3d/!4d for named places, which is why the Off pin sits on the Off street map.
+  // Exception: `/maps/place/<DMS or decimal lat,lon>/` queries are WGS-84 (Off
+  // satellite pins them on the true feature; treating them as GCJ slid 太和殿 west).
+  // opts.wgs84: leave camera/place in WGS (still CSS-shift GCJ street tiles).
+  function overlayCamera(camLat, camLon, opts) {
+    if (opts && opts.wgs84) return { lat: Number(camLat), lon: Number(camLon) };
     return gcjToWgs(Number(camLat), Number(camLon));
   }
 
@@ -126,10 +126,22 @@
   // take one camera overlayShiftPx (rigid) so POIs must use that same vector —
   // per-tile shifts made pins drift vs roads across zoom. Never multiply the
   // pixel shift; EW/NS follow overlayShiftPx at every z.
-  // camLat/camLon are the raw URL `@` values; the GCJ→WGS step happens here.
-  function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height) {
-    const cam = overlayCamera(camLat, camLon);
+  // camLat/camLon are the raw URL `@` values; the GCJ→WGS step happens here
+  // unless opts.wgs84 (lat/lon place query).
+  function overlayPoiScreenPx(placeLat, placeLon, camLat, camLon, zoom, width, height, opts) {
+    const cam = overlayCamera(camLat, camLon, opts);
     const center = worldPixel(cam.lat, cam.lon, zoom);
+    if (opts && opts.wgs84) {
+      const p = worldPixel(Number(placeLat), Number(placeLon), zoom);
+      return {
+        x: p.x - center.x + Number(width) / 2,
+        y: p.y - center.y + Number(height) / 2,
+        lat: Number(placeLat),
+        lon: Number(placeLon),
+        dx: 0,
+        dy: 0
+      };
+    }
     const raw = worldPixel(placeLat, placeLon, zoom);
     const s = overlayShiftPx(cam.lat, cam.lon, zoom);
     const wgs = gcjToWgs(placeLat, placeLon);
@@ -141,6 +153,30 @@
       dx: s.dx,
       dy: s.dy
     };
+  }
+
+  // Place path is an explicit coordinate (DMS or decimal pair), not a named POI.
+  function isLatLonPlaceName(name) {
+    const s = String(name || "")
+      .replace(/\+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!s) return false;
+    // 39°54'57.0"N 116°23'26.0"E (and unicode degree / quote variants)
+    if (
+      /\d+\s*[°º]/.test(s)
+      && /[NnSs]/.test(s)
+      && /[EeWw]/.test(s)
+    ) {
+      return true;
+    }
+    // 39.9158333,116.3905556
+    if (/^-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$/.test(s)) return true;
+    return false;
+  }
+
+  function urlCoordsAreWgs84(href) {
+    return isLatLonPlaceName(placeNameFromHref(href));
   }
 
   function placeNameFromHref(href) {
@@ -619,6 +655,8 @@
     overlayRoadTile,
     overlayCamera,
     overlayPoiScreenPx,
+    isLatLonPlaceName,
+    urlCoordsAreWgs84,
     cleanPoiName,
     labelHasVisitedSuffix,
     isAddressLikePlaceTitle,

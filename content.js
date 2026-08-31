@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.42";
+  let VERSION = "0.6.43";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -548,8 +548,14 @@
     setHoveredPoi("");
   }
 
+  function urlCoordOpts() {
+    return globalThis.Gcj02Aligner.urlCoordsAreWgs84(location.href)
+      ? { wgs84: true }
+      : undefined;
+  }
+
   // Placement lives in overlayPoiScreenPx, which does its own GCJ→WGS camera
-  // step, so this takes the raw URL state and no precomputed center.
+  // step (unless the place path is an explicit WGS lat/lon query).
   function syncPois(st, w, h) {
     if (!root || !panEl) return;
     const pois = collectPoisFromDocument();
@@ -569,7 +575,7 @@
     panEl.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
     pois.forEach((poi) => {
       const screen = globalThis.Gcj02Aligner.overlayPoiScreenPx(
-        poi.lat, poi.lon, st.lat, st.lon, st.zoom, w, h
+        poi.lat, poi.lon, st.lat, st.lon, st.zoom, w, h, urlCoordOpts()
       );
       const el = document.createElement("div");
       el.className = "gcj02-poi";
@@ -827,9 +833,9 @@
     const w = root.clientWidth || box.width;
     const h = root.clientHeight || box.height;
     if (!(w >= 32) || !(h >= 32)) return;
-    // URL `@` is GCJ-02 here; the overlay world is WGS-84. Center on the same
-    // real place so toggling On never slides the view (see overlayCamera).
-    const cam = globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon);
+    // URL `@` is usually GCJ-02; lat/lon place queries are already WGS-84.
+    // Center the overlay on the WGS twin of that camera (see overlayCamera).
+    const cam = globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon, urlCoordOpts());
     const center = worldPixel(cam.lat, cam.lon, st.zoom);
     const tl = { x: center.x - w / 2, y: center.y - h / 2 };
     // Enough off-screen tiles that a mid-drag translate does not expose a gap.
@@ -841,7 +847,7 @@
     const max = 2 ** zTile;
     const key = [
       active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), (spec.shadeLyrs || []).join("+"),
-      spec.extraLyrs.join("+"),
+      spec.extraLyrs.join("+"), urlCoordOpts()?.wgs84 ? "wgs" : "gcj",
       zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y),
       Math.round(w), Math.round(h)
     ].join(",");

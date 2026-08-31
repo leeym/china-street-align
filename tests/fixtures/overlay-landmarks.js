@@ -11,6 +11,18 @@ const FORBIDDEN_CITY = {
     "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167135,116.3868853,15z/data=!4m2!2m1!6e1",
   satHref:
     "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167135,116.3868853,4718m/data=!3m1!1e3!4m2!2m1!6e1",
+  // 太和殿 WGS-84 (39°54′57″N 116°23′26″E). Place path is DMS → treat as WGS.
+  taihedianWgs: {
+    name: "太和殿",
+    lat: 39.9158333,
+    lon: 116.3905556,
+    // Approximate palace-axis longitude; wrongly applying gcjToWgs slides west of this.
+    palaceAxisLon: 116.3902,
+    href:
+      "https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,17z/data=!4m4!3m3!8m2!3d39.9158333!4d116.3905556",
+    satHref:
+      "https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,1179m/data=!3m2!1e3!4b1!4m4!3m3!8m2!3d39.9158333!4d116.3905556"
+  },
   lat: 39.9167135,
   lon: 116.3868853,
   // 故宫午门, GCJ-02. Must sit on the overlay palace axis, not east of it.

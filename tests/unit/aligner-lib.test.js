@@ -97,6 +97,40 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentCss, /\.gcj02-poi-label/);
   });
 
+  it("treats DMS/decimal place paths as WGS-84 (太和殿 lat/lon query)", () => {
+    const { FORBIDDEN_CITY } = require("../fixtures/overlay-landmarks");
+    const t = FORBIDDEN_CITY.taihedianWgs;
+    assert.equal(lib.isLatLonPlaceName("39°54'57.0\"N 116°23'26.0\"E"), true);
+    assert.equal(lib.isLatLonPlaceName("39.9158333,116.3905556"), true);
+    assert.equal(lib.isLatLonPlaceName("紫禁城"), false);
+    assert.equal(lib.urlCoordsAreWgs84(t.href), true);
+    assert.equal(lib.urlCoordsAreWgs84(t.satHref), true);
+    assert.equal(lib.urlCoordsAreWgs84(FORBIDDEN_CITY.mapHref), false);
+
+    const cam = lib.overlayCamera(t.lat, t.lon, { wgs84: true });
+    assert.equal(cam.lat, t.lat);
+    assert.equal(cam.lon, t.lon);
+    const wrong = lib.overlayCamera(t.lat, t.lon);
+    assert.ok(wrong.lon < t.lon - 0.002, "gcjToWgs of WGS slides west of 太和殿");
+
+    const plotted = lib.overlayPoiScreenPx(
+      t.lat, t.lon, t.lat, t.lon, 17, 1280, 720, { wgs84: true }
+    );
+    assert.equal(plotted.dx, 0);
+    assert.equal(plotted.dy, 0);
+    assert.equal(plotted.lat, t.lat);
+    assert.equal(plotted.lon, t.lon);
+    // Framed on the pin: screen centre.
+    assert.ok(Math.abs(plotted.x - 640) < 1, JSON.stringify(plotted));
+    assert.ok(Math.abs(plotted.y - 360) < 1, JSON.stringify(plotted));
+    assert.ok(plotted.lon > t.palaceAxisLon - 0.001);
+
+    const slid = lib.overlayPoiScreenPx(t.lat, t.lon, t.lat, t.lon, 17, 1280, 720);
+    assert.ok(slid.lon < t.palaceAxisLon, "legacy GCJ path must not be used for this URL");
+    assert.match(contentJs, /urlCoordOpts/);
+    assert.match(contentJs, /urlCoordsAreWgs84/);
+  });
+
   it("keeps POI↔street shift vector identical across zoom levels", () => {
     const poi = WUZHANGYUAN.samplePoi;
     const cams = [
@@ -833,7 +867,7 @@ describe("search result POIs on the overlay", () => {
     const back = lib.wgsToGcj(cam.lat, cam.lon);
     assert.ok(Math.abs(back.lat - st.lat) < 1e-7, `${back.lat} vs ${st.lat}`);
     assert.ok(Math.abs(back.lon - st.lon) < 1e-7, `${back.lon} vs ${st.lon}`);
-    assert.match(contentJs, /Gcj02Aligner\.overlayCamera\(st\.lat, st\.lon\)/);
+    assert.match(contentJs, /Gcj02Aligner\.overlayCamera\(st\.lat, st\.lon, urlCoordOpts\(\)\)/);
     assert.match(contentJs, /worldPixel\(cam\.lat, cam\.lon, st\.zoom\)/);
     assert.match(contentJs, /overlayShiftPx\(cam\.lat, cam\.lon, st\.zoom\)/);
     assert.doesNotMatch(contentJs, /worldPixel\(st\.lat, st\.lon, st\.zoom\)/);
