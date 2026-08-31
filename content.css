@@ -14,21 +14,6 @@
   height: 100%;
   pointer-events: none !important;
 }
-/* Terrain: muted sage basemap + unshifted WGS `lyrs=t` as a soft relief wash;
-   shifted `h` draws roads. Avoid heavy sepia/saturate (looked fluorescent) and
-   avoid mix-blend (pan layer isolates compositing from the root). */
-#gcj02-aligner-root[data-layer="terrain"],
-#gcj02-aligner-root[data-layer="terrain"] .gcj02-aligner-pan {
-  background-color: #d5deca;
-}
-#gcj02-aligner-root[data-layer="terrain"] .gcj02-tile[data-lyrs="t"] {
-  /* Raw `t` is near-black with light ridges → invert to a light wash over sage. */
-  filter: invert(1) contrast(1.04) brightness(1.06);
-  opacity: 0.42;
-}
-#gcj02-aligner-root[data-layer="terrain"] .gcj02-road[data-lyrs="h"] {
-  opacity: 1;
-}
 .gcj02-tile,
 .gcj02-road {
   position: absolute !important;

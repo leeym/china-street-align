@@ -574,11 +574,11 @@
       return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", extraLyrs };
     }
     if (terrain) {
-      // `lyrs=p` bakes GCJ roads onto WGS hillshade — leaving `p` unshifted keeps
-      // cliffs right but shows skewed ghost streets under the shifted `h` labels.
-      // Use unshifted grayscale relief `t` (WGS, no roads) + shifted `h`, and tint
-      // the root so the map is not black-and-white.
-      return { nativeOnly: false, label: "terrain", baseLyrs: ["t"], roadLyrs: "h", extraLyrs };
+      // Native terrain outside China is Google's combined `lyrs=p` tile. Inside
+      // China, paint the same `p` tiles and CSS-shift them like street `m` —
+      // no artificial tint, no `t`+recolor. (Splitting to unshifted `t`+`h`
+      // needs fake color; unshifted `p`+shifted `h` leaves skewed ghost roads.)
+      return { nativeOnly: false, label: "terrain", baseLyrs: [], roadLyrs: "p", extraLyrs };
     }
     return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", extraLyrs };
   }

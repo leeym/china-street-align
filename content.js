@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.35";
+  let VERSION = "0.6.36";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -793,10 +793,9 @@
           const left = pW.x - center.x + w / 2 - tileSize / 2;
           const top = pW.y - center.y + h / 2 - tileSize / 2;
 
-          // Satellite `s` and terrain relief `t` stay on WGS (do not CSS-shift).
-          // GCJ streets (`h`/`m`) and extras use the same WGS tile index then the
-          // camera CSS-shift onto that base. Never use unshifted `p` as basemap:
-          // it bakes skewed GCJ roads into the WGS hillshade.
+          // Satellite `s` stays on WGS (do not CSS-shift). GCJ layers (`m`/`p`/
+          // `h` and extras) use the same WGS tile index then the camera CSS-shift.
+          // Terrain uses shifted native `p` (same tiles as outside China).
           for (const lyrs of spec.baseLyrs) {
             placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }

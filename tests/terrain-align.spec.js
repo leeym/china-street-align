@@ -14,7 +14,7 @@ const OUT = path.join(__dirname, "..", "test-results", "terrain-align");
 const TERRAIN_URL =
   "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.264874,107.6212778,13.85z/data=!4m6!3m5!1s0x36613e2da81fc14b:0xeee51cceea4d3465!8m2!3d34.282582!4d107.618568!16zL20vMDZkOGxk!5m1!1e4";
 
-test.describe("terrain relief stays WGS while roads shift", () => {
+test.describe("terrain uses native p tiles, CSS-shifted", () => {
   /** @type {import('@playwright/test').BrowserContext} */
   let context;
   /** @type {import('@playwright/test').Page} */
@@ -33,7 +33,7 @@ test.describe("terrain relief stays WGS while roads shift", () => {
     await context?.close();
   });
 
-  test("uses unshifted lyrs=t plus shifted lyrs=h, never unshifted p", async () => {
+  test("paints shifted lyrs=p like native terrain, no t tint", async () => {
     await page.goto(TERRAIN_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
     await dismissConsent(page);
     await waitForOverlay(page);
@@ -47,47 +47,38 @@ test.describe("terrain relief stays WGS while roads shift", () => {
         cls: img.className,
         transform: img.style.transform || ""
       }));
-      const tImg = root.querySelector('img.gcj02-tile[data-lyrs="t"]');
-      const tCs = tImg ? getComputedStyle(tImg) : null;
+      const pImg = root.querySelector('img[data-lyrs="p"]');
+      const pCs = pImg ? getComputedStyle(pImg) : null;
       return {
         layer: root.dataset.layer || "",
         bg: getComputedStyle(root).backgroundColor,
-        blend: tCs?.mixBlendMode || "",
-        filter: tCs?.filter || "",
+        filter: pCs?.filter || "none",
         tiles,
-        hasT: tiles.some((t) => t.lyrs === "t" && t.cls.includes("gcj02-tile")),
+        hasT: tiles.some((t) => t.lyrs === "t"),
         hasH: tiles.some((t) => t.lyrs === "h"),
         hasP: tiles.some((t) => t.lyrs === "p"),
-        tShifted: tiles.some((t) => t.lyrs === "t" && /translate/i.test(t.transform)),
-        hShifted: tiles.some((t) => t.lyrs === "h" && /translate/i.test(t.transform))
+        pShifted: tiles.some((t) => t.lyrs === "p" && /translate/i.test(t.transform))
       };
     });
 
     expect(info, "overlay root missing").toBeTruthy();
     expect(info.layer, JSON.stringify(info)).toBe("terrain");
-    expect(info.hasT, JSON.stringify(info)).toBeTruthy();
-    expect(info.hasH, JSON.stringify(info)).toBeTruthy();
-    expect(info.hasP, "must not paint skewed p roads").toBeFalsy();
-    expect(info.tShifted, "relief must not CSS-shift").toBeFalsy();
-    expect(info.hShifted, "roads must CSS-shift").toBeTruthy();
-    expect(info.filter, "soft invert wash").toMatch(/invert/i);
-    expect(info.filter, "must not fluorescent-saturate").not.toMatch(/saturate\(/i);
-    expect(info.filter, "must not sepia neon").not.toMatch(/sepia\(/i);
+    expect(info.hasP, JSON.stringify(info)).toBeTruthy();
+    expect(info.pShifted, "native p must CSS-shift").toBeTruthy();
+    expect(info.hasT, "must not use grayscale t + fake tint").toBeFalsy();
+    expect(info.hasH, "p already includes roads").toBeFalsy();
+    expect(info.filter, "no artificial colorize").toMatch(/^(none)?$/i);
+    expect(info.bg, "no sage fill").not.toMatch(/rgb\(\s*213,\s*222,\s*202\s*\)/i);
 
     const shot = path.join(OUT, "terrain-on.png");
     await withOverlayDecorHidden(page, async () => {
       await page.screenshot({ path: shot, fullPage: false });
     });
 
-    // Not near-B&W, and not fluorescent neon green (0.6.34 oversaturated).
-    // Soft sage is light (mean ~200) with low sat — reject high sat / channel spikes.
+    // Structural check is the product rule. Native `p` colour varies by place
+    // (Wuzhangyuan is pale/beige, not saturated green) — only reject empty/B&W.
     const color = pngRegionColorStats(shot, MAP_CROP);
-    expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.9);
-    expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(8);
-    expect(color.meanSat, JSON.stringify(color)).toBeLessThan(55);
-    expect(color.greenBias, JSON.stringify(color)).toBeGreaterThan(1.5);
-    expect(color.greenBias, JSON.stringify(color)).toBeLessThan(28);
-    expect(color.meanG, JSON.stringify(color)).toBeGreaterThan(color.meanB + 2);
-    expect(color.meanG - color.meanR, JSON.stringify(color)).toBeLessThan(35);
+    expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(4);
+    expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.97);
   });
 });
