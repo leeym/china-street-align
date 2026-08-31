@@ -68,11 +68,22 @@ test.describe("overlay follows the pointer while dragging in China", () => {
     expect(Number(m[2]), mid.panTransform).toBeGreaterThan(20);
 
     await page.mouse.up();
-    await page.waitForTimeout(500);
+    // Must not clear the preview on the same turn as release (that snaps back).
+    const rightAfter = await page.evaluate(() => {
+      const pan = document.getElementById("gcj02-aligner-pan");
+      return pan?.style.transform || "";
+    });
+    expect(rightAfter, "hold translate until Maps commits").toMatch(/translate3d\(/);
+
+    await page.waitForFunction(() => {
+      const pan = document.getElementById("gcj02-aligner-pan");
+      const t = pan?.style.transform || "";
+      return t === "" || t === "none" || !/translate3d\(/.test(t);
+    }, { timeout: 5000 });
     const after = await page.evaluate(() => {
       const pan = document.getElementById("gcj02-aligner-pan");
       return pan?.style.transform || "";
     });
-    expect(after === "" || after === "none", `clear after release: ${after}`).toBeTruthy();
+    expect(after === "" || after === "none" || !/translate3d\(/.test(after), `clear after settle: ${after}`).toBeTruthy();
   });
 });

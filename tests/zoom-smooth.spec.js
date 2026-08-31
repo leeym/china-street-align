@@ -60,7 +60,12 @@ test.describe("overlay scales smoothly while zooming in China", () => {
     expect(m, mid.transform).toBeTruthy();
     expect(Number(m[1]), mid.transform).toBeGreaterThan(1.05);
 
-    await page.waitForTimeout(500);
+    // Settle timer clears scale only after Maps commits / redraw — not a snap-back frame.
+    await page.waitForFunction(() => {
+      const pan = document.getElementById("gcj02-aligner-pan");
+      const t = pan?.style.transform || "";
+      return t === "" || !/scale\(/.test(t);
+    }, { timeout: 5000 });
     const after = await page.evaluate(() => {
       const pan = document.getElementById("gcj02-aligner-pan");
       return pan?.style.transform || "";

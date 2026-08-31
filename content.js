@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.40";
+  let VERSION = "0.6.41";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -15,6 +15,8 @@
   const WHEEL_PX_PER_ZOOM = 420;
   const ZOOM_SETTLE_MS = 200;
   const BUTTON_ZOOM_MS = 280;
+  const GESTURE_SETTLE_MAX_MS = 1500;
+  const PAN_MOVE_PX = 3;
 
   // Always on for users. postMessage setMode is only for automated tests.
   let mode = "on";
@@ -37,6 +39,9 @@
   // Smooth zoom: scale the pan layer during wheel / +/- ; redraw when settled.
   let zoomAnim = null;
   let zoomRaf = 0;
+  // After pointer-up / zoom settle, keep the preview transform until Maps commits
+  // a new `@` and redraw paints matching tiles — clearing earlier snaps back.
+  let gestureHold = null;
   const obs = new MutationObserver(() => {
     if (!alive || gestureBusy()) return;
     if (location.href === lastHref) {
@@ -51,7 +56,7 @@
   });
 
   function gestureBusy() {
-    return !!(panDrag || zoomAnim);
+    return !!(panDrag || zoomAnim || gestureHold);
   }
 
   function clearPanVisual() {
@@ -59,6 +64,61 @@
     panEl.style.transition = "";
     panEl.style.transform = "";
     panEl.style.transformOrigin = "";
+  }
+
+  function cameraSnapshot() {
+    const st = parseMapState();
+    return {
+      href: location.href,
+      lat: st ? st.lat : null,
+      lon: st ? st.lon : null,
+      zoom: st ? st.zoom : null
+    };
+  }
+
+  function cameraChanged(from) {
+    if (!from) return true;
+    if (location.href !== from.href) return true;
+    const st = parseMapState();
+    if (!st || from.lat == null) return false;
+    return (
+      Math.abs(st.lat - from.lat) >= 1e-7
+      || Math.abs(st.lon - from.lon) >= 1e-7
+      || Math.abs(st.zoom - from.zoom) >= 0.001
+    );
+  }
+
+  function scheduleGestureSettle() {
+    clearTimeout(timer);
+    timer = setTimeout(tryGestureSettle, 32);
+  }
+
+  function tryGestureSettle() {
+    if (!alive) return;
+    if (!gestureHold) {
+      redraw();
+      return;
+    }
+    const timedOut = Date.now() - gestureHold.since > GESTURE_SETTLE_MAX_MS;
+    if (!cameraChanged(gestureHold) && !timedOut) {
+      scheduleGestureSettle();
+      return;
+    }
+    gestureHold = null;
+    lastKey = "";
+    lastHref = "";
+    redraw();
+  }
+
+  function beginGestureHold(snap) {
+    gestureHold = {
+      href: snap.href,
+      lat: snap.lat,
+      lon: snap.lon,
+      zoom: snap.zoom,
+      since: Date.now()
+    };
+    scheduleGestureSettle();
   }
 
   function teardown() {
@@ -69,6 +129,7 @@
     clearInterval(pollTimer);
     endZoomAnim(true);
     panDrag = null;
+    gestureHold = null;
     try { root?.remove(); } catch (_e) {}
     try { lastHost && (lastHost.style.clipPath = ""); lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     lastHost = null;
@@ -540,6 +601,7 @@
 
   function hideOverlay() {
     panDrag = null;
+    gestureHold = null;
     endZoomAnim(true);
     clearPanVisual();
     if (root) {
@@ -604,17 +666,24 @@
   function endZoomAnim(silent) {
     if (!zoomAnim) return;
     clearTimeout(zoomAnim.endTimer);
+    const startSnap = {
+      href: zoomAnim.startHref || location.href,
+      lat: zoomAnim.startLat,
+      lon: zoomAnim.startLon,
+      zoom: zoomAnim.startZoom
+    };
     zoomAnim = null;
     if (zoomRaf) {
       cancelAnimationFrame(zoomRaf);
       zoomRaf = 0;
     }
-    clearPanVisual();
-    if (silent || !alive) return;
-    lastKey = "";
-    lastHref = "";
-    clearTimeout(timer);
-    timer = setTimeout(redraw, 50);
+    if (silent || !alive) {
+      gestureHold = null;
+      clearPanVisual();
+      return;
+    }
+    // Keep scale() until Maps commits the new zoom and redraw paints it.
+    beginGestureHold(startSnap);
   }
 
   function beginWheelZoom(clientX, clientY) {
@@ -625,6 +694,9 @@
     if (!zoomAnim) {
       zoomAnim = {
         startZoom: st.zoom,
+        startLat: st.lat,
+        startLon: st.lon,
+        startHref: location.href,
         ox: clientX - box.left,
         oy: clientY - box.top,
         wheelScale: 1,
@@ -667,6 +739,9 @@
     const box = root.getBoundingClientRect();
     zoomAnim = {
       startZoom: st.zoom,
+      startLat: st.lat,
+      startLon: st.lon,
+      startHref: location.href,
       ox: box.width / 2,
       oy: box.height / 2,
       wheelScale: 1,
@@ -688,13 +763,24 @@
     if (t.closest("#gcj02-aligner-status, input, textarea, button, select, [role='slider']")) return;
     if (!pointInOverlay(ev.clientX, ev.clientY)) return;
     if (zoomAnim) endZoomAnim(true);
-    panDrag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY };
+    if (gestureHold) {
+      gestureHold = null;
+      clearPanVisual();
+    }
+    panDrag = {
+      id: ev.pointerId,
+      x0: ev.clientX,
+      y0: ev.clientY,
+      moved: false,
+      snap: cameraSnapshot()
+    };
   }
 
   function onPanPointerMove(ev) {
     if (!panDrag || ev.pointerId !== panDrag.id || !panEl) return;
     const dx = ev.clientX - panDrag.x0;
     const dy = ev.clientY - panDrag.y0;
+    if (!panDrag.moved && Math.hypot(dx, dy) >= PAN_MOVE_PX) panDrag.moved = true;
     // Translate the inner pan layer only — root stays put with overflow:hidden
     // so padded off-screen tiles slide into view instead of exposing a black gap.
     panEl.style.transition = "";
@@ -705,12 +791,14 @@
   function endPanDrag(ev) {
     if (!panDrag) return;
     if (ev && ev.pointerId != null && ev.pointerId !== panDrag.id) return;
+    const { moved, snap } = panDrag;
     panDrag = null;
-    clearPanVisual();
-    lastKey = "";
-    lastHref = "";
-    clearTimeout(timer);
-    timer = setTimeout(redraw, 80);
+    if (!moved) {
+      clearPanVisual();
+      return;
+    }
+    // Keep translate3d until Maps updates `@` and redraw replaces tiles.
+    beginGestureHold(snap || cameraSnapshot());
   }
 
   function redraw() {
@@ -757,6 +845,9 @@
     if (key !== lastKey) {
       lastKey = key;
       lastPoiKey = "";
+      // Drop pan/zoom preview in the same turn as placing tiles for the new
+      // camera so the frame never shows old tiles at identity transform.
+      clearPanVisual();
       if (panEl) panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
       else root.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
 

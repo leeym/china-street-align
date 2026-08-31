@@ -40,7 +40,7 @@ Until then, load it unpacked from this repo:
 4. Open Google Maps. Alignment runs automatically inside China.
 5. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.40**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.41**).
 
 ## Usage
 

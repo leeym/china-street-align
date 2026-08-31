@@ -304,7 +304,12 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /gcj02-aligner-pan/);
     assert.match(contentJs, /panEl\.style\.transform = `translate3d\(\$\{dx\}px,\$\{dy\}px,0\)`/);
     assert.match(contentJs, /gestureBusy/);
+    assert.match(contentJs, /gestureHold/);
+    assert.match(contentJs, /beginGestureHold/);
+    assert.match(contentJs, /tryGestureSettle/);
     assert.match(contentCss, /\.gcj02-aligner-pan/);
+    // Release must not clear the preview before redraw (snap-back flash).
+    assert.match(contentJs, /Keep translate3d until Maps updates/);
   });
 
   it("scales the pan layer during wheel and +/- zoom instead of hard redraw", () => {
@@ -314,6 +319,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /scale\(\$\{s\}\)/);
     assert.match(contentJs, /BUTTON_ZOOM_MS/);
     assert.match(contentJs, /WHEEL_PX_PER_ZOOM/);
+    assert.match(contentJs, /Keep scale\(\) until Maps commits/);
   });
 
   it("rejects the 0.6.8 remap pattern: overlayRoadTile xy differs from WGS slot", () => {
