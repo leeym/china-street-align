@@ -45,6 +45,13 @@ async function setAlignerMode(context, page, mode) {
   await page.waitForTimeout(500);
 }
 
+async function setPegmanCover(page, on) {
+  await page.evaluate((v) => {
+    window.postMessage({ source: "gcj02-aligner", type: "setPegmanCover", on: v }, "*");
+  }, !!on).catch(() => {});
+  await page.waitForTimeout(400);
+}
+
 async function waitForOverlay(page) {
   await page.waitForFunction(() => {
     const root = document.getElementById("gcj02-aligner-root");
@@ -479,6 +486,7 @@ module.exports = {
   launchExtensionContext,
   dismissConsent,
   setAlignerMode,
+  setPegmanCover,
   waitForOverlay,
   waitForOverlayOff,
   waitForNativePois,

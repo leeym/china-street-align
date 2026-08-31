@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.43";
+  let VERSION = "0.6.44";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -32,6 +32,9 @@
   let lastActionInChina = null;
   let hoveredPoiKey = "";
   let alive = true;
+  // Pegman drag: Maps paints SV coverage on the (hidden) native canvas without
+  // `!1e5` in the URL — keep overlay `svv` tiles while the drag is active.
+  let pegmanCover = false;
   // While the user drags, Maps updates the camera only on release (URL `@`).
   // Native canvas is hidden, so translate the overlay with the pointer so tiles
   // follow the cursor the way Off does outside China.
@@ -158,7 +161,27 @@
   }
 
   function overlaySpec() {
-    return globalThis.Gcj02Aligner.overlaySpec(location.href);
+    const base = globalThis.Gcj02Aligner.overlaySpec(location.href);
+    return globalThis.Gcj02Aligner.withStreetViewCoverage(base, pegmanCover);
+  }
+
+  function setPegmanCover(on) {
+    const next = !!on;
+    if (next === pegmanCover) return;
+    pegmanCover = next;
+    lastKey = "";
+    if (!gestureBusy()) redraw();
+  }
+
+  function onPegmanPointerDown(ev) {
+    if (!(ev.target instanceof Element)) return;
+    if (!globalThis.Gcj02Aligner.isStreetViewPegmanTarget(ev.target)) return;
+    setPegmanCover(true);
+  }
+
+  function onPegmanPointerUp() {
+    if (!pegmanCover) return;
+    setPegmanCover(false);
   }
 
   function parseMapState() {
@@ -769,6 +792,8 @@
     if (ev.isPrimary === false) return;
     const t = ev.target;
     if (!(t instanceof Element)) return;
+    // Pegman drag must not steal the pan preview — coverage uses svv tiles.
+    if (globalThis.Gcj02Aligner.isStreetViewPegmanTarget(t)) return;
     if (t.closest("#gcj02-aligner-status, input, textarea, button, select, [role='slider']")) return;
     if (!pointInOverlay(ev.clientX, ev.clientY)) return;
     if (zoomAnim) endZoomAnim(true);
@@ -930,8 +955,9 @@
   // Test-only: Playwright posts setMode to force native Maps for On-vs-Off checks.
   addEventListener("message", (ev) => {
     if (!alive || ev.source !== window) return;
-    if (ev.data?.source !== "gcj02-aligner" || ev.data?.type !== "setMode") return;
-    setMode(ev.data.mode);
+    if (ev.data?.source !== "gcj02-aligner") return;
+    if (ev.data?.type === "setMode") setMode(ev.data.mode);
+    if (ev.data?.type === "setPegmanCover") setPegmanCover(!!ev.data.on);
   });
 
   // Off paints the red teardrop+tooltip on the native canvas when the sidebar
@@ -946,12 +972,17 @@
   document.addEventListener("pointermove", onPanPointerMove, true);
   document.addEventListener("pointerup", endPanDrag, true);
   document.addEventListener("pointercancel", endPanDrag, true);
+  // Pegman drag: show shifted Street View coverage (`svv`) while native canvas is hidden.
+  document.addEventListener("pointerdown", onPegmanPointerDown, true);
+  document.addEventListener("pointerup", onPegmanPointerUp, true);
+  document.addEventListener("pointercancel", onPegmanPointerUp, true);
   // Smooth zoom preview for wheel and the corner +/- controls.
   document.addEventListener("wheel", onMapWheel, { capture: true, passive: true });
   document.addEventListener("pointerdown", onZoomButtonDown, true);
   addEventListener("blur", () => {
     endPanDrag(null);
     endZoomAnim(false);
+    onPegmanPointerUp();
   });
 
   obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true });

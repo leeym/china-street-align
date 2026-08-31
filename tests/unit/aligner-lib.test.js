@@ -324,7 +324,11 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /setActionStatus/);
     assert.match(contentJs, /Aligning ·/);
     assert.doesNotMatch(contentJs, /chrome\.storage/);
-    assert.match(contentJs, /type !== "setMode"/);
+    assert.match(contentJs, /type === "setMode"/);
+    assert.match(contentJs, /setPegmanCover/);
+    assert.match(contentJs, /withStreetViewCoverage/);
+    assert.match(contentJs, /isStreetViewPegmanTarget/);
+    assert.match(contentJs, /onPegmanPointerDown/);
     const sw = fs.readFileSync(path.join(rootDir, "service-worker.js"), "utf8");
     assert.match(sw, /setActionStatus/);
     assert.match(sw, /OffscreenCanvas/);
@@ -710,6 +714,26 @@ describe("Google Maps layer overlay spec", () => {
     const both = lib.overlaySpec(TERRAIN_TRAFFIC);
     assert.equal(both.label, "terrain");
     assert.deepEqual(both.extraLyrs, ["h,traffic"]);
+  });
+
+  it("can force Street View coverage tiles while pegman is dragged", () => {
+    const map = lib.overlaySpec(MAP);
+    assert.deepEqual(map.extraLyrs, []);
+    assert.deepEqual(lib.withStreetViewCoverage(map, true).extraLyrs, ["svv"]);
+    assert.deepEqual(lib.withStreetViewCoverage(map, false).extraLyrs, []);
+    assert.deepEqual(lib.withStreetViewCoverage(lib.overlaySpec(SV_COVER), true).extraLyrs, ["svv"]);
+    assert.equal(lib.withStreetViewCoverage(lib.overlaySpec(STREET_VIEW), true).nativeOnly, true);
+  });
+
+  it("recognizes pegman / Street View control labels", () => {
+    const mk = (attrs) => {
+      const el = { nodeType: 1, parentElement: null, getAttribute: (k) => attrs[k] || null };
+      return el;
+    };
+    assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "Street View" })), true);
+    assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "街景" })), true);
+    assert.equal(lib.isStreetViewPegmanTarget(mk({ title: "Pegman" })), true);
+    assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "Zoom in" })), false);
   });
 
   it("does not treat the default map as native-only", () => {

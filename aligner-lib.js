@@ -621,6 +621,34 @@
     return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs };
   }
 
+  // Pegman drag shows Street View coverage on the native canvas without putting
+  // `!1e5` in the URL. While our overlay hides that canvas, force `svv` tiles.
+  function withStreetViewCoverage(spec, want) {
+    if (!want || !spec || spec.nativeOnly) return spec;
+    const extras = spec.extraLyrs || [];
+    if (extras.includes("svv")) return spec;
+    return Object.assign({}, spec, { extraLyrs: extras.concat("svv") });
+  }
+
+  function isStreetViewPegmanTarget(el) {
+    let n = el && el.nodeType === 1 ? el : null;
+    for (let i = 0; i < 8 && n; i++, n = n.parentElement) {
+      const bits = [
+        n.getAttribute("aria-label"),
+        n.getAttribute("title"),
+        n.getAttribute("data-tooltip"),
+        n.getAttribute("jsaction"),
+        n.id,
+        typeof n.className === "string" ? n.className : ""
+      ]
+        .filter(Boolean)
+        .join(" ");
+      if (/street\s*view|pegman|街景|ストリートビュー|스트리트/i.test(bits)) return true;
+      if (/\bstreetview\b|\bpegman\b/i.test(bits)) return true;
+    }
+    return false;
+  }
+
   function parseMapHref(href) {
     const url = String(href || "");
     const zMatch = url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)z\b/);
@@ -681,6 +709,8 @@
     mapLayerIds,
     isNativeOnlyView,
     overlaySpec,
+    withStreetViewCoverage,
+    isStreetViewPegmanTarget,
     parseMapHref
   };
 })(typeof globalThis !== "undefined" ? globalThis : self);
