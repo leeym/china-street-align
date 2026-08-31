@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.31";
+  let VERSION = "0.6.32";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -11,6 +11,10 @@
   // Fractional zoom makes tileSize non-integer; browsers round edges and leave
   // hairline gaps (reads as black seams). Paint each tile 1px larger so neighbours overlap.
   const TILE_SEAM_OVERLAP_PX = 1;
+  // Wheel deltaY (CSS px) per one zoom level — matches Maps-ish feel for the preview scale.
+  const WHEEL_PX_PER_ZOOM = 420;
+  const ZOOM_SETTLE_MS = 200;
+  const BUTTON_ZOOM_MS = 280;
 
   // Always on for users. postMessage setMode is only for automated tests.
   let mode = "on";
@@ -30,8 +34,11 @@
   // Native canvas is hidden, so translate the overlay with the pointer so tiles
   // follow the cursor the way Off does outside China.
   let panDrag = null;
+  // Smooth zoom: scale the pan layer during wheel / +/- ; redraw when settled.
+  let zoomAnim = null;
+  let zoomRaf = 0;
   const obs = new MutationObserver(() => {
-    if (!alive || panDrag) return;
+    if (!alive || gestureBusy()) return;
     if (location.href === lastHref) {
       syncPoisIfVisible();
       return;
@@ -43,17 +50,31 @@
     timer = setTimeout(redraw, 120);
   });
 
+  function gestureBusy() {
+    return !!(panDrag || zoomAnim);
+  }
+
+  function clearPanVisual() {
+    if (!panEl) return;
+    panEl.style.transition = "";
+    panEl.style.transform = "";
+    panEl.style.transformOrigin = "";
+  }
+
   function teardown() {
     if (!alive) return;
     alive = false;
     try { obs.disconnect(); } catch (_e) {}
     clearTimeout(timer);
     clearInterval(pollTimer);
+    endZoomAnim(true);
+    panDrag = null;
     try { root?.remove(); } catch (_e) {}
     try { lastHost && (lastHost.style.clipPath = ""); lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     lastHost = null;
     setNativeMapHidden(false);
     root = null;
+    panEl = null;
     statusEl = null;
   }
 
@@ -519,7 +540,8 @@
 
   function hideOverlay() {
     panDrag = null;
-    if (panEl) panEl.style.transform = "";
+    endZoomAnim(true);
+    clearPanVisual();
     if (root) {
       root.style.display = "none";
       root.dataset.mode = "off";
@@ -546,6 +568,117 @@
     return clientX >= box.left && clientX <= box.right && clientY >= box.top && clientY <= box.bottom;
   }
 
+  function zoomScaleNow() {
+    if (!zoomAnim) return 1;
+    if (zoomAnim.buttonScale != null) return zoomAnim.buttonScale;
+    const st = parseMapState();
+    if (st && Math.abs(st.zoom - zoomAnim.startZoom) >= 0.001) {
+      return 2 ** (st.zoom - zoomAnim.startZoom);
+    }
+    return zoomAnim.wheelScale;
+  }
+
+  function applyZoomVisual() {
+    if (!zoomAnim || !panEl) return;
+    const s = zoomScaleNow();
+    panEl.style.transformOrigin = `${zoomAnim.ox}px ${zoomAnim.oy}px`;
+    panEl.style.transform = `scale(${s})`;
+  }
+
+  function scheduleZoomTick() {
+    if (zoomRaf || !zoomAnim || zoomAnim.buttonScale != null) return;
+    zoomRaf = requestAnimationFrame(() => {
+      zoomRaf = 0;
+      if (!zoomAnim) return;
+      applyZoomVisual();
+      if (zoomAnim) scheduleZoomTick();
+    });
+  }
+
+  function bumpZoomEndTimer() {
+    if (!zoomAnim) return;
+    clearTimeout(zoomAnim.endTimer);
+    zoomAnim.endTimer = setTimeout(() => endZoomAnim(false), ZOOM_SETTLE_MS);
+  }
+
+  function endZoomAnim(silent) {
+    if (!zoomAnim) return;
+    clearTimeout(zoomAnim.endTimer);
+    zoomAnim = null;
+    if (zoomRaf) {
+      cancelAnimationFrame(zoomRaf);
+      zoomRaf = 0;
+    }
+    clearPanVisual();
+    if (silent || !alive) return;
+    lastKey = "";
+    lastHref = "";
+    clearTimeout(timer);
+    timer = setTimeout(redraw, 50);
+  }
+
+  function beginWheelZoom(clientX, clientY) {
+    if (!overlayIsVisible() || !panEl || !root || panDrag) return;
+    const st = parseMapState();
+    if (!st) return;
+    const box = root.getBoundingClientRect();
+    if (!zoomAnim) {
+      zoomAnim = {
+        startZoom: st.zoom,
+        ox: clientX - box.left,
+        oy: clientY - box.top,
+        wheelScale: 1,
+        endTimer: 0,
+        buttonScale: null
+      };
+      panEl.style.transition = "";
+    }
+    applyZoomVisual();
+    scheduleZoomTick();
+    bumpZoomEndTimer();
+  }
+
+  function onMapWheel(ev) {
+    if (!overlayIsVisible()) return;
+    if (!pointInOverlay(ev.clientX, ev.clientY)) return;
+    beginWheelZoom(ev.clientX, ev.clientY);
+    if (!zoomAnim || zoomAnim.buttonScale != null) return;
+    let dy = ev.deltaY;
+    if (ev.deltaMode === 1) dy *= 16;
+    if (ev.deltaMode === 2) dy *= 64;
+    zoomAnim.wheelScale *= 2 ** (-dy / WHEEL_PX_PER_ZOOM);
+    zoomAnim.wheelScale = Math.min(4, Math.max(0.25, zoomAnim.wheelScale));
+    applyZoomVisual();
+    bumpZoomEndTimer();
+  }
+
+  function onZoomButtonDown(ev) {
+    if (!overlayIsVisible() || !panEl || !root || panDrag) return;
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest("button, [role='button']");
+    if (!btn) return;
+    const label = `${btn.getAttribute("aria-label") || ""} ${btn.getAttribute("title") || ""} ${btn.textContent || ""}`;
+    if (!/zoom\s*in|zoom\s*out|放大|縮小|拉近|拉远/i.test(label)) return;
+    const zoomOut = /zoom\s*out|縮小|拉远/i.test(label);
+    const st = parseMapState();
+    if (!st) return;
+    endZoomAnim(true);
+    const box = root.getBoundingClientRect();
+    zoomAnim = {
+      startZoom: st.zoom,
+      ox: box.width / 2,
+      oy: box.height / 2,
+      wheelScale: 1,
+      endTimer: 0,
+      buttonScale: zoomOut ? 0.5 : 2
+    };
+    panEl.style.transition = `transform ${BUTTON_ZOOM_MS}ms ease-out`;
+    applyZoomVisual();
+    clearTimeout(zoomAnim.endTimer);
+    zoomAnim.endTimer = setTimeout(() => endZoomAnim(false), BUTTON_ZOOM_MS + 40);
+  }
+
   function onPanPointerDown(ev) {
     if (!overlayIsVisible()) return;
     if (ev.pointerType === "mouse" && ev.button !== 0) return;
@@ -554,6 +687,7 @@
     if (!(t instanceof Element)) return;
     if (t.closest("#gcj02-aligner-status, input, textarea, button, select, [role='slider']")) return;
     if (!pointInOverlay(ev.clientX, ev.clientY)) return;
+    if (zoomAnim) endZoomAnim(true);
     panDrag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY };
   }
 
@@ -563,6 +697,8 @@
     const dy = ev.clientY - panDrag.y0;
     // Translate the inner pan layer only — root stays put with overflow:hidden
     // so padded off-screen tiles slide into view instead of exposing a black gap.
+    panEl.style.transition = "";
+    panEl.style.transformOrigin = "";
     panEl.style.transform = `translate3d(${dx}px,${dy}px,0)`;
   }
 
@@ -570,7 +706,7 @@
     if (!panDrag) return;
     if (ev && ev.pointerId != null && ev.pointerId !== panDrag.id) return;
     panDrag = null;
-    if (panEl) panEl.style.transform = "";
+    clearPanVisual();
     lastKey = "";
     lastHref = "";
     clearTimeout(timer);
@@ -578,7 +714,7 @@
   }
 
   function redraw() {
-    if (!alive || panDrag) return;
+    if (!alive || gestureBusy()) return;
     const spec = overlaySpec();
     const st = parseMapState();
     reportActionStatus(st);
@@ -706,17 +842,23 @@
   document.addEventListener("pointermove", onPanPointerMove, true);
   document.addEventListener("pointerup", endPanDrag, true);
   document.addEventListener("pointercancel", endPanDrag, true);
-  addEventListener("blur", () => endPanDrag(null));
+  // Smooth zoom preview for wheel and the corner +/- controls.
+  document.addEventListener("wheel", onMapWheel, { capture: true, passive: true });
+  document.addEventListener("pointerdown", onZoomButtonDown, true);
+  addEventListener("blur", () => {
+    endPanDrag(null);
+    endZoomAnim(false);
+  });
 
   obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
 
   addEventListener("resize", () => {
-    if (!alive || panDrag) return;
+    if (!alive || gestureBusy()) return;
     lastKey = "";
     redraw();
   });
   addEventListener("popstate", () => {
-    if (!alive || panDrag) return;
+    if (!alive || gestureBusy()) return;
     lastKey = "";
     setTimeout(redraw, 200);
   });
@@ -724,7 +866,7 @@
     const orig = history[name];
     history[name] = function historyHook() {
       const ret = orig.apply(this, arguments);
-      if (alive && !panDrag) {
+      if (alive && !gestureBusy()) {
         lastKey = "";
         lastHref = "";
         setTimeout(redraw, 80);
@@ -733,7 +875,7 @@
     };
   });
   pollTimer = setInterval(() => {
-    if (!alive || panDrag) return;
+    if (!alive || gestureBusy()) return;
     if (location.href !== lastHref) {
       lastHref = location.href;
       lastKey = "";

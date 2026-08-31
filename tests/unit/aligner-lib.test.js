@@ -299,8 +299,17 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /onPanPointerMove/);
     assert.match(contentJs, /gcj02-aligner-pan/);
     assert.match(contentJs, /panEl\.style\.transform = `translate3d\(\$\{dx\}px,\$\{dy\}px,0\)`/);
-    assert.match(contentJs, /if \(!alive \|\| panDrag\) return/);
+    assert.match(contentJs, /gestureBusy/);
     assert.match(contentCss, /\.gcj02-aligner-pan/);
+  });
+
+  it("scales the pan layer during wheel and +/- zoom instead of hard redraw", () => {
+    assert.match(contentJs, /zoomAnim/);
+    assert.match(contentJs, /onMapWheel/);
+    assert.match(contentJs, /onZoomButtonDown/);
+    assert.match(contentJs, /scale\(\$\{s\}\)/);
+    assert.match(contentJs, /BUTTON_ZOOM_MS/);
+    assert.match(contentJs, /WHEEL_PX_PER_ZOOM/);
   });
 
   it("rejects the 0.6.8 remap pattern: overlayRoadTile xy differs from WGS slot", () => {

@@ -35,7 +35,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. Alignment runs automatically inside China.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.31**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.32**).
 
 ## Usage
 
