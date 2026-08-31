@@ -30,15 +30,18 @@ Outside China the overlay stays off.
 
 ## Install
 
-**One-click install** only works via the [Chrome Web Store](https://chrome.google.com/webstore). Chrome blocks installing extensions from arbitrary links or `.crx` downloads for regular users (outside enterprise policy), so a README “Install” button cannot sidestep that. When this extension is listed, the store link will go here.
+**One-click install** only works via the [Chrome Web Store](https://chrome.google.com/webstore). Chrome blocks installing extensions from arbitrary links or `.crx` downloads for regular users (outside enterprise policy). When this extension is listed, the store link will go here.
 
-Until then, load it unpacked from this repo:
+Until then, install from a GitHub Release zip (no `git` required):
 
-1. Clone or download this repository.
-2. Chrome → `chrome://extensions` → enable **Developer mode**.
-3. **Load unpacked** and select this repository directory.
-4. Open Google Maps. Alignment runs automatically inside China.
-5. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
+1. Download **[china-street-align.zip](https://github.com/leeym/china-street-align/releases/latest/download/china-street-align.zip)** (or the versioned `china-street-align-x.y.z.zip` on the [Releases](https://github.com/leeym/china-street-align/releases) page).
+2. Unzip it. You should get a `china-street-align` folder that contains `manifest.json`.
+3. Chrome → `chrome://extensions` → enable **Developer mode**.
+4. **Load unpacked** and select that `china-street-align` folder (the one with `manifest.json` inside).
+5. Open Google Maps. Alignment runs automatically inside China.
+6. After you update the extension, **close the Maps tab and open it again** so the content script is not stale.
+
+Developers packaging a release locally: `npm run pack` writes `dist/china-street-align-<version>.zip` and `dist/china-street-align.zip`.
 
 Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.43**).
 
@@ -67,6 +70,7 @@ npm test
 
 - `npm run test:unit` — Node test runner (`tests/unit`), including 紫禁城 / 五丈原 / 兑山村 URLs
 - `npm run test:e2e` — Playwright: Xiamen chrome checks, a parameterized 4-step flow per search landmark, POI placement across z14–z19 measured against a plain-mercator oracle, an On-vs-Off image compare of the street tiles, and sidebar-hover teardrop/tooltip parity
+- `npm run pack` — build `dist/china-street-align-<version>.zip` (and `china-street-align.zip`) for GitHub Releases
 - CI runs `npm run test:unit` on every push and pull request
 
 ## Limits
