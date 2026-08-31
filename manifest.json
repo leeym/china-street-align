@@ -1,9 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.6.24",
-  "description": "On by default in China: overlay WGS-84 streets so they match satellite imagery. Native Google streets there are GCJ-02.",
-  "permissions": ["storage"],
+  "version": "0.6.31",
+  "description": "Inside China, shifts Google Maps street tiles onto WGS-84 satellite/terrain. Always on while the extension is enabled.",
   "host_permissions": [
     "https://www.google.com/*",
     "https://www.google.com.hk/*",
@@ -22,8 +21,7 @@
   ],
   "background": { "service_worker": "service-worker.js" },
   "action": {
-    "default_title": "China Street Align",
-    "default_popup": "popup.html"
+    "default_title": "China Street Align · idle"
   },
   "content_scripts": [
     {

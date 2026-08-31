@@ -19,9 +19,9 @@ This project does **not** change the satellite layer. When enabled, it overlays 
 
 **Datum rules (in China, mode On):**
 
-1. **Satellite is WGS-84** — never shift, remap, or otherwise move satellite tiles.
+1. **Satellite and terrain basemaps are WGS-84** — never shift, remap, or otherwise move `lyrs=s` or terrain `lyrs=p`. Google’s `p` tiles bake GCJ roads onto that WGS hillshade, so the overlay keeps `p` unshifted and CSS-shifts road/label tiles (`h`) on top (same pattern as hybrid). Grayscale `t` alone looks nearly black-and-white.
 2. **The URL camera `@lat,lon` is GCJ-02** — the same datum as the sidebar `!3d/!4d`, which is why the Off pin sits on the Off street map. The overlay draws a WGS-84 world, so it centers on `gcjToWgs(@)`. Centering on the raw `@` slid the whole view, roads and pins together, by one GCJ offset — and because that offset is a pixel quantity it doubled per zoom level (107px at z15, 428px at z17), so pins walked toward the top-left as you zoomed in.
-3. **Streets, terrain, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera with **one camera vector** (same WGS tile `x,y` as satellite for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label; with the camera in the right datum each pin lands on the exact pixel Off used, and the roads move under it. Place-page titles like「結果」are ignored; names come from `/maps/place/NAME/` and visited-link aria suffixes are stripped.
+3. **Streets, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera with **one camera vector** (same WGS tile `x,y` as satellite/terrain for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label; with the camera in the right datum each pin lands on the exact pixel Off used, and the roads move under it. Place-page titles like「結果」are ignored; names come from `/maps/place/NAME/` and visited-link aria suffixes are stripped.
 4. **A tile's anchor is its centre, on both axes** — `tileCenterLatLon` feeds a `- tileSize/2` corner calculation, so a west-edge longitude there shifts every tile half a tile (128px at scale 1) west, at every zoom. That leaves markers on the right pixel and the roads under them on the wrong one, which reads as a POI that drifts further off the map the further you zoom out.
 
 On a street-only view these rules cancel: the overlay re-centres on `gcjToWgs(@)` and shifts the GCJ tiles back by the same vector, so it must reproduce Maps pixel for pixel. There is no satellite to align to, so any residual offset is a bug — `tests/tile-align.spec.js` measures it by correlating On and Off screenshots.
@@ -32,21 +32,23 @@ Outside China the overlay stays off.
 
 1. Chrome → `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** and select this repository directory.
-3. Open Google Maps. The default mode is **On**.
+3. Open Google Maps. Alignment runs automatically inside China.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.24**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.31**).
 
 ## Usage
 
-The toolbar popup has:
+While the extension is enabled it is always active: inside China it shifts street tiles onto satellite; outside China the overlay stays off. There is no On/Off popup — disable the extension in `chrome://extensions` to restore native Maps everywhere.
 
-- **On** — shift streets onto satellite (default in China)
-- **Off** — original Google Maps
+The toolbar icon is a status lamp (no click action):
 
-A small status line on the map shows mode, layer (`satellite` / `terrain` / `map`), version, and zoom.
+- **Red** — the current Maps view is inside China (shifting)
+- **Green** — outside China / idle
 
-Map zoom, search, layers, and other Google chrome stay clickable; the overlay is clipped away from those controls. Terrain, traffic, transit, bicycling, and Street View coverage use matching Google tiles (streets still shifted). Search result pins are redrawn on the overlay from the sidebar place links; hovering a result shows the same classic red teardrop and name tooltip as Off (title plus the sidebar description blurb when Maps provides one). Full Street View and 3D Earth stay on Google’s native view.
+A small status line on the map shows layer (`satellite` / `terrain` / `map`), version, and zoom when aligning.
+
+Map zoom, search, layers, and other Google chrome stay clickable; the overlay is clipped away from those controls. Terrain, traffic, transit, bicycling, and Street View coverage use matching Google tiles (streets still shifted). Search result pins are redrawn on the overlay from the sidebar place links; hovering a result shows the same classic red teardrop and name tooltip as native Maps (title plus the sidebar description blurb when Maps provides one). Full Street View and 3D Earth stay on Google’s native view.
 
 ## Development
 

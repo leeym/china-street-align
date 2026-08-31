@@ -11,11 +11,12 @@ const contentCss = fs.readFileSync(path.join(rootDir, "content.css"), "utf8");
 
 describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   // Product rules (do not weaken):
-  // 1. Satellite imagery is WGS-84 — never CSS-shift or remap satellite tiles.
-  // 2. Streets, terrain, POIs, and other overlays are GCJ-02 — inside China,
+  // 1. Satellite and terrain basemaps are WGS-84 — never CSS-shift or remap `s`/`p`.
+  // 2. Streets, POIs, and other overlays are GCJ-02 — inside China,
   //    translate them onto the WGS-84 camera with one camera overlayShiftPx.
   //    Search POIs are canvas-painted by Maps (not DOM), so On redraws icon+label
   //    at Off GCJ mercator plus that same rigid camera vector.
+  //    Terrain mode uses unshifted `p` + shifted `h` (never CSS-shift `p`).
   const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
 
   it("never transforms satellite base tiles (WGS-84 stays put)", () => {
@@ -32,11 +33,21 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     );
   });
 
+  it("never transforms terrain basemap tiles (WGS-84 stays put)", () => {
+    const spec = lib.overlaySpec("https://www.google.com/maps/@34.25,107.62,15z/data=!5m1!1e4");
+    assert.deepEqual(spec.baseLyrs, ["p"]);
+    assert.equal(spec.roadLyrs, "h");
+  });
+
   it("always CSS-shifts street/terrain/extra tiles onto WGS inside China", () => {
     assert.equal(lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z").roadLyrs, "m");
     assert.equal(
       lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").roadLyrs,
-      "p"
+      "h"
+    );
+    assert.deepEqual(
+      lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").baseLyrs,
+      ["p"]
     );
     assert.equal(lib.overlaySpec(XIAMEN_XINGLIN.href).roadLyrs, "h");
     assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
@@ -156,6 +167,45 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(noColon[0].name, "五丈原鎮");
   });
 
+  it("shortens postal-address place paths and drops visited lines as descriptions", () => {
+    const addr = "中國北京市東城區故宮 邮政编码: 100006";
+    assert.equal(lib.isAddressLikePlaceTitle(addr), true);
+    assert.equal(lib.shortPlaceTitleFromPath(addr), "故宮");
+    assert.equal(
+      lib.shortPlaceTitleFromPath("中國北京市東城區故宮+邮政编码:+100006"),
+      "故宮"
+    );
+    assert.equal(
+      lib.extractPoiDescription(
+        "故宮",
+        "故宮\n故宮 開啟過的連結\n4.6\n旅遊景點\n附設博物館的 1420 年宮殿建築群"
+      ),
+      "附設博物館的 1420 年宮殿建築群"
+    );
+    assert.equal(
+      lib.extractPoiDescription("故宮", "故宮\n故宮：開啟過的連結\n旅遊景點\n已打烊"),
+      ""
+    );
+    const pois = lib.collectPoisFromAnchors([
+      {
+        href: "https://www.google.com/maps/place/%E4%B8%AD%E5%9C%8B%E5%8C%97%E4%BA%AC%E5%B8%82%E6%9D%B1%E5%9F%8E%E5%8D%80%E6%95%85%E5%AE%AE+%E9%82%AE%E6%94%BF%E7%BC%96%E7%A0%81:+100006/@39.916698,116.397185,16z/data=!8m2!3d39.916698!4d116.397185",
+        label: "結果"
+      },
+      {
+        href: "https://www.google.com/maps/place/%E6%95%85%E5%AE%AE/data=!8m2!3d39.9168!4d116.3971",
+        label: "故宮",
+        article: "故宮\n故宮 開啟過的連結\n4.6\n旅遊景點\n附設博物館的 1420 年宮殿建築群\n已打烊"
+      }
+    ]);
+    assert.equal(pois[0].name, "故宮");
+    assert.ok(!/郵政|邮政|100006/.test(pois[0].name));
+    assert.equal(pois[1].name, "故宮");
+    assert.equal(pois[1].description, "附設博物館的 1420 年宮殿建築群");
+    assert.ok(!/開啟過的連結/.test(pois[1].description));
+    assert.match(contentJs, /shortPlaceTitleFromPath/);
+    assert.match(contentJs, /isAddressLikePlaceTitle/);
+  });
+
   it("extracts the sidebar description blurb under a search hit", () => {
     const article = [
       "故宮",
@@ -225,6 +275,32 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(lib.outOfChina(25.033, 121.565), true);
     assert.match(contentJs, /outOfChina\(/);
     assert.match(contentJs, /effectiveMode/);
+  });
+
+  it("is always-on with no popup or storage mode toggle", () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, "manifest.json"), "utf8"));
+    assert.equal(manifest.action?.default_popup, undefined);
+    assert.ok(!manifest.permissions || !manifest.permissions.includes("storage"));
+    assert.equal(fs.existsSync(path.join(rootDir, "popup.html")), false);
+    assert.equal(fs.existsSync(path.join(rootDir, "popup.js")), false);
+    assert.match(contentJs, /setActionStatus/);
+    assert.match(contentJs, /Aligning ·/);
+    assert.doesNotMatch(contentJs, /chrome\.storage/);
+    assert.match(contentJs, /type !== "setMode"/);
+    const sw = fs.readFileSync(path.join(rootDir, "service-worker.js"), "utf8");
+    assert.match(sw, /setActionStatus/);
+    assert.match(sw, /OffscreenCanvas/);
+    assert.match(sw, /shifting/);
+  });
+
+  it("translates the overlay with the pointer while dragging in China", () => {
+    assert.match(contentJs, /panDrag/);
+    assert.match(contentJs, /onPanPointerDown/);
+    assert.match(contentJs, /onPanPointerMove/);
+    assert.match(contentJs, /gcj02-aligner-pan/);
+    assert.match(contentJs, /panEl\.style\.transform = `translate3d\(\$\{dx\}px,\$\{dy\}px,0\)`/);
+    assert.match(contentJs, /if \(!alive \|\| panDrag\) return/);
+    assert.match(contentCss, /\.gcj02-aligner-pan/);
   });
 
   it("rejects the 0.6.8 remap pattern: overlayRoadTile xy differs from WGS slot", () => {
@@ -538,14 +614,14 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(spec.roadLyrs, "h");
   });
 
-  it("uses colored terrain map tiles, not grayscale relief plus satellite labels", () => {
+  it("keeps WGS terrain basemap unshifted and CSS-shifts GCJ road labels", () => {
     const spec = lib.overlaySpec(TERRAIN);
     assert.equal(spec.nativeOnly, false);
     assert.equal(spec.label, "terrain");
-    assert.deepEqual(spec.baseLyrs, []);
-    assert.equal(spec.roadLyrs, "p");
-    assert.notEqual(spec.roadLyrs, "h");
-    assert.ok(!spec.baseLyrs.includes("t"));
+    // Colored `p` unshifted (like `s`); never CSS-shift the whole `p` raster.
+    assert.deepEqual(spec.baseLyrs, ["p"]);
+    assert.equal(spec.roadLyrs, "h");
+    assert.match(contentCss, /data-layer="terrain"/);
   });
 
   it("reads terrain from a search URL that already has other data tokens", () => {
@@ -558,8 +634,8 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(offSpec.label, "map");
     assert.equal(offSpec.roadLyrs, "m");
     assert.equal(onSpec.label, "terrain");
-    assert.equal(onSpec.roadLyrs, "p");
-    assert.deepEqual(onSpec.baseLyrs, []);
+    assert.equal(onSpec.roadLyrs, "h");
+    assert.deepEqual(onSpec.baseLyrs, ["p"]);
   });
 
   it("adds traffic, transit, bicycling, and Street View coverage tiles", () => {
@@ -887,6 +963,11 @@ describe("street tiles and POI markers share one screen mapping", () => {
     const tileSize = 256 * a.scale;
     assert.ok(Math.abs(east.left - (a.left + tileSize)) < 1e-6, `east seam: ${east.left - a.left}`);
     assert.ok(Math.abs(south.top - (a.top + tileSize)) < 1e-6, `south seam: ${south.top - a.top}`);
+    // Content paints each tile 1px larger so fractional-zoom rounding cannot
+    // open black hairlines between neighbours.
+    assert.match(contentJs, /TILE_SEAM_OVERLAP_PX/);
+    assert.match(contentJs, /tileSize\) \+ TILE_SEAM_OVERLAP_PX/);
+    assert.match(contentCss, /border:\s*0\s*!important/);
   });
 
   it("places tiles from the true centre in the content script", () => {

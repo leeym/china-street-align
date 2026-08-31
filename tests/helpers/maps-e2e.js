@@ -37,13 +37,8 @@ async function dismissConsent(page) {
 }
 
 async function setAlignerMode(context, page, mode) {
-  let sw = context.serviceWorkers()[0];
-  if (!sw) {
-    sw = await context.waitForEvent("serviceworker", { timeout: 15000 }).catch(() => null);
-  }
-  if (sw) {
-    await sw.evaluate((m) => chrome.storage.local.set({ mode: m }), mode);
-  }
+  // Test-only hook: product builds are always-on (no popup / storage toggle).
+  void context;
   await page.evaluate((m) => {
     window.postMessage({ source: "gcj02-aligner", type: "setMode", mode: m }, "*");
   }, mode).catch(() => {});

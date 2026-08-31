@@ -198,6 +198,37 @@
     return new RegExp(POI_VISITED_SUFFIX, "i").test(String(label || ""));
   }
 
+  // Place URLs often encode a full mailing address as the path segment, e.g.
+  // 「中國北京市東城區故宮 邮政编码: 100006」. That must not become the pin title.
+  function isAddressLikePlaceTitle(name) {
+    const s = String(name || "").trim();
+    if (!s) return false;
+    if (/郵政編碼|邮政编码|Postal\s*code/i.test(s)) return true;
+    // 「中國北京市東城區故宮」is still a mailing path after the postal suffix is
+    // stripped — do not require length > 16 (that form is only ~10 chars).
+    if (/(?:中國|中国).*(?:省|市).*(?:區|区|縣|县)/.test(s)) return true;
+    return s.length > 16 && /(?:中國|中国).*(?:省|市|區|区|縣|县)/.test(s);
+  }
+
+  function shortPlaceTitleFromPath(pathName) {
+    let s = cleanPoiName(String(pathName || "").replace(/\+/g, " "));
+    if (!s) return "";
+    s = s
+      .replace(/\s*郵政編碼\s*[:：]?\s*\d+.*$/i, "")
+      .replace(/\s*邮政编码\s*[:：]?\s*\d+.*$/i, "")
+      .replace(/\s*Postal\s*code\s*[:：]?\s*\d+.*$/i, "")
+      .trim();
+    const known = s.match(/(紫禁城|故宮博物院|故宫博物院|故宮|故宫|天安門|天安门|五丈原鎮|五丈原)/);
+    if (known) return known[1];
+    // Prefer the last admin-unit segment (區/路/…) over an early 市 match.
+    const tail = s.match(/(?:區|区|縣|县|鎮|镇|路|街)([\u4e00-\u9fffA-Za-z0-9]{2,12})$/);
+    if (tail && !isAddressLikePlaceTitle(tail[1]) && !/(?:省|市|區|区|縣|县)/.test(tail[1])) {
+      return cleanPoiName(tail[1]);
+    }
+    if (s && !isAddressLikePlaceTitle(s) && s.length <= 16) return s;
+    return "";
+  }
+
   // Sidebar articles list a short blurb under the category line, e.g.
   // 「附設博物館的 1420 年宮殿建築群」. Off paints it under the title in the
   // hover tooltip; On must do the same.
@@ -207,8 +238,17 @@
       .split(/\n+/)
       .map((l) => l.replace(/\s+/g, " ").trim())
       .filter(Boolean);
-    const isName = (l) =>
-      !!n && (l === n || l.startsWith(`${n} `) || l.startsWith(`${n}:`) || l.startsWith(`${n}：`));
+    const isName = (l) => {
+      const t = cleanPoiName(l);
+      return !!n && (
+        l === n
+        || t === n
+        || l.startsWith(`${n} `)
+        || l.startsWith(`${n}:`)
+        || l.startsWith(`${n}：`)
+        || t.startsWith(`${n} `)
+      );
+    };
     const isRating = (l) =>
       /^\d+(\.\d+)?$/.test(l)
       || /^\(\s*[\d,]+\s*\)/.test(l)
@@ -226,17 +266,32 @@
       /已打烊|營業中|临时关闭|暫時關閉|Closed|Opens?\b|Closes?\b|開始營業|24\s*小時|Open 24|Hours?/i.test(l);
 
     let i = 0;
-    // Keep skipping name / rating / category / hours until a real blurb.
-    while (i < lines.length && (isRating(lines[i]) || isCategory(lines[i]) || isHours(lines[i]) || isName(lines[i]))) {
-      i += 1;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (isName(line) || isRating(line) || isCategory(line) || isHours(line) || labelHasVisitedSuffix(line)) {
+        i += 1;
+        continue;
+      }
+      const cleaned = cleanPoiName(line);
+      if (!cleaned || cleaned === n || isName(cleaned) || labelHasVisitedSuffix(cleaned)) {
+        i += 1;
+        continue;
+      }
+      if (isAddressLikePlaceTitle(cleaned) || /郵政編碼|邮政编码|Postal\s*code/i.test(cleaned)) {
+        i += 1;
+        continue;
+      }
+      if (cleaned.length < 4 || cleaned.length > 100) {
+        i += 1;
+        continue;
+      }
+      if (/^[\d,.\s()（）]+$/.test(cleaned)) {
+        i += 1;
+        continue;
+      }
+      return cleaned.slice(0, 90);
     }
-    if (i >= lines.length) return "";
-    const line = lines[i];
-    if (isHours(line) || isName(line) || isRating(line) || isCategory(line)) return "";
-    if (line.length < 4 || line.length > 100) return "";
-    // Reject leftover review/price crumbs that slipped past isRating.
-    if (/^[\d,.\s()（）]+$/.test(line)) return "";
-    return line.slice(0, 90);
+    return "";
   }
 
   function collectPoisFromAnchors(anchors) {
@@ -253,7 +308,10 @@
       // Search result links often use /maps/place/A/…; the real name is in aria-label.
       // Place pages set h1 to「結果」— cleanPoiName drops that so the path name wins.
       // Visited arias like「五丈原鎮：開啟過的連結」are stripped in cleanPoiName.
-      const fromPath = cleanPoiName(placeNameFromHref(href));
+      let fromPath = cleanPoiName(placeNameFromHref(href));
+      if (isAddressLikePlaceTitle(fromPath)) {
+        fromPath = shortPlaceTitleFromPath(fromPath);
+      }
       const fromLabel = cleanPoiName(a.label);
       let name = fromLabel || fromPath;
       // If cleaning failed and the name still carries a visited suffix, fall back
@@ -262,9 +320,15 @@
       if (labelHasVisitedSuffix(name) && fromPath && !labelHasVisitedSuffix(fromPath)) {
         name = fromPath;
       }
-      if (!name || labelHasVisitedSuffix(name)) continue;
+      if (isAddressLikePlaceTitle(name)) {
+        name = shortPlaceTitleFromPath(name) || fromLabel || "";
+      }
+      if (!name || labelHasVisitedSuffix(name) || isAddressLikePlaceTitle(name)) continue;
       const kind = classifyPoiKind(`${a.label || ""} ${a.category || ""} ${a.article || ""} ${name}`, name);
-      const description = extractPoiDescription(name, a.article || "");
+      let description = extractPoiDescription(name, a.article || "");
+      if (description === name || labelHasVisitedSuffix(description) || isAddressLikePlaceTitle(description)) {
+        description = "";
+      }
       out.push({ lat: c.lat, lon: c.lon, name, kind, description });
       if (out.length >= 24) break;
     }
@@ -510,10 +574,11 @@
       return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", extraLyrs };
     }
     if (terrain) {
-      // Native terrain is the colored roadmap plus hillshade (`lyrs=p`).
-      // `lyrs=t` is grayscale relief only; stacking it with satellite `h`
-      // labels made the overlay look black-and-white.
-      return { nativeOnly: false, label: "terrain", baseLyrs: [], roadLyrs: "p", extraLyrs };
+      // `lyrs=p` is colored WGS hillshade with GCJ roads baked in. CSS-shifting
+      // the whole raster moved cliffs under X235 (0.6.26). Keep `p` unshifted
+      // like satellite, then CSS-shift GCJ road/label tiles (`h`) on top.
+      // (Grayscale `t` + tint looked correctly aligned but nearly black-and-white.)
+      return { nativeOnly: false, label: "terrain", baseLyrs: ["p"], roadLyrs: "h", extraLyrs };
     }
     return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", extraLyrs };
   }
@@ -554,6 +619,8 @@
     overlayPoiScreenPx,
     cleanPoiName,
     labelHasVisitedSuffix,
+    isAddressLikePlaceTitle,
+    shortPlaceTitleFromPath,
     extractPoiDescription,
     placeNameFromHref,
     isGenericPoiName,

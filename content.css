@@ -5,12 +5,33 @@
   z-index: 0 !important;
   overflow: hidden !important;
 }
+/* Tiles/POIs live here; pan-drag translates this layer inside the clipped root. */
+.gcj02-aligner-pan {
+  position: absolute !important;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none !important;
+  will-change: transform;
+}
+/* Terrain base is colored `lyrs=p` (unshifted). Shifted `h` paints correct roads. */
+#gcj02-aligner-root[data-layer="terrain"] .gcj02-road[data-lyrs="h"] {
+  opacity: 1;
+}
 .gcj02-tile,
 .gcj02-road {
   position: absolute !important;
+  display: block !important;
+  border: 0 !important;
+  outline: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
   max-width: none !important;
   user-select: none !important;
   pointer-events: none !important;
+  /* Avoid bilinear fringe darkening the 1px overlap between neighbours. */
+  image-rendering: auto;
 }
 .gcj02-tile {
   opacity: 1;

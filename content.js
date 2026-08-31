@@ -1,16 +1,21 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.24";
+  let VERSION = "0.6.31";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
   const TILE = globalThis.Gcj02Aligner?.TILE ?? 256;
   const OVERLAY_Z = globalThis.Gcj02Aligner?.OVERLAY_Z ?? 0;
   const CHROME_Z = globalThis.Gcj02Aligner?.CHROME_Z ?? 1000010;
+  // Fractional zoom makes tileSize non-integer; browsers round edges and leave
+  // hairline gaps (reads as black seams). Paint each tile 1px larger so neighbours overlap.
+  const TILE_SEAM_OVERLAP_PX = 1;
 
+  // Always on for users. postMessage setMode is only for automated tests.
   let mode = "on";
   let root = null;
+  let panEl = null;
   let statusEl = null;
   let timer = null;
   let pollTimer = null;
@@ -18,10 +23,15 @@
   let lastHref = "";
   let lastPoiKey = "";
   let lastHost = null;
+  let lastActionInChina = null;
   let hoveredPoiKey = "";
   let alive = true;
+  // While the user drags, Maps updates the camera only on release (URL `@`).
+  // Native canvas is hidden, so translate the overlay with the pointer so tiles
+  // follow the cursor the way Off does outside China.
+  let panDrag = null;
   const obs = new MutationObserver(() => {
-    if (!alive) return;
+    if (!alive || panDrag) return;
     if (location.href === lastHref) {
       syncPoisIfVisible();
       return;
@@ -47,40 +57,22 @@
     statusEl = null;
   }
 
-  function storageGet(defaults, cb) {
-    if (!alive) return;
-    try {
-      chrome.storage.local.get(defaults, (stored) => {
-        try {
-          if (!alive) return;
-          if (chrome.runtime.lastError) return;
-          cb(stored);
-        } catch (_e) {
-          teardown();
-        }
-      });
-    } catch (_e) {
-      teardown();
-    }
-  }
-
-  function storageSet(obj) {
-    if (!alive) return;
-    try {
-      chrome.storage.local.set(obj, () => {
-        try {
-          void chrome.runtime.lastError;
-        } catch (_e) {
-          teardown();
-        }
-      });
-    } catch (_e) {
-      teardown();
-    }
-  }
-
   function outOfChina(lat, lon) {
     return globalThis.Gcj02Aligner.outOfChina(lat, lon);
+  }
+
+  function reportActionStatus(st) {
+    if (!alive) return;
+    const inChina = !!(st && !outOfChina(st.lat, st.lon));
+    if (lastActionInChina === inChina) return;
+    lastActionInChina = inChina;
+    try {
+      chrome.runtime.sendMessage({ type: "setActionStatus", inChina }, () => {
+        try {
+          void chrome.runtime.lastError;
+        } catch (_e) {}
+      });
+    } catch (_e) {}
   }
 
   function overlaySpec() {
@@ -239,6 +231,12 @@
       root = document.createElement("div");
       root.id = "gcj02-aligner-root";
     }
+    if (!panEl) {
+      panEl = document.createElement("div");
+      panEl.id = "gcj02-aligner-pan";
+      panEl.className = "gcj02-aligner-pan";
+    }
+    if (panEl.parentElement !== root) root.appendChild(panEl);
     if (root.parentElement !== host || host.firstChild !== root) {
       host.insertBefore(root, host.firstChild);
     }
@@ -276,6 +274,7 @@
   }
 
   function placeTile(className, lyrs, left, top, tileSize, transform, wx, ty, zTile) {
+    if (!panEl) return;
     const img = document.createElement("img");
     img.className = className;
     img.draggable = false;
@@ -285,12 +284,13 @@
     img.dataset.x = String(wx);
     img.dataset.y = String(ty);
     img.dataset.z = String(zTile);
-    img.style.width = `${tileSize}px`;
-    img.style.height = `${tileSize}px`;
+    const draw = Number(tileSize) + TILE_SEAM_OVERLAP_PX;
+    img.style.width = `${draw}px`;
+    img.style.height = `${draw}px`;
     img.style.left = `${left}px`;
     img.style.top = `${top}px`;
     if (transform) img.style.transform = transform;
-    root.appendChild(img);
+    panEl.appendChild(img);
     bindTile(img, tileUrl(lyrs, wx, ty, zTile));
   }
 
@@ -325,15 +325,24 @@
     if (/\/maps\/place\//.test(location.href)) {
       const parts = decodeURIComponent(location.pathname).split("/").filter(Boolean);
       const pi = parts.indexOf("place");
-      const fromPath = globalThis.Gcj02Aligner.placeNameFromHref(location.href)
-        || globalThis.Gcj02Aligner.cleanPoiName(pi >= 0 ? parts[pi + 1] || "" : "");
+      const rawPath = globalThis.Gcj02Aligner.placeNameFromHref(location.href)
+        || (pi >= 0 ? parts[pi + 1] || "" : "");
+      const fromPath = globalThis.Gcj02Aligner.shortPlaceTitleFromPath(rawPath)
+        || globalThis.Gcj02Aligner.cleanPoiName(rawPath);
       const heading = globalThis.Gcj02Aligner.cleanPoiName(
         (document.querySelector("h1")?.textContent || "").trim()
       );
-      // Place pages often set h1 to "結果"; prefer the /maps/place/NAME/ path.
+      // Place pages often set h1 to "結果" and the path to a full postal address.
+      // Prefer a short title; never paint「…郵政編碼: 100006」on the pin.
       const label = fromPath || heading;
       const category = (document.body.innerText || "").slice(0, 400);
-      if (label) anchors.unshift({ href: location.href, label, category, article: "" });
+      if (
+        label
+        && !globalThis.Gcj02Aligner.isAddressLikePlaceTitle(label)
+        && !globalThis.Gcj02Aligner.isGenericPoiName(label)
+      ) {
+        anchors.unshift({ href: location.href, label, category, article: "" });
+      }
     }
     return globalThis.Gcj02Aligner.collectPoisFromAnchors(anchors);
   }
@@ -457,7 +466,7 @@
   // Placement lives in overlayPoiScreenPx, which does its own GCJ→WGS camera
   // step, so this takes the raw URL state and no precomputed center.
   function syncPois(st, w, h) {
-    if (!root) return;
+    if (!root || !panEl) return;
     const pois = collectPoisFromDocument();
     const poiKey = [
       w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
@@ -465,14 +474,14 @@
     ].join(";");
     if (poiKey === lastPoiKey) {
       if (hoveredPoiKey) {
-        root.querySelectorAll(".gcj02-poi").forEach((el) => {
+        panEl.querySelectorAll(".gcj02-poi").forEach((el) => {
           el.classList.toggle("is-hover", el.dataset.key === hoveredPoiKey);
         });
       }
       return;
     }
     lastPoiKey = poiKey;
-    root.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
+    panEl.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
     pois.forEach((poi) => {
       const screen = globalThis.Gcj02Aligner.overlayPoiScreenPx(
         poi.lat, poi.lon, st.lat, st.lon, st.zoom, w, h
@@ -493,7 +502,7 @@
       el.style.transform = "translate(-13px, -100%)";
       if (hoveredPoiKey && el.dataset.key === hoveredPoiKey) el.classList.add("is-hover");
       appendPoiGlyph(el, poi.kind, poi.name, poi.description);
-      root.appendChild(el);
+      panEl.appendChild(el);
     });
     root.dataset.poiCount = String(pois.length);
     root.dataset.poiKinds = pois.map((p) => p.kind).join(",");
@@ -509,6 +518,8 @@
   }
 
   function hideOverlay() {
+    panDrag = null;
+    if (panEl) panEl.style.transform = "";
     if (root) {
       root.style.display = "none";
       root.dataset.mode = "off";
@@ -522,12 +533,55 @@
       try { lastHost.style.clipPath = ""; lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     }
     setNativeMapHidden(false);
+    reportActionStatus(parseMapState());
+  }
+
+  function overlayIsVisible() {
+    return !!(alive && root && root.style.display !== "none");
+  }
+
+  function pointInOverlay(clientX, clientY) {
+    if (!root) return false;
+    const box = root.getBoundingClientRect();
+    return clientX >= box.left && clientX <= box.right && clientY >= box.top && clientY <= box.bottom;
+  }
+
+  function onPanPointerDown(ev) {
+    if (!overlayIsVisible()) return;
+    if (ev.pointerType === "mouse" && ev.button !== 0) return;
+    if (ev.isPrimary === false) return;
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest("#gcj02-aligner-status, input, textarea, button, select, [role='slider']")) return;
+    if (!pointInOverlay(ev.clientX, ev.clientY)) return;
+    panDrag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY };
+  }
+
+  function onPanPointerMove(ev) {
+    if (!panDrag || ev.pointerId !== panDrag.id || !panEl) return;
+    const dx = ev.clientX - panDrag.x0;
+    const dy = ev.clientY - panDrag.y0;
+    // Translate the inner pan layer only — root stays put with overflow:hidden
+    // so padded off-screen tiles slide into view instead of exposing a black gap.
+    panEl.style.transform = `translate3d(${dx}px,${dy}px,0)`;
+  }
+
+  function endPanDrag(ev) {
+    if (!panDrag) return;
+    if (ev && ev.pointerId != null && ev.pointerId !== panDrag.id) return;
+    panDrag = null;
+    if (panEl) panEl.style.transform = "";
+    lastKey = "";
+    lastHref = "";
+    clearTimeout(timer);
+    timer = setTimeout(redraw, 80);
   }
 
   function redraw() {
-    if (!alive) return;
+    if (!alive || panDrag) return;
     const spec = overlaySpec();
     const st = parseMapState();
+    reportActionStatus(st);
     const active = effectiveMode(st);
     if (spec.nativeOnly || active === "off" || !st || st.zoom < 5 || st.zoom > 21) {
       hideOverlay();
@@ -551,7 +605,8 @@
     const cam = globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon);
     const center = worldPixel(cam.lat, cam.lon, st.zoom);
     const tl = { x: center.x - w / 2, y: center.y - h / 2 };
-    const pad = 3;
+    // Enough off-screen tiles that a mid-drag translate does not expose a gap.
+    const pad = Math.max(4, Math.ceil(Math.max(w, h) / tileSize) + 1);
     const x0 = Math.floor(tl.x / tileSize) - pad;
     const y0 = Math.floor(tl.y / tileSize) - pad;
     const x1 = Math.floor((tl.x + w) / tileSize) + pad;
@@ -565,12 +620,13 @@
     if (key !== lastKey) {
       lastKey = key;
       lastPoiKey = "";
-      root.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
+      if (panEl) panEl.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
+      else root.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
 
       const sample = globalThis.Gcj02Aligner.overlayShiftPx(cam.lat, cam.lon, st.zoom);
       const offsetPx = sample.hypot;
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
-      setStatus(`On · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
+      setStatus(`Aligning · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
         layer: spec.label,
         version: VERSION,
@@ -601,8 +657,9 @@
           const left = pW.x - center.x + w / 2 - tileSize / 2;
           const top = pW.y - center.y + h / 2 - tileSize / 2;
 
-          // Satellite `s` stays on WGS. Streets (`h`/`m`/`p`) use the same WGS
-          // tile index then the camera CSS-shift onto that satellite.
+          // Satellite `s` and terrain `p` stay on WGS (do not CSS-shift the
+          // basemap). GCJ streets (`h`/`m`) and extras use the same WGS tile
+          // index then the camera CSS-shift onto that base.
           for (const lyrs of spec.baseLyrs) {
             placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }
@@ -627,35 +684,10 @@
     lastKey = "";
     lastPoiKey = "";
     if (mode === "off") setHoveredPoi("");
-    storageSet({ mode });
     redraw();
   }
 
-  try {
-    chrome.runtime.onMessage.addListener((m) => {
-      if (!alive) return;
-      try {
-        if (m?.type === "setMode") setMode(m.mode);
-      } catch (_e) {
-        teardown();
-      }
-    });
-  } catch (_e) {
-    teardown();
-  }
-
-  try {
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (!alive || area !== "local" || !changes.mode) return;
-      const next = normalizeMode(changes.mode.newValue);
-      if (next === mode) return;
-      mode = next;
-      lastKey = "";
-      lastPoiKey = "";
-      redraw();
-    });
-  } catch (_e) {}
-
+  // Test-only: Playwright posts setMode to force native Maps for On-vs-Off checks.
   addEventListener("message", (ev) => {
     if (!alive || ev.source !== window) return;
     if (ev.data?.source !== "gcj02-aligner" || ev.data?.type !== "setMode") return;
@@ -669,15 +701,22 @@
   document.addEventListener("mouseover", onSidebarPointerOver, true);
   document.addEventListener("mouseout", onSidebarPointerOut, true);
 
+  // Live pan: overlay follows the pointer; Maps commits `@` on release.
+  document.addEventListener("pointerdown", onPanPointerDown, true);
+  document.addEventListener("pointermove", onPanPointerMove, true);
+  document.addEventListener("pointerup", endPanDrag, true);
+  document.addEventListener("pointercancel", endPanDrag, true);
+  addEventListener("blur", () => endPanDrag(null));
+
   obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
 
   addEventListener("resize", () => {
-    if (!alive) return;
+    if (!alive || panDrag) return;
     lastKey = "";
     redraw();
   });
   addEventListener("popstate", () => {
-    if (!alive) return;
+    if (!alive || panDrag) return;
     lastKey = "";
     setTimeout(redraw, 200);
   });
@@ -685,7 +724,7 @@
     const orig = history[name];
     history[name] = function historyHook() {
       const ret = orig.apply(this, arguments);
-      if (alive) {
+      if (alive && !panDrag) {
         lastKey = "";
         lastHref = "";
         setTimeout(redraw, 80);
@@ -694,7 +733,7 @@
     };
   });
   pollTimer = setInterval(() => {
-    if (!alive) return;
+    if (!alive || panDrag) return;
     if (location.href !== lastHref) {
       lastHref = location.href;
       lastKey = "";
@@ -731,8 +770,5 @@
     }
   }, 400);
 
-  storageGet({ mode: "on" }, (stored) => {
-    mode = normalizeMode(stored.mode);
-    redraw();
-  });
+  redraw();
 })();
