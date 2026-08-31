@@ -441,6 +441,23 @@ async function assertStreetsShiftedOntoSatellite(page) {
     expect(roadVt.y, JSON.stringify({ satVt, roadVt })).toBe(satVt.y);
     expect(roadVt.z).toBe(satVt.z);
   }
+  if (s.layer === "terrain") {
+    // Same split as satellite: WGS relief stays put; only GCJ roads CSS-shift.
+    // Shifting combined `p` moves cliffs with roads — X235 climbs the west face.
+    expect(s.sat.hypot, "terrain relief must stay unshifted").toBeLessThan(3);
+    expect(s.paired, JSON.stringify(s)).toBeTruthy();
+    expect(s.paired.sat.left, JSON.stringify(s.paired)).toBe(s.paired.road.left);
+    expect(s.paired.sat.top, JSON.stringify(s.paired)).toBe(s.paired.road.top);
+    expect(s.paired.road.hypot).toBeGreaterThan(20);
+    expect(s.paired.sat.hypot).toBeLessThan(3);
+    const reliefVt = tileVt(s.paired.sat);
+    const roadVt = tileVt(s.paired.road);
+    expect(reliefVt.lyrs, JSON.stringify(reliefVt)).toBe("t");
+    expect(roadVt.lyrs, JSON.stringify(roadVt)).toMatch(/^h/);
+    expect(roadVt.x, "roads must use the same WGS tile index as relief").toBe(reliefVt.x);
+    expect(roadVt.y, JSON.stringify({ reliefVt, roadVt })).toBe(reliefVt.y);
+    expect(roadVt.z).toBe(reliefVt.z);
+  }
 }
 
 module.exports = {

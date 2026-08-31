@@ -11,12 +11,13 @@ const contentCss = fs.readFileSync(path.join(rootDir, "content.css"), "utf8");
 
 describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   // Product rules (do not weaken):
-  // 1. Satellite is WGS-84 — never CSS-shift or remap `s`.
-  // 2. Streets, terrain (`p`), POIs, and other overlays are GCJ-02 — inside China,
+  // 1. Satellite and terrain relief are WGS-84 — never CSS-shift or remap `s`/`t`.
+  // 2. Streets, POIs, and other overlays are GCJ-02 — inside China,
   //    translate them onto the WGS-84 camera with one camera overlayShiftPx.
   //    Search POIs are canvas-painted by Maps (not DOM), so On redraws icon+label
   //    at Off GCJ mercator plus that same rigid camera vector.
-  //    Terrain uses native shifted `p` (same tiles as outside China; no fake tint).
+  //    Terrain uses unshifted `t` + shifted `h` (never shifted `p` — that makes
+  //    X235 climb the west 五丈原 cliff instead of the valley).
   const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
 
   it("never transforms satellite base tiles (WGS-84 stays put)", () => {
@@ -33,21 +34,22 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     );
   });
 
-  it("CSS-shifts native terrain p tiles (same as outside China)", () => {
+  it("never transforms terrain relief tiles (WGS-84 stays put)", () => {
     const spec = lib.overlaySpec("https://www.google.com/maps/@34.25,107.62,15z/data=!5m1!1e4");
-    assert.deepEqual(spec.baseLyrs, []);
-    assert.equal(spec.roadLyrs, "p");
+    assert.deepEqual(spec.baseLyrs, ["t"]);
+    assert.equal(spec.roadLyrs, "h");
+    assert.notEqual(spec.roadLyrs, "p");
   });
 
   it("always CSS-shifts street/terrain/extra tiles onto WGS inside China", () => {
     assert.equal(lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z").roadLyrs, "m");
     assert.equal(
       lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").roadLyrs,
-      "p"
+      "h"
     );
     assert.deepEqual(
       lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").baseLyrs,
-      []
+      ["t"]
     );
     assert.equal(lib.overlaySpec(XIAMEN_XINGLIN.href).roadLyrs, "h");
     assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
@@ -603,6 +605,7 @@ describe("GCJ overlay region excludes Taiwan island", () => {
 });
 
 describe("Google Maps layer overlay spec", () => {
+  const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
   const MAP = "https://www.google.com/maps/@39.9167135,116.3868853,15z";
   const SAT = "https://www.google.com/maps/@39.9167135,116.3868853,4718m/data=!3m1!1e3";
   const TERRAIN = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e4";
@@ -623,17 +626,18 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(spec.roadLyrs, "h");
   });
 
-  it("uses native terrain p tiles CSS-shifted like street map", () => {
+  it("keeps WGS terrain relief unshifted and CSS-shifts GCJ road labels", () => {
     const spec = lib.overlaySpec(TERRAIN);
     assert.equal(spec.nativeOnly, false);
     assert.equal(spec.label, "terrain");
-    assert.deepEqual(spec.baseLyrs, []);
-    assert.equal(spec.roadLyrs, "p");
-    assert.doesNotMatch(contentCss, /data-lyrs="t"/);
-    assert.doesNotMatch(contentCss, /#d5deca/);
-    assert.doesNotMatch(contentCss, /invert\(1\)/);
-    assert.doesNotMatch(contentCss, /sepia\(/);
-    assert.doesNotMatch(contentCss, /saturate\(/);
+    // Never shift combined `p` — cliffs move with roads (X235 on west face).
+    assert.deepEqual(spec.baseLyrs, ["t"]);
+    assert.equal(spec.roadLyrs, "h");
+    assert.notEqual(spec.roadLyrs, "p");
+    const placeSpec = lib.overlaySpec(WUZHANGYUAN.terrainHref);
+    assert.equal(placeSpec.label, "terrain");
+    assert.deepEqual(placeSpec.baseLyrs, ["t"]);
+    assert.equal(placeSpec.roadLyrs, "h");
   });
 
   it("reads terrain from a search URL that already has other data tokens", () => {
@@ -646,8 +650,8 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(offSpec.label, "map");
     assert.equal(offSpec.roadLyrs, "m");
     assert.equal(onSpec.label, "terrain");
-    assert.equal(onSpec.roadLyrs, "p");
-    assert.deepEqual(onSpec.baseLyrs, []);
+    assert.equal(onSpec.roadLyrs, "h");
+    assert.deepEqual(onSpec.baseLyrs, ["t"]);
   });
 
   it("adds traffic, transit, bicycling, and Street View coverage tiles", () => {

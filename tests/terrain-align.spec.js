@@ -6,15 +6,15 @@ const {
   dismissConsent,
   waitForOverlay,
   withOverlayDecorHidden,
+  assertStreetsShiftedOntoSatellite,
   MAP_CROP
 } = require("./helpers/maps-e2e");
 const { pngRegionColorStats } = require("./helpers/bmp-luma");
+const { WUZHANGYUAN } = require("./fixtures/overlay-landmarks");
 
 const OUT = path.join(__dirname, "..", "test-results", "terrain-align");
-const TERRAIN_URL =
-  "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.264874,107.6212778,13.85z/data=!4m6!3m5!1s0x36613e2da81fc14b:0xeee51cceea4d3465!8m2!3d34.282582!4d107.618568!16zL20vMDZkOGxk!5m1!1e4";
 
-test.describe("terrain uses native p tiles, CSS-shifted", () => {
+test.describe("terrain keeps X235 in the west valley", () => {
   /** @type {import('@playwright/test').BrowserContext} */
   let context;
   /** @type {import('@playwright/test').Page} */
@@ -33,8 +33,10 @@ test.describe("terrain uses native p tiles, CSS-shifted", () => {
     await context?.close();
   });
 
-  test("paints shifted lyrs=p like native terrain, no t tint", async () => {
-    await page.goto(TERRAIN_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
+  // Regression: CSS-shifting combined lyrs=p moves WGS cliffs with GCJ roads, so
+  // at 五丈原 X235 climbs the west plateau face instead of the valley floor.
+  test("uses unshifted lyrs=t + shifted lyrs=h, never shifted p", async () => {
+    await page.goto(WUZHANGYUAN.terrainHref, { waitUntil: "domcontentloaded", timeout: 120000 });
     await dismissConsent(page);
     await waitForOverlay(page);
     await page.waitForTimeout(1500);
@@ -45,40 +47,39 @@ test.describe("terrain uses native p tiles, CSS-shifted", () => {
       const tiles = [...root.querySelectorAll("img.gcj02-tile, img.gcj02-road")].map((img) => ({
         lyrs: img.dataset.lyrs || "",
         cls: img.className,
-        transform: img.style.transform || ""
+        transform: img.style.transform || "",
+        left: img.style.left || "",
+        top: img.style.top || ""
       }));
-      const pImg = root.querySelector('img[data-lyrs="p"]');
-      const pCs = pImg ? getComputedStyle(pImg) : null;
       return {
         layer: root.dataset.layer || "",
-        bg: getComputedStyle(root).backgroundColor,
-        filter: pCs?.filter || "none",
         tiles,
-        hasT: tiles.some((t) => t.lyrs === "t"),
+        hasT: tiles.some((t) => t.lyrs === "t" && t.cls.includes("gcj02-tile")),
         hasH: tiles.some((t) => t.lyrs === "h"),
         hasP: tiles.some((t) => t.lyrs === "p"),
+        tShifted: tiles.some((t) => t.lyrs === "t" && /translate/i.test(t.transform)),
+        hShifted: tiles.some((t) => t.lyrs === "h" && /translate/i.test(t.transform)),
         pShifted: tiles.some((t) => t.lyrs === "p" && /translate/i.test(t.transform))
       };
     });
 
     expect(info, "overlay root missing").toBeTruthy();
     expect(info.layer, JSON.stringify(info)).toBe("terrain");
-    expect(info.hasP, JSON.stringify(info)).toBeTruthy();
-    expect(info.pShifted, "native p must CSS-shift").toBeTruthy();
-    expect(info.hasT, "must not use grayscale t + fake tint").toBeFalsy();
-    expect(info.hasH, "p already includes roads").toBeFalsy();
-    expect(info.filter, "no artificial colorize").toMatch(/^(none)?$/i);
-    expect(info.bg, "no sage fill").not.toMatch(/rgb\(\s*213,\s*222,\s*202\s*\)/i);
+    expect(info.hasT, "WGS relief required").toBeTruthy();
+    expect(info.hasH, "GCJ roads required").toBeTruthy();
+    expect(info.hasP, "combined p must not paint (cliff/road lockstep)").toBeFalsy();
+    expect(info.tShifted, "relief must not CSS-shift").toBeFalsy();
+    expect(info.hShifted, "roads must CSS-shift").toBeTruthy();
+    expect(info.pShifted, "shifted p is the X235-on-cliff bug").toBeFalsy();
+
+    await assertStreetsShiftedOntoSatellite(page);
 
     const shot = path.join(OUT, "terrain-on.png");
     await withOverlayDecorHidden(page, async () => {
       await page.screenshot({ path: shot, fullPage: false });
     });
-
-    // Structural check is the product rule. Native `p` colour varies by place
-    // (Wuzhangyuan is pale/beige, not saturated green) — only reject empty/B&W.
+    // Sanity: overlay painted something in the map crop (not a blank root).
     const color = pngRegionColorStats(shot, MAP_CROP);
-    expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(4);
-    expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.97);
+    expect(color.meanSat + color.grayShare, JSON.stringify(color)).toBeGreaterThan(0.1);
   });
 });

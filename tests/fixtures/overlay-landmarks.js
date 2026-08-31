@@ -120,7 +120,11 @@ const WUZHANGYUAN = {
   ],
   // WGS-84 of that GCJ !3d (single gcjToWgs — south of G310 / west of X235 gate).
   poiWgsSouthOfG310Lat: 34.286,
-  poiWgsWestOfX235Lon: 107.617
+  poiWgsWestOfX235Lon: 107.617,
+  // Terrain place URL: west plateau edge where shifted `p` sends X235 up the
+  // cliff face instead of through the valley (regression lock for e2e).
+  terrainHref:
+    "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826157,107.5979685,14z/data=!4m6!3m5!1s0x36613e2da81fc14b:0xeee51cceea4d3465!8m2!3d34.282582!4d107.618568!16zL20vMDZkOGxk!5m1!1e4"
 };
 
 const DUISHAN = {

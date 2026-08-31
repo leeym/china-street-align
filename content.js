@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.36";
+  let VERSION = "0.6.37";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -793,9 +793,10 @@
           const left = pW.x - center.x + w / 2 - tileSize / 2;
           const top = pW.y - center.y + h / 2 - tileSize / 2;
 
-          // Satellite `s` stays on WGS (do not CSS-shift). GCJ layers (`m`/`p`/
-          // `h` and extras) use the same WGS tile index then the camera CSS-shift.
-          // Terrain uses shifted native `p` (same tiles as outside China).
+          // Satellite `s` and terrain relief `t` stay on WGS (do not CSS-shift).
+          // GCJ layers (`h`/`m` and extras) use the same WGS tile index then the
+          // camera CSS-shift. Never CSS-shift combined terrain `p`: it moves
+          // WGS cliffs with GCJ roads (X235 climbs the west 五丈原 face).
           for (const lyrs of spec.baseLyrs) {
             placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }

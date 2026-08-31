@@ -574,11 +574,11 @@
       return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", extraLyrs };
     }
     if (terrain) {
-      // Native terrain outside China is Google's combined `lyrs=p` tile. Inside
-      // China, paint the same `p` tiles and CSS-shift them like street `m` —
-      // no artificial tint, no `t`+recolor. (Splitting to unshifted `t`+`h`
-      // needs fake color; unshifted `p`+shifted `h` leaves skewed ghost roads.)
-      return { nativeOnly: false, label: "terrain", baseLyrs: [], roadLyrs: "p", extraLyrs };
+      // Google's colored `lyrs=p` bakes GCJ roads onto WGS hillshade. CSS-shifting
+      // whole `p` moves cliffs with the roads — at 五丈原, X235 then climbs the
+      // west plateau face instead of the valley. Keep relief on unshifted WGS
+      // `t` and CSS-shift only GCJ `h` (same pattern as satellite `s`+`h`).
+      return { nativeOnly: false, label: "terrain", baseLyrs: ["t"], roadLyrs: "h", extraLyrs };
     }
     return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", extraLyrs };
   }
