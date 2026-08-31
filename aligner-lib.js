@@ -573,9 +573,16 @@
 
   function isNativeOnlyView(href) {
     const url = String(href || "");
+    if (isDirectionsView(url)) return true;
     if (/@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,[\d.]+a,/.test(url)) return true;
     const type = mapDisplayType(dataParam(url));
     return type === 1 || type === 2;
+  }
+
+  // Route polylines and step markers are canvas-painted; hiding the native map
+  // for alignment removes them. Hand /maps/dir/ back to Google until we redraw routes.
+  function isDirectionsView(href) {
+    return /\/maps\/dir\//i.test(String(href || ""));
   }
 
   function overlaySpec(href) {
@@ -728,6 +735,7 @@
     mapDisplayType,
     mapLayerIds,
     isNativeOnlyView,
+    isDirectionsView,
     overlaySpec,
     withStreetViewCoverage,
     streetViewCoverageTileUrl,

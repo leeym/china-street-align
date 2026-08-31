@@ -763,6 +763,14 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(lib.overlaySpec(SAT).nativeOnly, false);
   });
 
+  it("hands directions (/maps/dir/) back to native Maps so route lines stay visible", () => {
+    const dir =
+      "https://www.google.com/maps/dir/%E6%95%85%E5%AE%AE%E5%8D%88%E9%96%80/%E5%A4%A9%E5%AE%89%E9%96%80/@39.9112947,116.3947854,1180m/data=!3m2!1e3!4b1!4m14!4m13!1m5!1m1!1s0x35f052c194aa1469:0x82c6fcd5085ca28d!2m2!1d116.39721!2d39.9138664!1m5!1m1!1s0x36637698dc4374d9:0x6928cb83a148399a!2m2!1d116.3974799!2d39.9087202!3e2";
+    assert.equal(lib.isDirectionsView(dir), true);
+    assert.equal(lib.isNativeOnlyView(dir), true);
+    assert.equal(lib.overlaySpec(dir).nativeOnly, true);
+  });
+
   it("lets the content script follow overlaySpec instead of only !1e3", () => {
     assert.match(contentJs, /overlaySpec\(/);
     assert.doesNotMatch(contentJs, /function isSatelliteView/);

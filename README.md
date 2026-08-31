@@ -47,7 +47,7 @@ Until then, install from a GitHub Release zip (no `git` required) — same file 
 
 Developers packaging a release locally: `npm run pack` writes `dist/china-street-align-<version>.zip` and `dist/china-street-align.zip`.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.45**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.46**).
 
 ## Usage
 
