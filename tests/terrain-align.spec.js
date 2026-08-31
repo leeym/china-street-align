@@ -4,8 +4,11 @@ const fs = require("fs");
 const {
   launchExtensionContext,
   dismissConsent,
-  waitForOverlay
+  waitForOverlay,
+  withOverlayDecorHidden,
+  MAP_CROP
 } = require("./helpers/maps-e2e");
+const { pngRegionColorStats } = require("./helpers/bmp-luma");
 
 const OUT = path.join(__dirname, "..", "test-results", "terrain-align");
 const TERRAIN_URL =
@@ -44,9 +47,13 @@ test.describe("terrain relief stays WGS while roads shift", () => {
         cls: img.className,
         transform: img.style.transform || ""
       }));
+      const tImg = root.querySelector('img.gcj02-tile[data-lyrs="t"]');
+      const tCs = tImg ? getComputedStyle(tImg) : null;
       return {
         layer: root.dataset.layer || "",
         bg: getComputedStyle(root).backgroundColor,
+        blend: tCs?.mixBlendMode || "",
+        filter: tCs?.filter || "",
         tiles,
         hasT: tiles.some((t) => t.lyrs === "t" && t.cls.includes("gcj02-tile")),
         hasH: tiles.some((t) => t.lyrs === "h"),
@@ -55,7 +62,6 @@ test.describe("terrain relief stays WGS while roads shift", () => {
         hShifted: tiles.some((t) => t.lyrs === "h" && /translate/i.test(t.transform))
       };
     });
-    await page.screenshot({ path: path.join(OUT, "terrain-on.png"), fullPage: false });
 
     expect(info, "overlay root missing").toBeTruthy();
     expect(info.layer, JSON.stringify(info)).toBe("terrain");
@@ -64,6 +70,22 @@ test.describe("terrain relief stays WGS while roads shift", () => {
     expect(info.hasP, "must not paint skewed p roads").toBeFalsy();
     expect(info.tShifted, "relief must not CSS-shift").toBeFalsy();
     expect(info.hShifted, "roads must CSS-shift").toBeTruthy();
-    expect(info.bg, "green terrain tint").not.toMatch(/rgba\(0,\s*0,\s*0/);
+    expect(info.blend, JSON.stringify(info)).toMatch(/^(normal|)$/i);
+    expect(info.filter, "colorize dark t tiles").toMatch(/invert/i);
+    expect(info.filter, "sepia tint").toMatch(/sepia/i);
+
+    const shot = path.join(OUT, "terrain-on.png");
+    await withOverlayDecorHidden(page, async () => {
+      await page.screenshot({ path: shot, fullPage: false });
+    });
+
+    // Regression: 0.6.27/0.6.33 looked nearly black-and-white. Fail if the map
+    // crop is mostly gray or not green-biased.
+    const color = pngRegionColorStats(shot, MAP_CROP);
+    expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.72);
+    expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(22);
+    expect(color.greenBias, JSON.stringify(color)).toBeGreaterThan(6);
+    expect(color.greenishShare, JSON.stringify(color)).toBeGreaterThan(0.08);
+    expect(color.meanG, JSON.stringify(color)).toBeGreaterThan(color.meanR + 4);
   });
 });

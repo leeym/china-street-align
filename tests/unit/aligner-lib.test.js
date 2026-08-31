@@ -632,7 +632,10 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(spec.roadLyrs, "h");
     assert.match(contentCss, /data-layer="terrain"/);
     assert.match(contentCss, /data-lyrs="t"/);
-    assert.match(contentCss, /mix-blend-mode:\s*multiply/);
+    assert.match(contentCss, /invert\(1\)/);
+    assert.match(contentCss, /sepia\(/);
+    assert.match(contentCss, /hue-rotate\(/);
+    assert.doesNotMatch(contentCss, /mix-blend-mode:\s*multiply/);
   });
 
   it("reads terrain from a search URL that already has other data tokens", () => {

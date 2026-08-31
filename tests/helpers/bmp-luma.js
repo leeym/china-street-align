@@ -194,13 +194,74 @@ function chromeClusterVisible(stats) {
   return stats.darkShare > 0.05 && stats.brightShare > 0.004;
 }
 
+function bmpColorStats(bmpPath, crop) {
+  const buf = fs.readFileSync(bmpPath);
+  const w = Math.abs(buf.readInt32LE(18));
+  const rawH = buf.readInt32LE(22);
+  const topDown = rawH < 0;
+  const h = Math.abs(rawH);
+  const off = buf.readUInt32LE(10);
+  const row = Math.floor((w * 3 + 3) / 4) * 4;
+  const x0 = crop ? Math.max(0, crop.x) : 0;
+  const y0 = crop ? Math.max(0, crop.y) : 0;
+  const cw = crop ? (crop.w ?? crop.width) : w;
+  const ch = crop ? (crop.h ?? crop.height) : h;
+  const x1 = crop ? Math.min(w, x0 + cw) : w;
+  const y1 = crop ? Math.min(h, y0 + ch) : h;
+  let n = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let sumSat = 0;
+  let gray = 0;
+  let greenish = 0;
+  for (let y = y0; y < y1; y++) {
+    const rowY = topDown ? y : h - 1 - y;
+    for (let x = x0; x < x1; x++) {
+      const o = off + rowY * row + x * 3;
+      const b = buf[o];
+      const g = buf[o + 1];
+      const r = buf[o + 2];
+      n += 1;
+      sumR += r;
+      sumG += g;
+      sumB += b;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const sat = max - min;
+      sumSat += sat;
+      if (sat < 18) gray += 1;
+      // Terrain flats should read green/olive, not neutral gray.
+      if (g > r + 8 && g > b + 8 && sat >= 18) greenish += 1;
+    }
+  }
+  const nn = n || 1;
+  return {
+    width: x1 - x0,
+    height: y1 - y0,
+    meanR: sumR / nn,
+    meanG: sumG / nn,
+    meanB: sumB / nn,
+    meanSat: sumSat / nn,
+    grayShare: gray / nn,
+    greenishShare: greenish / nn,
+    greenBias: (sumG - sumR) / nn
+  };
+}
+
+function pngRegionColorStats(pngPath, crop) {
+  return bmpColorStats(pngToBmp(pngPath), crop);
+}
+
 module.exports = {
   isHybridRoadPixel,
   isSaturatedMapRed,
   pngToBmp,
   bmpLumaStats,
   bmpRedPinStats,
+  bmpColorStats,
   pngRegionStats,
+  pngRegionColorStats,
   pngRedPinStats,
   pngNewRedPinStats,
   chromeClusterVisible
