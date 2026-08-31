@@ -19,7 +19,7 @@ This project does **not** change the satellite layer. When enabled, it overlays 
 
 **Datum rules (in China, mode On):**
 
-1. **Satellite and terrain relief are WGS-84** — never shift `lyrs=s` or `lyrs=t`. Do **not** CSS-shift Google’s combined terrain tile (`lyrs=p`): it bakes GCJ roads onto WGS hillshade, so shifting whole `p` drags cliffs with the roads (at 五丈原, X235 climbs the west plateau face instead of the valley). Terrain mode is unshifted `t` plus shifted `h` — same split as satellite `s`+`h`.
+1. **Satellite and terrain relief are WGS-84** — never shift `lyrs=s` or shade `lyrs=t`. Do **not** CSS-shift Google’s combined terrain tile (`lyrs=p`): it bakes GCJ roads onto WGS hillshade, so shifting whole `p` drags cliffs with the roads (at 五丈原, X235 climbs the west plateau face instead of the valley). Terrain mode matches the outside-China look as closely as the tiles allow: **shifted street `m` under unshifted `t` shade** (multiply) — not grayscale `t`+labels alone, and not a fake green basemap tint.
 2. **The URL camera `@lat,lon` is GCJ-02** — the same datum as the sidebar `!3d/!4d`, which is why the Off pin sits on the Off street map. The overlay draws a WGS-84 world, so it centers on `gcjToWgs(@)`. Centering on the raw `@` slid the whole view, roads and pins together, by one GCJ offset — and because that offset is a pixel quantity it doubled per zoom level (107px at z15, 428px at z17), so pins walked toward the top-left as you zoomed in.
 3. **Streets, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera with **one camera vector** (same WGS tile `x,y` as satellite/terrain for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label; with the camera in the right datum each pin lands on the exact pixel Off used, and the roads move under it. Place-page titles like「結果」are ignored; names come from `/maps/place/NAME/` and visited-link aria suffixes are stripped.
 4. **A tile's anchor is its centre, on both axes** — `tileCenterLatLon` feeds a `- tileSize/2` corner calculation, so a west-edge longitude there shifts every tile half a tile (128px at scale 1) west, at every zoom. That leaves markers on the right pixel and the roads under them on the wrong one, which reads as a POI that drifts further off the map the further you zoom out.
@@ -35,7 +35,7 @@ Outside China the overlay stays off.
 3. Open Google Maps. Alignment runs automatically inside China.
 4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.37**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.38**).
 
 ## Usage
 

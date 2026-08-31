@@ -556,6 +556,7 @@
         label: "native",
         baseLyrs: [],
         roadLyrs: "",
+        shadeLyrs: [],
         extraLyrs: []
       };
     }
@@ -571,16 +572,23 @@
     if (extras.includes(3)) extraLyrs.push("h,bike");
     if (extras.includes(5)) extraLyrs.push("svv");
     if (satellite) {
-      return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", extraLyrs };
+      return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", shadeLyrs: [], extraLyrs };
     }
     if (terrain) {
-      // Google's colored `lyrs=p` bakes GCJ roads onto WGS hillshade. CSS-shifting
-      // whole `p` moves cliffs with the roads — at 五丈原, X235 then climbs the
-      // west plateau face instead of the valley. Keep relief on unshifted WGS
-      // `t` and CSS-shift only GCJ `h` (same pattern as satellite `s`+`h`).
-      return { nativeOnly: false, label: "terrain", baseLyrs: ["t"], roadLyrs: "h", extraLyrs };
+      // Outside China, terrain reads as colored streets + hillshade. Combined
+      // `lyrs=p` bakes GCJ roads onto WGS relief — CSS-shifting whole `p` makes
+      // X235 climb the west 五丈原 face. Match the outside look with shifted
+      // street `m` under unshifted WGS shade `t` (multiply), never shifted `p`.
+      return {
+        nativeOnly: false,
+        label: "terrain",
+        baseLyrs: [],
+        roadLyrs: "m",
+        shadeLyrs: ["t"],
+        extraLyrs
+      };
     }
-    return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", extraLyrs };
+    return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs };
   }
 
   function parseMapHref(href) {

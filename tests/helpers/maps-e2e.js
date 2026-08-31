@@ -402,23 +402,37 @@ async function assertStreetsShiftedOntoSatellite(page) {
       };
     }
     const root = document.getElementById("gcj02-aligner-root");
-    const sat = root?.querySelector(".gcj02-tile:not(.gcj02-road)");
-    const road = root?.querySelector(".gcj02-road") || root?.querySelector(".gcj02-tile");
+    const layer = root?.dataset.layer || "";
+    let sat = root?.querySelector(".gcj02-tile:not(.gcj02-road)");
+    let road = root?.querySelector(".gcj02-road") || root?.querySelector(".gcj02-tile");
     let paired = null;
-    if (sat && root) {
+    if (layer === "terrain" && root) {
+      // Colored street `m` under unshifted shade `t`.
+      const shade = root.querySelector(".gcj02-shade[data-lyrs='t'], img[data-lyrs='t']");
+      const mapTile =
+        root.querySelector(".gcj02-tile[data-lyrs='m'], .gcj02-road[data-lyrs='m']")
+        || [...root.querySelectorAll(".gcj02-tile,.gcj02-road")].find((el) => el.dataset.lyrs === "m");
+      sat = shade;
+      road = mapTile;
+      if (shade && mapTile) paired = { sat: cssShift(shade), road: cssShift(mapTile) };
+    } else if (sat && root) {
       const roads = [...root.querySelectorAll(".gcj02-road")];
       const match = roads.find((r) => r.style.left === sat.style.left && r.style.top === sat.style.top)
         || roads[0];
       if (match) paired = { sat: cssShift(sat), road: cssShift(match) };
     }
     return {
-      layer: root?.dataset.layer || "",
+      layer,
       expectedDx: Number(root?.dataset.shiftDx || 0),
       expectedDy: Number(root?.dataset.shiftDy || 0),
       offsetPx: Number(root?.dataset.offsetPx || 0),
       sat: cssShift(sat),
       road: cssShift(road),
-      paired
+      paired,
+      shadeBlend: (() => {
+        const sh = root?.querySelector(".gcj02-shade[data-lyrs='t']");
+        return sh ? getComputedStyle(sh).mixBlendMode : "";
+      })()
     };
   });
   expect(s.offsetPx, JSON.stringify(s)).toBeGreaterThan(20);
@@ -442,9 +456,8 @@ async function assertStreetsShiftedOntoSatellite(page) {
     expect(roadVt.z).toBe(satVt.z);
   }
   if (s.layer === "terrain") {
-    // Same split as satellite: WGS relief stays put; only GCJ roads CSS-shift.
-    // Shifting combined `p` moves cliffs with roads — X235 climbs the west face.
-    expect(s.sat.hypot, "terrain relief must stay unshifted").toBeLessThan(3);
+    // Street `m` CSS-shifts; WGS shade `t` stays put (not combined shifted `p`).
+    expect(s.sat.hypot, "terrain shade must stay unshifted").toBeLessThan(3);
     expect(s.paired, JSON.stringify(s)).toBeTruthy();
     expect(s.paired.sat.left, JSON.stringify(s.paired)).toBe(s.paired.road.left);
     expect(s.paired.sat.top, JSON.stringify(s.paired)).toBe(s.paired.road.top);
@@ -453,10 +466,11 @@ async function assertStreetsShiftedOntoSatellite(page) {
     const reliefVt = tileVt(s.paired.sat);
     const roadVt = tileVt(s.paired.road);
     expect(reliefVt.lyrs, JSON.stringify(reliefVt)).toBe("t");
-    expect(roadVt.lyrs, JSON.stringify(roadVt)).toMatch(/^h/);
-    expect(roadVt.x, "roads must use the same WGS tile index as relief").toBe(reliefVt.x);
+    expect(roadVt.lyrs, JSON.stringify(roadVt)).toMatch(/^m/);
+    expect(roadVt.x, "streets must use the same WGS tile index as shade").toBe(reliefVt.x);
     expect(roadVt.y, JSON.stringify({ reliefVt, roadVt })).toBe(reliefVt.y);
     expect(roadVt.z).toBe(reliefVt.z);
+    expect(s.shadeBlend, "shade should multiply onto streets").toMatch(/multiply/i);
   }
 }
 

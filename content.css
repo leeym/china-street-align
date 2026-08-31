@@ -15,7 +15,8 @@
   pointer-events: none !important;
 }
 .gcj02-tile,
-.gcj02-road {
+.gcj02-road,
+.gcj02-shade {
   position: absolute !important;
   display: block !important;
   border: 0 !important;
@@ -33,6 +34,14 @@
 }
 .gcj02-road {
   opacity: 0.95;
+}
+/* Terrain = shifted street `m` + unshifted WGS `t` shade (not fake green tint).
+   Brighten near-black `t` so multiply does not crush the roadmap. */
+#gcj02-aligner-root[data-layer="terrain"] .gcj02-shade[data-lyrs="t"] {
+  mix-blend-mode: multiply;
+  opacity: 0.36;
+  filter: brightness(1.7) contrast(1.05);
+  z-index: 1;
 }
 .gcj02-hide-native {
   opacity: 0 !important;

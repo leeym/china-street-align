@@ -16,8 +16,8 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   //    translate them onto the WGS-84 camera with one camera overlayShiftPx.
   //    Search POIs are canvas-painted by Maps (not DOM), so On redraws icon+label
   //    at Off GCJ mercator plus that same rigid camera vector.
-  //    Terrain uses unshifted `t` + shifted `h` (never shifted `p` — that makes
-  //    X235 climb the west 五丈原 cliff instead of the valley).
+  //    Terrain: shifted street `m` + unshifted shade `t` (never shifted `p` —
+  //    that makes X235 climb the west 五丈原 cliff instead of the valley).
   const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
 
   it("never transforms satellite base tiles (WGS-84 stays put)", () => {
@@ -34,21 +34,23 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     );
   });
 
-  it("never transforms terrain relief tiles (WGS-84 stays put)", () => {
+  it("never transforms terrain shade tiles (WGS-84 stays put)", () => {
     const spec = lib.overlaySpec("https://www.google.com/maps/@34.25,107.62,15z/data=!5m1!1e4");
-    assert.deepEqual(spec.baseLyrs, ["t"]);
-    assert.equal(spec.roadLyrs, "h");
+    assert.deepEqual(spec.baseLyrs, []);
+    assert.equal(spec.roadLyrs, "m");
+    assert.deepEqual(spec.shadeLyrs, ["t"]);
     assert.notEqual(spec.roadLyrs, "p");
+    assert.match(contentJs, /placeTile\("gcj02-shade"/);
   });
 
   it("always CSS-shifts street/terrain/extra tiles onto WGS inside China", () => {
     assert.equal(lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z").roadLyrs, "m");
     assert.equal(
       lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").roadLyrs,
-      "h"
+      "m"
     );
     assert.deepEqual(
-      lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").baseLyrs,
+      lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").shadeLyrs,
       ["t"]
     );
     assert.equal(lib.overlaySpec(XIAMEN_XINGLIN.href).roadLyrs, "h");
@@ -626,18 +628,21 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(spec.roadLyrs, "h");
   });
 
-  it("keeps WGS terrain relief unshifted and CSS-shifts GCJ road labels", () => {
+  it("keeps WGS terrain shade unshifted over shifted street map", () => {
     const spec = lib.overlaySpec(TERRAIN);
     assert.equal(spec.nativeOnly, false);
     assert.equal(spec.label, "terrain");
     // Never shift combined `p` — cliffs move with roads (X235 on west face).
-    assert.deepEqual(spec.baseLyrs, ["t"]);
-    assert.equal(spec.roadLyrs, "h");
+    assert.deepEqual(spec.baseLyrs, []);
+    assert.equal(spec.roadLyrs, "m");
+    assert.deepEqual(spec.shadeLyrs, ["t"]);
     assert.notEqual(spec.roadLyrs, "p");
     const placeSpec = lib.overlaySpec(WUZHANGYUAN.terrainHref);
     assert.equal(placeSpec.label, "terrain");
-    assert.deepEqual(placeSpec.baseLyrs, ["t"]);
-    assert.equal(placeSpec.roadLyrs, "h");
+    assert.equal(placeSpec.roadLyrs, "m");
+    assert.deepEqual(placeSpec.shadeLyrs, ["t"]);
+    assert.match(contentCss, /gcj02-shade/);
+    assert.match(contentCss, /mix-blend-mode:\s*multiply/);
   });
 
   it("reads terrain from a search URL that already has other data tokens", () => {
@@ -650,8 +655,8 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(offSpec.label, "map");
     assert.equal(offSpec.roadLyrs, "m");
     assert.equal(onSpec.label, "terrain");
-    assert.equal(onSpec.roadLyrs, "h");
-    assert.deepEqual(onSpec.baseLyrs, ["t"]);
+    assert.equal(onSpec.roadLyrs, "m");
+    assert.deepEqual(onSpec.shadeLyrs, ["t"]);
   });
 
   it("adds traffic, transit, bicycling, and Street View coverage tiles", () => {

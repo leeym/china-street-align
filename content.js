@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.37";
+  let VERSION = "0.6.38";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -749,15 +749,16 @@
     const y1 = Math.floor((tl.y + h) / tileSize) + pad;
     const max = 2 ** zTile;
     const key = [
-      active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), spec.extraLyrs.join("+"),
+      active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), (spec.shadeLyrs || []).join("+"),
+      spec.extraLyrs.join("+"),
       zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y),
       Math.round(w), Math.round(h)
     ].join(",");
     if (key !== lastKey) {
       lastKey = key;
       lastPoiKey = "";
-      if (panEl) panEl.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
-      else root.querySelectorAll(".gcj02-tile,.gcj02-road").forEach((e) => e.remove());
+      if (panEl) panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
+      else root.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
 
       const sample = globalThis.Gcj02Aligner.overlayShiftPx(cam.lat, cam.lon, st.zoom);
       const offsetPx = sample.hypot;
@@ -793,10 +794,9 @@
           const left = pW.x - center.x + w / 2 - tileSize / 2;
           const top = pW.y - center.y + h / 2 - tileSize / 2;
 
-          // Satellite `s` and terrain relief `t` stay on WGS (do not CSS-shift).
-          // GCJ layers (`h`/`m` and extras) use the same WGS tile index then the
-          // camera CSS-shift. Never CSS-shift combined terrain `p`: it moves
-          // WGS cliffs with GCJ roads (X235 climbs the west 五丈原 face).
+          // Satellite `s` stays on WGS. Terrain: shifted colored streets `m`, then
+          // unshifted WGS shade `t` on top (outside-China look). Never CSS-shift
+          // combined `p` (X235 climbs the west 五丈原 face with the cliffs).
           for (const lyrs of spec.baseLyrs) {
             placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }
@@ -808,6 +808,9 @@
           }
           for (const lyrs of spec.extraLyrs) {
             placeTile("gcj02-road", lyrs, left, top, tileSize, roadShift, wx, ty, zTile);
+          }
+          for (const lyrs of spec.shadeLyrs || []) {
+            placeTile("gcj02-shade", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }
         }
       }
