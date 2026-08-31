@@ -630,6 +630,23 @@
     return Object.assign({}, spec, { extraLyrs: extras.concat("svv") });
   }
 
+  // Classic `mt*/vt/lyrs=svv` returns empty 1×1 PNGs. Maps loads coverage via
+  // `/maps/vt/pb=…!2ssvv…` with the Street View coverage style block. Always use
+  // the Roadmap footer — `!2sSatellite` yields blank tiles even on satellite view.
+  function streetViewCoverageTileUrl(x, y, z) {
+    const zz = Number(z);
+    const xx = Number(x);
+    const yy = Number(y);
+    return (
+      "https://www.google.com/maps/vt/pb="
+      + `!1m4!1m3!1i${zz}!2i${xx}!3i${yy}`
+      + "!2m8!1e2!2ssvv"
+      + "!4m2!1scc!2s*211m3*211e2*212b1*213e2*211m3*211e10*212b1*213e2*211m3*211e9*212b1*213e2*212b1"
+      + "!4m2!1ssvl!2s*211b1*212b1"
+      + "!3m8!2sen!3sus!5e1105!12m4!1e68!2m2!1sset!2sRoadmap!4e0!5m1!1e0"
+    );
+  }
+
   function isStreetViewPegmanTarget(el) {
     let n = el && el.nodeType === 1 ? el : null;
     for (let i = 0; i < 8 && n; i++, n = n.parentElement) {
@@ -643,7 +660,10 @@
       ]
         .filter(Boolean)
         .join(" ");
-      if (/street\s*view|pegman|街景|ストリートビュー|스트리트/i.test(bits)) return true;
+      // zh-TW Maps: aria-label "瀏覽街景服務圖像", jsaction "runway.pegman".
+      if (/street\s*view|pegman|街景|ストリートビュー|스트리트|runway\.pegman/i.test(bits)) {
+        return true;
+      }
       if (/\bstreetview\b|\bpegman\b/i.test(bits)) return true;
     }
     return false;
@@ -710,6 +730,7 @@
     isNativeOnlyView,
     overlaySpec,
     withStreetViewCoverage,
+    streetViewCoverageTileUrl,
     isStreetViewPegmanTarget,
     parseMapHref
   };

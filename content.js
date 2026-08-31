@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.44";
+  let VERSION = "0.6.45";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -197,6 +197,9 @@
   }
 
   function tileUrl(lyrs, x, y, z) {
+    if (lyrs === "svv" && globalThis.Gcj02Aligner?.streetViewCoverageTileUrl) {
+      return globalThis.Gcj02Aligner.streetViewCoverageTileUrl(x, y, z);
+    }
     const s = ((x + y) % 4 + 4) % 4;
     return `https://mt${s}.google.com/vt/lyrs=${lyrs}&x=${x}&y=${y}&z=${z}`;
   }
@@ -976,6 +979,19 @@
   document.addEventListener("pointerdown", onPegmanPointerDown, true);
   document.addEventListener("pointerup", onPegmanPointerUp, true);
   document.addEventListener("pointercancel", onPegmanPointerUp, true);
+  // Backup: Maps still requests /vt/pb=!2ssvv… while pegman is active even though we
+  // hide the native canvas — mirror that by forcing our coverage tiles.
+  try {
+    const po = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (/\/maps\/vt\/pb=.*!2ssvv/i.test(e.name)) {
+          setPegmanCover(true);
+          break;
+        }
+      }
+    });
+    po.observe({ type: "resource", buffered: false });
+  } catch (_e) {}
   // Smooth zoom preview for wheel and the corner +/- controls.
   document.addEventListener("wheel", onMapWheel, { capture: true, passive: true });
   document.addEventListener("pointerdown", onZoomButtonDown, true);

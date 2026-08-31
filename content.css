@@ -35,6 +35,11 @@
 .gcj02-road {
   opacity: 0.95;
 }
+/* Street View coverage blue lines/dots — above roads, full opacity. */
+.gcj02-road[data-lyrs="svv"] {
+  opacity: 1;
+  z-index: 3;
+}
 /* Terrain = shifted street `m` + unshifted WGS `t` shade.
    Raw `t` is near-black (mean~6, max~70): invert alone leaves ridges ~180–255
    so multiply barely marks cliffs. Pull toward mid-gray then contrast so ridges

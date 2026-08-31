@@ -52,6 +52,47 @@ async function setPegmanCover(page, on) {
   await page.waitForTimeout(400);
 }
 
+/** Count cyan-ish opaque pixels across overlay Street View coverage tiles. */
+async function overlaySvvCyanPixels(page) {
+  return page.evaluate(async () => {
+    const imgs = [...document.querySelectorAll("#gcj02-aligner-root img[data-lyrs='svv']")];
+    let cyan = 0;
+    let pb = 0;
+    for (const img of imgs) {
+      const src = img.currentSrc || img.src || "";
+      if (/\/maps\/vt\/pb=.*!2ssvv/i.test(src)) pb++;
+      if (!img.complete || img.naturalWidth < 2) continue;
+      try {
+        const resp = await fetch(src);
+        const blob = await resp.blob();
+        const bmp = await createImageBitmap(blob);
+        const c = document.createElement("canvas");
+        c.width = bmp.width;
+        c.height = bmp.height;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(bmp, 0, 0);
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] < 8) continue;
+          if (d[i + 2] > 140 && d[i + 1] > 100 && d[i] < 120) cyan++;
+        }
+      } catch (_e) {}
+    }
+    return { cyan, pb, n: imgs.length };
+  });
+}
+
+async function waitForOverlaySvvPb(page, timeout = 15000) {
+  await page.waitForFunction(
+    () => {
+      const imgs = [...document.querySelectorAll("#gcj02-aligner-root img[data-lyrs='svv']")];
+      return imgs.some((img) => /\/maps\/vt\/pb=.*!2ssvv/i.test(img.currentSrc || img.src || ""));
+    },
+    null,
+    { timeout }
+  );
+}
+
 async function waitForOverlay(page) {
   await page.waitForFunction(() => {
     const root = document.getElementById("gcj02-aligner-root");
@@ -487,6 +528,8 @@ module.exports = {
   dismissConsent,
   setAlignerMode,
   setPegmanCover,
+  overlaySvvCyanPixels,
+  waitForOverlaySvvPb,
   waitForOverlay,
   waitForOverlayOff,
   waitForNativePois,

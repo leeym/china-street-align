@@ -725,13 +725,24 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(lib.withStreetViewCoverage(lib.overlaySpec(STREET_VIEW), true).nativeOnly, true);
   });
 
+  it("builds Maps vt/pb Street View coverage tile URLs (not empty lyrs=svv)", () => {
+    const url = lib.streetViewCoverageTileUrl(53955, 24830, 16);
+    assert.match(url, /^https:\/\/www\.google\.com\/maps\/vt\/pb=/);
+    assert.match(url, /!1i16!2i53955!3i24830/);
+    assert.match(url, /!2ssvv/);
+    assert.match(url, /!2sRoadmap/);
+    assert.doesNotMatch(url, /lyrs=svv/);
+    assert.match(contentJs, /streetViewCoverageTileUrl/);
+  });
+
   it("recognizes pegman / Street View control labels", () => {
     const mk = (attrs) => {
       const el = { nodeType: 1, parentElement: null, getAttribute: (k) => attrs[k] || null };
       return el;
     };
     assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "Street View" })), true);
-    assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "街景" })), true);
+    assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "瀏覽街景服務圖像" })), true);
+    assert.equal(lib.isStreetViewPegmanTarget(mk({ jsaction: "mousedown:runway.pegman" })), true);
     assert.equal(lib.isStreetViewPegmanTarget(mk({ title: "Pegman" })), true);
     assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "Zoom in" })), false);
   });
