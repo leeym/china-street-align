@@ -28,12 +28,17 @@ On a street-only view these rules cancel: the overlay re-centres on `gcjToWgs(@)
 
 Outside China the overlay stays off.
 
-## Install (unpacked)
+## Install
 
-1. Chrome → `chrome://extensions` → enable **Developer mode**.
-2. **Load unpacked** and select this repository directory.
-3. Open Google Maps. Alignment runs automatically inside China.
-4. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
+**One-click install** only works via the [Chrome Web Store](https://chrome.google.com/webstore). Chrome blocks installing extensions from arbitrary links or `.crx` downloads for regular users (outside enterprise policy), so a README “Install” button cannot sidestep that. When this extension is listed, the store link will go here.
+
+Until then, load it unpacked from this repo:
+
+1. Clone or download this repository.
+2. Chrome → `chrome://extensions` → enable **Developer mode**.
+3. **Load unpacked** and select this repository directory.
+4. Open Google Maps. Alignment runs automatically inside China.
+5. After you reload or update the extension, **close the Maps tab and open it again** so the content script is not stale.
 
 Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.6.40**).
 
