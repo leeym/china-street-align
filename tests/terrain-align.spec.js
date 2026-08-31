@@ -79,16 +79,22 @@ test.describe("terrain keeps X235 in the west valley", () => {
     expect(info.pShifted, "shifted p is the X235-on-cliff bug").toBeFalsy();
     expect(info.shadeBlend, JSON.stringify(info)).toMatch(/multiply/i);
 
+    const shadeFilter = await page.evaluate(() => {
+      const sh = document.querySelector("#gcj02-aligner-root .gcj02-shade[data-lyrs='t']");
+      return sh ? getComputedStyle(sh).filter : "";
+    });
+    expect(shadeFilter, "invert so flats stay bright").toMatch(/invert/i);
+
     await assertStreetsShiftedOntoSatellite(page);
 
     const shot = path.join(OUT, "terrain-on.png");
     await withOverlayDecorHidden(page, async () => {
       await page.screenshot({ path: shot, fullPage: false });
     });
-    // Colored roadmap under shade — reject near-B&W t+h (0.6.37). Multiply
-    // shade raises grayShare; require real chroma from street `m`.
+    // Street colours should stay close to map mode — not a full-frame dark wash.
     const color = pngRegionColorStats(shot, MAP_CROP);
     expect(color.meanSat, JSON.stringify(color)).toBeGreaterThan(12);
     expect(color.grayShare, JSON.stringify(color)).toBeLessThan(0.92);
+    expect((color.meanR + color.meanG + color.meanB) / 3, JSON.stringify(color)).toBeGreaterThan(140);
   });
 });

@@ -35,12 +35,14 @@
 .gcj02-road {
   opacity: 0.95;
 }
-/* Terrain = shifted street `m` + unshifted WGS `t` shade (not fake green tint).
-   Brighten near-black `t` so multiply does not crush the roadmap. */
+/* Terrain = shifted street `m` + unshifted WGS `t` shade.
+   Raw `t` is near-black with light ridges — multiply as-is crushes the whole
+   map. Invert first: flats → white (multiply is a no-op), ridges → dark
+   (cliff shade only), matching outside-China “streets + soft relief”. */
 #gcj02-aligner-root[data-layer="terrain"] .gcj02-shade[data-lyrs="t"] {
+  filter: invert(1);
   mix-blend-mode: multiply;
-  opacity: 0.36;
-  filter: brightness(1.7) contrast(1.05);
+  opacity: 0.28;
   z-index: 1;
 }
 .gcj02-hide-native {
