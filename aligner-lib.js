@@ -574,11 +574,11 @@
       return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", extraLyrs };
     }
     if (terrain) {
-      // `lyrs=p` is colored WGS hillshade with GCJ roads baked in. CSS-shifting
-      // the whole raster moved cliffs under X235 (0.6.26). Keep `p` unshifted
-      // like satellite, then CSS-shift GCJ road/label tiles (`h`) on top.
-      // (Grayscale `t` + tint looked correctly aligned but nearly black-and-white.)
-      return { nativeOnly: false, label: "terrain", baseLyrs: ["p"], roadLyrs: "h", extraLyrs };
+      // `lyrs=p` bakes GCJ roads onto WGS hillshade — leaving `p` unshifted keeps
+      // cliffs right but shows skewed ghost streets under the shifted `h` labels.
+      // Use unshifted grayscale relief `t` (WGS, no roads) + shifted `h`, and tint
+      // the root so the map is not black-and-white.
+      return { nativeOnly: false, label: "terrain", baseLyrs: ["t"], roadLyrs: "h", extraLyrs };
     }
     return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", extraLyrs };
   }

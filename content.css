@@ -15,7 +15,16 @@
   pointer-events: none !important;
   will-change: transform;
 }
-/* Terrain base is colored `lyrs=p` (unshifted). Shifted `h` paints correct roads. */
+/* Terrain: unshifted WGS `lyrs=t` (dark hillshade) + green tint; shifted `h` roads. */
+#gcj02-aligner-root[data-layer="terrain"] {
+  background-color: #d7e6c4;
+}
+#gcj02-aligner-root[data-layer="terrain"] .gcj02-tile[data-lyrs="t"] {
+  /* Raw `t` is near-black; lift midtones so multiply keeps greens visible. */
+  mix-blend-mode: multiply;
+  filter: brightness(1.7) contrast(1.12);
+  opacity: 0.88;
+}
 #gcj02-aligner-root[data-layer="terrain"] .gcj02-road[data-lyrs="h"] {
   opacity: 1;
 }

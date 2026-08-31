@@ -11,12 +11,12 @@ const contentCss = fs.readFileSync(path.join(rootDir, "content.css"), "utf8");
 
 describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   // Product rules (do not weaken):
-  // 1. Satellite and terrain basemaps are WGS-84 — never CSS-shift or remap `s`/`p`.
+  // 1. Satellite and terrain relief are WGS-84 — never CSS-shift or remap `s`/`t`.
   // 2. Streets, POIs, and other overlays are GCJ-02 — inside China,
   //    translate them onto the WGS-84 camera with one camera overlayShiftPx.
   //    Search POIs are canvas-painted by Maps (not DOM), so On redraws icon+label
   //    at Off GCJ mercator plus that same rigid camera vector.
-  //    Terrain mode uses unshifted `p` + shifted `h` (never CSS-shift `p`).
+  //    Terrain mode uses unshifted `t` + shifted `h` (never unshifted `p`).
   const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
 
   it("never transforms satellite base tiles (WGS-84 stays put)", () => {
@@ -33,9 +33,9 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     );
   });
 
-  it("never transforms terrain basemap tiles (WGS-84 stays put)", () => {
+  it("never transforms terrain relief tiles (WGS-84 stays put)", () => {
     const spec = lib.overlaySpec("https://www.google.com/maps/@34.25,107.62,15z/data=!5m1!1e4");
-    assert.deepEqual(spec.baseLyrs, ["p"]);
+    assert.deepEqual(spec.baseLyrs, ["t"]);
     assert.equal(spec.roadLyrs, "h");
   });
 
@@ -47,7 +47,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     );
     assert.deepEqual(
       lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").baseLyrs,
-      ["p"]
+      ["t"]
     );
     assert.equal(lib.overlaySpec(XIAMEN_XINGLIN.href).roadLyrs, "h");
     assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
@@ -623,14 +623,16 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(spec.roadLyrs, "h");
   });
 
-  it("keeps WGS terrain basemap unshifted and CSS-shifts GCJ road labels", () => {
+  it("keeps WGS terrain relief unshifted and CSS-shifts GCJ road labels", () => {
     const spec = lib.overlaySpec(TERRAIN);
     assert.equal(spec.nativeOnly, false);
     assert.equal(spec.label, "terrain");
-    // Colored `p` unshifted (like `s`); never CSS-shift the whole `p` raster.
-    assert.deepEqual(spec.baseLyrs, ["p"]);
+    // Never use unshifted `p` — it paints skewed GCJ roads on WGS hillshade.
+    assert.deepEqual(spec.baseLyrs, ["t"]);
     assert.equal(spec.roadLyrs, "h");
     assert.match(contentCss, /data-layer="terrain"/);
+    assert.match(contentCss, /data-lyrs="t"/);
+    assert.match(contentCss, /mix-blend-mode:\s*multiply/);
   });
 
   it("reads terrain from a search URL that already has other data tokens", () => {
@@ -644,7 +646,7 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(offSpec.roadLyrs, "m");
     assert.equal(onSpec.label, "terrain");
     assert.equal(onSpec.roadLyrs, "h");
-    assert.deepEqual(onSpec.baseLyrs, ["p"]);
+    assert.deepEqual(onSpec.baseLyrs, ["t"]);
   });
 
   it("adds traffic, transit, bicycling, and Street View coverage tiles", () => {

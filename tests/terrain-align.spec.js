@@ -9,7 +9,7 @@ const {
 
 const OUT = path.join(__dirname, "..", "test-results", "terrain-align");
 const TERRAIN_URL =
-  "https://www.google.com/maps/search/%E8%AB%B8%E8%91%9B%E4%BA%AE%E5%BB%9F/@34.2601877,107.6251334,14.29z/data=!5m1!1e4";
+  "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.264874,107.6212778,13.85z/data=!4m6!3m5!1s0x36613e2da81fc14b:0xeee51cceea4d3465!8m2!3d34.282582!4d107.618568!16zL20vMDZkOGxk!5m1!1e4";
 
 test.describe("terrain relief stays WGS while roads shift", () => {
   /** @type {import('@playwright/test').BrowserContext} */
@@ -30,7 +30,7 @@ test.describe("terrain relief stays WGS while roads shift", () => {
     await context?.close();
   });
 
-  test("uses unshifted colored lyrs=p plus shifted lyrs=h", async () => {
+  test("uses unshifted lyrs=t plus shifted lyrs=h, never unshifted p", async () => {
     await page.goto(TERRAIN_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
     await dismissConsent(page);
     await waitForOverlay(page);
@@ -46,10 +46,12 @@ test.describe("terrain relief stays WGS while roads shift", () => {
       }));
       return {
         layer: root.dataset.layer || "",
+        bg: getComputedStyle(root).backgroundColor,
         tiles,
-        hasP: tiles.some((t) => t.lyrs === "p" && t.cls.includes("gcj02-tile")),
+        hasT: tiles.some((t) => t.lyrs === "t" && t.cls.includes("gcj02-tile")),
         hasH: tiles.some((t) => t.lyrs === "h"),
-        pShifted: tiles.some((t) => t.lyrs === "p" && t.cls.includes("gcj02-tile") && /translate/i.test(t.transform)),
+        hasP: tiles.some((t) => t.lyrs === "p"),
+        tShifted: tiles.some((t) => t.lyrs === "t" && /translate/i.test(t.transform)),
         hShifted: tiles.some((t) => t.lyrs === "h" && /translate/i.test(t.transform))
       };
     });
@@ -57,9 +59,11 @@ test.describe("terrain relief stays WGS while roads shift", () => {
 
     expect(info, "overlay root missing").toBeTruthy();
     expect(info.layer, JSON.stringify(info)).toBe("terrain");
-    expect(info.hasP, JSON.stringify(info)).toBeTruthy();
+    expect(info.hasT, JSON.stringify(info)).toBeTruthy();
     expect(info.hasH, JSON.stringify(info)).toBeTruthy();
-    expect(info.pShifted, "colored terrain basemap must not CSS-shift").toBeFalsy();
+    expect(info.hasP, "must not paint skewed p roads").toBeFalsy();
+    expect(info.tShifted, "relief must not CSS-shift").toBeFalsy();
     expect(info.hShifted, "roads must CSS-shift").toBeTruthy();
+    expect(info.bg, "green terrain tint").not.toMatch(/rgba\(0,\s*0,\s*0/);
   });
 });
