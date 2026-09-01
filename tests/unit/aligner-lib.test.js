@@ -763,13 +763,16 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(lib.overlaySpec(SAT).nativeOnly, false);
   });
 
-  it("keeps satellite alignment on directions and redraws route polylines", () => {
+  it("forces aligned street overlay on directions even when URL is satellite", () => {
     const dir =
       "https://www.google.com/maps/dir/%E6%95%85%E5%AE%AE%E5%8D%88%E9%96%80/%E5%A4%A9%E5%AE%89%E9%96%80/@39.9112947,116.3947854,1180m/data=!3m2!1e3!4b1!4m14!4m13!1m5!1m1!1s0x35f052c194aa1469:0x82c6fcd5085ca28d!2m2!1d116.39721!2d39.9138664!1m5!1m1!1s0x36637698dc4374d9:0x6928cb83a148399a!2m2!1d116.3974799!2d39.9087202!3e2";
     assert.equal(lib.isDirectionsView(dir), true);
     assert.equal(lib.isNativeOnlyView(dir), false);
-    assert.equal(lib.overlaySpec(dir).nativeOnly, false);
-    assert.equal(lib.overlaySpec(dir).label, "satellite");
+    const spec = lib.overlaySpec(dir);
+    assert.equal(spec.nativeOnly, false);
+    assert.equal(spec.label, "map");
+    assert.equal(spec.roadLyrs, "m");
+    assert.deepEqual(spec.baseLyrs, []);
     assert.match(contentJs, /extractDirectionsPolylines/);
     assert.match(contentJs, /syncRoute/);
   });
@@ -777,12 +780,124 @@ describe("Google Maps layer overlay spec", () => {
   it("decodes Google directions polylines near Beijing", () => {
     const sample =
       ")]}'\n[[[null,null,39.913866,116.39721],[null,null,39.914848,116.392914],[null,null,39.908721,116.397511]]]";
-    const lines = lib.extractDirectionsPolylines(sample);
+    const href =
+      "https://www.google.com/maps/dir/A/B/data=!4m14!4m13!1m5!1m1!1s0:0!2m2!1d116.39721!2d39.9138664!1m5!1m1!1s0:0!2m2!1d116.3974799!2d39.9087202!3e2";
+    const lines = lib.extractDirectionsPolylines(sample, href);
     assert.ok(lines.length >= 1);
+    assert.equal(lines.length, 1);
     assert.ok(lines[0].length >= 2);
+    assert.equal(lines[0][0].lat, 39.9138664);
+    assert.equal(lines[0][lines[0].length - 1].lat, 39.9087202);
     assert.ok(lines[0].every((p) => p.lat > 39.8 && p.lat < 40.1 && p.lon > 116.2 && p.lon < 116.5));
     const rel = lib.decodeGooglePolyline("BChQSCg1oX8oXFQTOYEU4ATgAOAI4AxDDGg==");
     assert.ok(rel.length >= 2);
+  });
+
+  it("chains ordered preview step segments into one long driving polyline", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const fixture = path.join(__dirname, "../fixtures/directions-zhongguancun-chaoyang.json");
+    const body = fs.readFileSync(fixture, "utf8");
+    const href =
+      "https://www.google.com/maps/dir/A/B/data=!4m14!4m13!1m5!1m1!1s0x35f051505892a34f:0x6ea89d0cc8fe038c!2m2!1d116.3160877!2d39.9799664!1m5!1m1!1s0x35f1ac64fa1013f9:0x576afdc6da5d374e!2m2!1d116.481688!2d39.940142!3e0";
+    const lines = lib.extractDirectionsPolylines(body, href);
+    assert.equal(lines.length, 1);
+    assert.ok(lines[0].length >= 8);
+    assert.ok(lines[0][0].lat > lines[0][lines[0].length - 1].lat, "drive runs south overall");
+  });
+
+  it("traces a continuous native canvas route into one polyline", () => {
+    const w = 1792;
+    const h = 1024;
+    const cam = { lat: 39.9641384, lon: 116.3577957 };
+    const zoom = 13;
+    const origin = { lat: 39.9799664, lon: 116.3160877 };
+    const dest = { lat: 39.940142, lon: 116.481688 };
+    const start = lib.gcjLatLonToScreenPx(origin.lat, origin.lon, cam.lat, cam.lon, zoom, w, h);
+    const end = lib.gcjLatLonToScreenPx(dest.lat, dest.lon, cam.lat, cam.lon, zoom, w, h);
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i <= 120; i++) {
+      const t = i / 120;
+      const x = Math.round(start.x + (end.x - start.x) * t);
+      const y = Math.round(start.y + (end.y - start.y) * t + Math.sin(t * 8) * 18);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const px = x + dx;
+          const py = y + dy;
+          if (px < 0 || py < 0 || px >= w || py >= h) continue;
+          const idx = (py * w + px) * 4;
+          data[idx] = 26;
+          data[idx + 1] = 115;
+          data[idx + 2] = 232;
+          data[idx + 3] = 255;
+        }
+      }
+    }
+    const lines = lib.extractRouteLineFromCanvasImageData(
+      data, w, h, w, h, cam.lat, cam.lon, zoom, w, h, origin, dest
+    );
+    assert.equal(lines.length, 1);
+    assert.ok(lines[0].length >= 8);
+    assert.ok(lib.haversineM ? true : true);
+    let total = 0;
+    for (let i = 1; i < lines[0].length; i++) {
+      const dLat = (lines[0][i].lat - lines[0][i - 1].lat) * Math.PI / 180;
+      const dLon = (lines[0][i].lon - lines[0][i - 1].lon) * Math.PI / 180;
+      const x = Math.sin(dLat / 2) ** 2
+        + Math.cos(lines[0][i - 1].lat * Math.PI / 180) * Math.cos(lines[0][i].lat * Math.PI / 180)
+        * Math.sin(dLon / 2) ** 2;
+      total += 2 * 6371000 * Math.asin(Math.sqrt(x));
+    }
+    assert.ok(total > 10000, `route should span most of the drive, got ${Math.round(total)}m`);
+  });
+
+  it("ignores fragmentary canvas chains shorter than eight points", () => {
+    const w = 512;
+    const h = 512;
+    const cam = { lat: 39.9112947, lon: 116.3947854 };
+    const zoom = 17;
+    const origin = { lat: 39.9138664, lon: 116.39721 };
+    const dest = { lat: 39.9087202, lon: 116.3974799 };
+    const start = lib.gcjLatLonToScreenPx(origin.lat, origin.lon, cam.lat, cam.lon, zoom, w, h);
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (const pt of [start, { x: start.x + 2, y: start.y + 36 }]) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const idx = ((pt.y + dy) * w + (pt.x + dx)) * 4;
+          if (idx < 0 || idx >= data.length) continue;
+          data[idx] = 26;
+          data[idx + 1] = 115;
+          data[idx + 2] = 232;
+          data[idx + 3] = 255;
+        }
+      }
+    }
+    const lines = lib.extractRouteLineFromCanvasImageData(
+      data, w, h, w, h, cam.lat, cam.lon, zoom, w, h, origin, dest
+    );
+    assert.deepEqual(lines, []);
+  });
+
+  it("ignores marker polylines and draws Meridian Gate to Tiananmen southbound", () => {
+    const fs = require("fs");
+    const path = require("path");
+    const fixture = path.join(__dirname, "../fixtures/directions-forbidden-tiananmen.json");
+    const body = fs.readFileSync(fixture, "utf8");
+    const href =
+      "https://www.google.com/maps/dir/%E6%95%85%E5%AE%AE%E5%8D%88%E9%96%80/%E5%A4%A9%E5%AE%89%E9%96%80/@39.9112947,116.3947854,1180m/data=!3m2!1e3!4b1!4m14!4m13!1m5!1m1!1s0x35f052c194aa1469:0x82c6fcd5085ca28d!2m2!1d116.39721!2d39.9138664!1m5!1m1!1s0x36637698dc4374d9:0x6928cb83a148399a!2m2!1d116.3974799!2d39.9087202!3e2";
+    const lines = lib.extractDirectionsPolylines(body, href);
+    assert.equal(lines.length, 1);
+    const route = lines[0];
+    assert.equal(route.length, 2);
+    assert.ok(route[0].lat > route[1].lat, "route should run south");
+    assert.ok(route.every((p) => p.lat < 39.916 && p.lat > 39.905), "route stays near meridian axis");
+    assert.ok(route.every((p) => p.lon > 116.396 && p.lon < 116.399), "route stays near meridian axis");
+    const dLat = (route[1].lat - route[0].lat) * Math.PI / 180;
+    const dLon = (route[1].lon - route[0].lon) * Math.PI / 180;
+    const x = Math.sin(dLat / 2) ** 2
+      + Math.cos(route[0].lat * Math.PI / 180) * Math.cos(route[1].lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const dist = 2 * 6371000 * Math.asin(Math.sqrt(x));
+    assert.ok(dist > 400 && dist < 700, `route length ~550m, got ${Math.round(dist)}m`);
   });
 
   it("lets the content script follow overlaySpec instead of only !1e3", () => {

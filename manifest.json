@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.6.47",
+  "version": "0.6.48",
   "description": "Inside China, shifts Google Maps street tiles onto WGS-84 satellite/terrain. Always on while the extension is enabled.",
   "host_permissions": [
     "https://www.google.com/*",

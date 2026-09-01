@@ -627,40 +627,300 @@
     return out;
   }
 
-  function extractDirectionsLatLonPairs(text) {
+  function parseDirectionsWaypoints(href) {
+    const data = dataParam(String(href || ""));
     const pts = [];
-    const re = /\[null,null,(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]/g;
+    const re = /!2m2!1d(-?\d+(?:\.\d+)?)!2d(-?\d+(?:\.\d+)?)/g;
     let m;
-    while ((m = re.exec(String(text || "")))) {
-      pts.push({ lat: +m[1], lon: +m[2] });
+    while ((m = re.exec(data))) {
+      pts.push({ lat: +m[2], lon: +m[1] });
     }
-    const line = dedupeConsecutivePoints(pts);
-    return line.length >= 2 ? [line] : [];
+    return pts;
   }
 
-  function extractDirectionsPolylines(body) {
-    const text = String(body || "").replace(/\\u003d/g, "=");
-    const lines = extractDirectionsLatLonPairs(text);
-    const anchor = lines[0]?.[0] || null;
-    const seen = new Set();
-    const re = /"(B[A-Za-z0-9\-_]+=*)"/g;
-    let m;
-    while ((m = re.exec(text))) {
-      const enc = m[1];
-      if (seen.has(enc)) continue;
-      seen.add(enc);
-      try {
-        let pts = decodeGooglePolyline(enc);
-        if (!pts.length) continue;
-        if (pts.every((p) => Math.abs(p.lat) < 2 && Math.abs(p.lon) < 2) && anchor) {
-          pts = pts.map((p) => ({ lat: anchor.lat + p.lat, lon: anchor.lon + p.lon }));
-        }
-        if (pts.length >= 2 && pts.some((p) => p.lat > 18 && p.lat < 54 && p.lon > 73 && p.lon < 136)) {
-          lines.push(pts);
-        }
-      } catch (_e) {}
+  function isDirectionsLatLonPair(arr) {
+    return Array.isArray(arr)
+      && arr.length === 4
+      && arr[0] == null
+      && arr[1] == null
+      && typeof arr[2] === "number"
+      && typeof arr[3] === "number"
+      && arr[2] >= 18
+      && arr[2] <= 54
+      && arr[3] >= 73
+      && arr[3] <= 136;
+  }
+
+  function isDirectionsStepPolyline(arr) {
+    return Array.isArray(arr)
+      && arr.length >= 2
+      && arr.every(isDirectionsLatLonPair);
+  }
+
+  function isDirectionsStepRow(node) {
+    return isDirectionsStepPolyline(node?.[0]?.[7]?.[1]);
+  }
+
+  function stepRowPolyline(node) {
+    return node[0][7][1].map((p) => ({ lat: p[2], lon: p[3] }));
+  }
+
+  function collectOrderedStepPolylines(node, out) {
+    if (!Array.isArray(node)) return;
+    if (isDirectionsStepRow(node)) {
+      out.push(stepRowPolyline(node));
+      return;
     }
+    for (const child of node) collectOrderedStepPolylines(child, out);
+  }
+
+  function mergeStepPolylinesWithGapSplit(polylines, maxGapM) {
+    const lines = [];
+    let current = [];
+    for (const poly of polylines) {
+      for (const p of poly) {
+        const last = current[current.length - 1];
+        if (last && haversineM(last, p) > maxGapM) {
+          if (current.length >= 2) lines.push(current);
+          current = [p];
+        } else if (!last || haversineM(last, p) > 0.5) {
+          current.push(p);
+        }
+      }
+    }
+    if (current.length >= 2) lines.push(current);
     return lines;
+  }
+
+  function haversineM(a, b) {
+    const R = 6371000;
+    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+    const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+    const x = Math.sin(dLat / 2) ** 2
+      + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+
+  function parseDirectionsPreviewJson(body) {
+    const text = String(body || "").replace(/\\u003d/g, "=");
+    try {
+      return JSON.parse(text.trim().replace(/^\)\]\}'\n?/, ""));
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function readMapCanvasImageData(canvas) {
+    if (!canvas || !(canvas.width > 0) || !(canvas.height > 0)) return null;
+    const w = canvas.width;
+    const h = canvas.height;
+    try {
+      const ctx2d = canvas.getContext("2d");
+      if (ctx2d) return ctx2d.getImageData(0, 0, w, h);
+    } catch (_e) {}
+    try {
+      const off = document.createElement("canvas");
+      off.width = w;
+      off.height = h;
+      const ctx = off.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(canvas, 0, 0, w, h);
+      return ctx.getImageData(0, 0, w, h);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function gcjLatLonToScreenPx(lat, lon, camLat, camLon, zoom, width, height) {
+    const raw = worldPixel(lat, lon, zoom);
+    const center = worldPixel(camLat, camLon, zoom);
+    return {
+      x: raw.x - center.x + Number(width) / 2,
+      y: raw.y - center.y + Number(height) / 2
+    };
+  }
+
+  function latLonFromWorldPixel(x, y, zoom) {
+    const n = 2 ** Number(zoom);
+    const lon = (Number(x) / (n * TILE)) * 360 - 180;
+    const yy = Number(y) / (n * TILE);
+    const lat = (180 / Math.PI) * Math.atan(Math.sinh(Math.PI * (1 - 2 * yy)));
+    return { lat, lon };
+  }
+
+  function gcjScreenPxToLatLon(sx, sy, camLat, camLon, zoom, width, height) {
+    const center = worldPixel(camLat, camLon, zoom);
+    return latLonFromWorldPixel(
+      center.x + Number(sx) - Number(width) / 2,
+      center.y + Number(sy) - Number(height) / 2,
+      zoom
+    );
+  }
+
+  function isDirectionsRouteBlue(r, g, b, a) {
+    return a > 128 && b > 150 && r < 100 && g < 200 && b > r + 40;
+  }
+
+  function screenPointKey(p) {
+    return `${p.x},${p.y}`;
+  }
+
+  function chainRouteScreenPixels(pixels, start, dest, maxJumpPx) {
+    if (!pixels.length) return [];
+    const maxJump = Number(maxJumpPx) > 0 ? Number(maxJumpPx) : 28;
+    const remaining = new Map(pixels.map((p) => [screenPointKey(p), p]));
+    const startKey = screenPointKey(start);
+    if (!remaining.has(startKey)) remaining.set(startKey, start);
+    const out = [start];
+    remaining.delete(startKey);
+    let cur = start;
+    const dirLen = Math.hypot(dest.x - start.x, dest.y - start.y) || 1;
+    const dir = { x: (dest.x - start.x) / dirLen, y: (dest.y - start.y) / dirLen };
+    while (remaining.size) {
+      let best = null;
+      let bestScore = Infinity;
+      for (const p of remaining.values()) {
+        const d = Math.hypot(p.x - cur.x, p.y - cur.y);
+        if (d > maxJump || d < 0.5) continue;
+        const forward = ((p.x - cur.x) * dir.x + (p.y - cur.y) * dir.y) / d;
+        const score = d - forward * 10;
+        if (score < bestScore) {
+          bestScore = score;
+          best = p;
+        }
+      }
+      if (!best) break;
+      out.push(best);
+      remaining.delete(screenPointKey(best));
+      cur = best;
+    }
+    return out;
+  }
+
+  function directionsRouteMaxJumpPx(zoom) {
+    return Math.min(180, Math.max(24, 7 * 2 ** (Number(zoom) - 13)));
+  }
+
+  function simplifyLatLonRoute(points, minDistM) {
+    if (points.length <= 2) return points.slice();
+    const out = [points[0]];
+    for (let i = 1; i < points.length; i++) {
+      if (haversineM(out[out.length - 1], points[i]) >= minDistM) out.push(points[i]);
+    }
+    const last = points[points.length - 1];
+    const tail = out[out.length - 1];
+    if (Math.abs(tail.lat - last.lat) > 1e-7 || Math.abs(tail.lon - last.lon) > 1e-7) {
+      out.push(last);
+    }
+    return out;
+  }
+
+  function nearestScreenPoint(pixels, target) {
+    let best = pixels[0];
+    let bestD = Infinity;
+    for (const p of pixels) {
+      const d = Math.hypot(p.x - target.x, p.y - target.y);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  function extractRouteLineFromCanvasImageData(
+    data, bufW, bufH, cssW, cssH, camLat, camLon, zoom, overlayW, overlayH, origin, dest
+  ) {
+    if (!data || !(bufW > 0) || !(bufH > 0)) return [];
+    const scaleX = Number(cssW || overlayW) / Number(bufW);
+    const scaleY = Number(cssH || overlayH) / Number(bufH);
+    const pixels = [];
+    for (let y = 0; y < bufH; y += 2) {
+      for (let x = 0; x < bufW; x += 2) {
+        const i = (y * bufW + x) * 4;
+        if (!isDirectionsRouteBlue(data[i], data[i + 1], data[i + 2], data[i + 3])) continue;
+        pixels.push({ x: x * scaleX, y: y * scaleY });
+      }
+    }
+    if (pixels.length < 8) return [];
+
+    const originPx = origin ? gcjLatLonToScreenPx(origin.lat, origin.lon, camLat, camLon, zoom, overlayW, overlayH) : null;
+    const destPx = dest ? gcjLatLonToScreenPx(dest.lat, dest.lon, camLat, camLon, zoom, overlayW, overlayH) : null;
+
+    const start = originPx ? nearestScreenPoint(pixels, originPx) : pixels[0];
+    const end = destPx ? nearestScreenPoint(pixels, destPx) : pixels[pixels.length - 1];
+    const chain = chainRouteScreenPixels(pixels, start, end, directionsRouteMaxJumpPx(zoom));
+    if (chain.length < 8) return [];
+
+    let route = chain.map((p) => gcjScreenPxToLatLon(p.x, p.y, camLat, camLon, zoom, overlayW, overlayH));
+    route = simplifyLatLonRoute(route, 12);
+    if (route.length < 2) return [];
+
+    if (origin && haversineM(route[0], origin) > 800) route.unshift({ lat: origin.lat, lon: origin.lon });
+    if (dest && haversineM(route[route.length - 1], dest) > 800) route.push({ lat: dest.lat, lon: dest.lon });
+
+    return [route];
+  }
+
+  function pathLengthM(pts) {
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += haversineM(pts[i - 1], pts[i]);
+    return total;
+  }
+
+  function readAdvertisedDistanceM(leg) {
+    let best = 0;
+    function walk(node) {
+      if (!Array.isArray(node)) return;
+      if (typeof node[1] === "string" && /^\d+(?:\.\d+)?\s*m$/i.test(node[1]) && typeof node[0] === "number") {
+        const meters = parseFloat(node[1]);
+        if (meters > best) best = meters;
+      }
+      for (const child of node) walk(child);
+    }
+    walk(leg);
+    return best;
+  }
+
+  function concatOrderedStepPolylines(polylines) {
+    const out = [];
+    for (const poly of polylines) {
+      for (const p of poly) {
+        const last = out[out.length - 1];
+        if (!last || haversineM(last, p) > 0.5) out.push(p);
+      }
+    }
+    return out.length >= 2 ? [out] : [];
+  }
+
+  function extractDirectionsPolylines(body, href) {
+    const json = parseDirectionsPreviewJson(body);
+    const waypoints = parseDirectionsWaypoints(href);
+    const stepPolylines = [];
+    const leg = json?.[0]?.[1]?.[0];
+    // Step geometry lives under leg[1]; leg[0] holds overview bounds and marker art.
+    if (Array.isArray(leg?.[1])) {
+      collectOrderedStepPolylines(leg[1], stepPolylines);
+    }
+
+    if (waypoints.length >= 2) {
+      const direct = haversineM(waypoints[0], waypoints[waypoints.length - 1]);
+      const advertised = readAdvertisedDistanceM(leg);
+      if (advertised > 0 && direct > 0 && Math.abs(advertised - direct) / direct < 0.12) {
+        return [waypoints.slice()];
+      }
+    }
+
+    let lines = mergeStepPolylinesWithGapSplit(stepPolylines, 2000);
+    if (lines.length !== 1 && stepPolylines.length) {
+      lines = concatOrderedStepPolylines(stepPolylines);
+    }
+    if (lines.length !== 1) lines = [];
+    if (!lines.length && waypoints.length >= 2) {
+      const direct = haversineM(waypoints[0], waypoints[waypoints.length - 1]);
+      if (direct < 5000) lines = [waypoints.slice()];
+    }
+    return lines.filter((line) => line.length >= 2);
   }
 
   function overlaySpec(href) {
@@ -676,16 +936,22 @@
       };
     }
     const data = dataParam(url);
-    const type = mapDisplayType(data);
     const layers = mapLayerIds(data);
     const extras = layers.filter((id) => id !== 4);
-    const satellite = type === 3;
-    const terrain = !satellite && layers.includes(4);
     const extraLyrs = [];
     if (extras.includes(1)) extraLyrs.push("h,traffic");
     if (extras.includes(2)) extraLyrs.push("m,transit");
     if (extras.includes(3)) extraLyrs.push("h,bike");
     if (extras.includes(5)) extraLyrs.push("svv");
+    // Directions paint routes on the native canvas together with the basemap.
+    // Hide native and redraw on overlay; force aligned street tiles so we never
+    // flash misaligned GCJ satellite/street imagery during navigation.
+    if (isDirectionsView(url)) {
+      return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs };
+    }
+    const type = mapDisplayType(data);
+    const satellite = type === 3;
+    const terrain = !satellite && layers.includes(4);
     if (satellite) {
       return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", shadeLyrs: [], extraLyrs };
     }
@@ -815,7 +1081,14 @@
     isNativeOnlyView,
     isDirectionsView,
     decodeGooglePolyline,
+    parseDirectionsWaypoints,
     extractDirectionsPolylines,
+    isDirectionsRouteBlue,
+    extractRouteLineFromCanvasImageData,
+    readMapCanvasImageData,
+    gcjScreenPxToLatLon,
+    gcjLatLonToScreenPx,
+    latLonFromWorldPixel,
     overlaySpec,
     withStreetViewCoverage,
     streetViewCoverageTileUrl,

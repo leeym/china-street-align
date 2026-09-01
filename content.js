@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.47";
+  let VERSION = "0.6.48";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -40,6 +40,12 @@
   let lastRouteKey = "";
   let lastDirectionsPreviewUrl = "";
   let directionsFetchTimer = null;
+  let directionsRouteCaptureKey = "";
+  let directionsRouteCaptureTimer = null;
+  let directionsRouteCaptureAttempts = 0;
+  let directionsBootstrapTimer = null;
+  let directionsCaptureWaitTicks = 0;
+  const MIN_CANVAS_ROUTE_PTS = 8;
   // While the user drags, Maps updates the camera only on release (URL `@`).
   // Native canvas is hidden, so translate the overlay with the pointer so tiles
   // follow the cursor the way Off does outside China.
@@ -60,10 +66,17 @@
     lastKey = "";
     lastPoiKey = "";
     lastRouteKey = "";
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) {
-      directionsPolylines = [];
-      lastDirectionsPreviewUrl = "";
+    directionsPolylines = [];
+    lastDirectionsPreviewUrl = "";
+    directionsRouteCaptureKey = "";
+    directionsRouteCaptureAttempts = 0;
+    directionsCaptureWaitTicks = 0;
+    clearTimeout(directionsRouteCaptureTimer);
+    if (directionsBootstrapTimer) {
+      clearInterval(directionsBootstrapTimer);
+      directionsBootstrapTimer = null;
     }
+    startDirectionsBootstrapCapture();
     clearTimeout(timer);
     timer = setTimeout(redraw, 120);
   });
@@ -635,17 +648,165 @@
     root.dataset.poiKinds = pois.map((p) => p.kind).join(",");
   }
 
-  function queueDirectionsFetch(previewUrl) {
+  function directionsWaypointsKey() {
+    return globalThis.Gcj02Aligner.parseDirectionsWaypoints(location.href)
+      .map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`)
+      .join(";");
+  }
+
+  function directionsCaptureSize() {
+    const found = overlayHost();
+    if (!found) return null;
+    const br = found.canvas.getBoundingClientRect();
+    return {
+      w: Math.max(br.width || 0, found.canvas.clientWidth || 0, 1),
+      h: Math.max(br.height || 0, found.canvas.clientHeight || 0, 1)
+    };
+  }
+
+  function directionsOverlayReady() {
+    if (canvasRouteUsable()) return true;
+    if (directionsRoutePaintable()) return true;
+    return directionsCaptureWaitTicks >= 100;
+  }
+
+  function startDirectionsBootstrapCapture() {
+    if (directionsBootstrapTimer) return;
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return;
+    directionsCaptureWaitTicks = 0;
+    directionsBootstrapTimer = setInterval(() => {
+      directionsCaptureWaitTicks++;
+      if (
+        !alive
+        || !globalThis.Gcj02Aligner.isDirectionsView(location.href)
+        || directionsOverlayReady()
+      ) {
+        clearInterval(directionsBootstrapTimer);
+        directionsBootstrapTimer = null;
+        if (!gestureBusy()) redraw();
+        return;
+      }
+      const st = parseMapState();
+      const size = directionsCaptureSize();
+      if (st && size) tryDirectionsRouteSources(st, size.w, size.h);
+      if (directionsCaptureWaitTicks >= 100) {
+        clearInterval(directionsBootstrapTimer);
+        directionsBootstrapTimer = null;
+        if (!gestureBusy()) redraw();
+      }
+    }, 250);
+  }
+
+  function directionsRoutePaintable() {
+    return directionsPolylines.some((line) => line.length >= 2);
+  }
+
+  function canvasRouteUsable() {
+    return (directionsPolylines[0]?.length || 0) >= MIN_CANVAS_ROUTE_PTS;
+  }
+
+  function tryDirectionsRouteSources(st, w, h) {
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href) || !st) return;
+    const pre = overlayHost();
+    if (pre && !canvasRouteUsable()) {
+      const br = pre.canvas.getBoundingClientRect();
+      captureDirectionsRouteFromCanvas(st, br.width || w, br.height || h);
+    }
+    if (!directionsRoutePaintable()) scanBufferedDirectionsResources(true);
+  }
+
+  function shouldHideNativeForDirections() {
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return true;
+    if (canvasRouteUsable()) return true;
+    if (directionsRoutePaintable()) return true;
+    return directionsCaptureWaitTicks >= 100;
+  }
+
+  function captureDirectionsRouteFromCanvas(st, w, h) {
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href) || !st) return false;
+    const key = [
+      directionsWaypointsKey(),
+      st.zoom.toFixed(3),
+      st.lat.toFixed(5),
+      st.lon.toFixed(5),
+      w,
+      h
+    ].join("|");
+    if (key === directionsRouteCaptureKey && canvasRouteUsable()) return true;
+
+    const found = overlayHost();
+    const canvas = found?.canvas;
+    if (!canvas) return false;
+    let imageData;
+    try {
+      imageData = globalThis.Gcj02Aligner.readMapCanvasImageData(canvas);
+    } catch (_e) {
+      return false;
+    }
+    if (!imageData) return false;
+    const waypoints = globalThis.Gcj02Aligner.parseDirectionsWaypoints(location.href);
+    const lines = globalThis.Gcj02Aligner.extractRouteLineFromCanvasImageData(
+      imageData.data,
+      imageData.width,
+      imageData.height,
+      canvas.clientWidth || w,
+      canvas.clientHeight || h,
+      st.lat,
+      st.lon,
+      st.zoom,
+      w,
+      h,
+      waypoints[0] || null,
+      waypoints[waypoints.length - 1] || null
+    );
+    if (!lines.length || lines[0].length < MIN_CANVAS_ROUTE_PTS) return false;
+    directionsPolylines = lines;
+    directionsRouteCaptureKey = key;
+    lastRouteKey = "";
+    return true;
+  }
+
+  function scheduleDirectionsRouteCapture(st, w, h) {
+    clearTimeout(directionsRouteCaptureTimer);
+    if (directionsRouteCaptureAttempts > 40) return;
+    directionsRouteCaptureTimer = setTimeout(() => {
+      directionsRouteCaptureAttempts++;
+      if (!alive || gestureBusy()) return;
+      if (captureDirectionsRouteFromCanvas(st, w, h)) {
+        directionsRouteCaptureAttempts = 0;
+        if (!gestureBusy()) redraw();
+        return;
+      }
+      scheduleDirectionsRouteCapture(st, w, h);
+    }, 280);
+  }
+
+  function scanBufferedDirectionsResources(force) {
+    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return;
+    if (!force && directionsPolylines.length) return;
+    for (const e of performance.getEntriesByType("resource")) {
+      if (/\/maps\/preview\/directions/i.test(e.name)) {
+        queueDirectionsFetch(e.name, !!force);
+        return;
+      }
+    }
+  }
+
+  function queueDirectionsFetch(previewUrl, force) {
     const url = String(previewUrl || "");
-    if (!url || url === lastDirectionsPreviewUrl) return;
+    if (!url) return;
+    if (!force && url === lastDirectionsPreviewUrl) return;
     lastDirectionsPreviewUrl = url;
     clearTimeout(directionsFetchTimer);
     directionsFetchTimer = setTimeout(() => {
       fetch(url)
         .then((r) => r.text())
         .then((body) => {
-          const lines = globalThis.Gcj02Aligner.extractDirectionsPolylines(body);
+          const canvasPts = directionsPolylines[0]?.length || 0;
+          const lines = globalThis.Gcj02Aligner.extractDirectionsPolylines(body, location.href);
           if (!lines.length) return;
+          const previewPts = lines[0]?.length || 0;
+          if (canvasPts >= MIN_CANVAS_ROUTE_PTS && canvasPts >= previewPts) return;
           directionsPolylines = lines;
           lastRouteKey = "";
           if (!gestureBusy()) redraw();
@@ -654,25 +815,24 @@
     }, 120);
   }
 
-  function scanBufferedDirectionsResources() {
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return;
-    if (directionsPolylines.length) return;
-    for (const e of performance.getEntriesByType("resource")) {
-      if (/\/maps\/preview\/directions/i.test(e.name)) {
-        queueDirectionsFetch(e.name);
-        return;
-      }
-    }
-  }
-
   function syncRoute(st, w, h) {
     if (!panEl) return;
     if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) {
       panEl.querySelectorAll(".gcj02-route").forEach((e) => e.remove());
       lastRouteKey = "";
+      directionsPolylines = [];
+      directionsRouteCaptureKey = "";
+      directionsRouteCaptureAttempts = 0;
+      directionsCaptureWaitTicks = 0;
+      clearTimeout(directionsRouteCaptureTimer);
       return;
     }
-    scanBufferedDirectionsResources();
+    if (!canvasRouteUsable()) {
+      tryDirectionsRouteSources(st, w, h);
+    }
+    if (!directionsRoutePaintable()) {
+      scheduleDirectionsRouteCapture(st, w, h);
+    }
     const routeKey = [
       w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
       directionsPolylines.map((line) => line.length).join(";")
@@ -705,7 +865,10 @@
       svg.appendChild(poly);
     }
     panEl.appendChild(svg);
-    if (root) root.dataset.routeSegments = String(directionsPolylines.length);
+    if (root) {
+      root.dataset.routeSegments = String(directionsPolylines.length);
+      root.dataset.routePoints = String(directionsPolylines.reduce((n, line) => n + line.length, 0));
+    }
   }
 
   function syncPoisIfVisible() {
@@ -933,18 +1096,29 @@
       return;
     }
 
+    if (globalThis.Gcj02Aligner.isDirectionsView(location.href) && !directionsOverlayReady()) {
+      const size = directionsCaptureSize();
+      if (size) tryDirectionsRouteSources(st, size.w, size.h);
+      if (!directionsOverlayReady()) {
+        if (size) scheduleDirectionsRouteCapture(st, size.w, size.h);
+        return;
+      }
+    }
+
     if (!ensureRoot()) return;
-    setNativeMapHidden(true);
+    const box = root.getBoundingClientRect();
+    const w = root.clientWidth || box.width;
+    const h = root.clientHeight || box.height;
+    if (!(w >= 32) || !(h >= 32)) return;
+    tryDirectionsRouteSources(st, w, h);
+    if (shouldHideNativeForDirections()) setNativeMapHidden(true);
+    else scheduleDirectionsRouteCapture(st, w, h);
     root.style.display = "";
     if (statusEl) statusEl.style.display = "";
 
     const zTile = Math.min(21, Math.max(0, Math.round(st.zoom)));
     const scale = 2 ** (st.zoom - zTile);
     const tileSize = TILE * scale;
-    const box = root.getBoundingClientRect();
-    const w = root.clientWidth || box.width;
-    const h = root.clientHeight || box.height;
-    if (!(w >= 32) || !(h >= 32)) return;
     // URL `@` is usually GCJ-02; lat/lon place queries are already WGS-84.
     // Center the overlay on the WGS twin of that camera (see overlayCamera).
     const cam = globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon, urlCoordOpts());
@@ -1144,11 +1318,18 @@
         clipHostForChrome(found.host);
         if (fitOverlayToCanvas(found.host, found.canvas)) lastKey = "";
       }
-      setNativeMapHidden(true);
+      const stPoll = parseMapState();
+      if (stPoll && root) {
+        const pw = root.clientWidth || root.getBoundingClientRect().width;
+        const ph = root.clientHeight || root.getBoundingClientRect().height;
+        if (pw >= 32 && ph >= 32) tryDirectionsRouteSources(stPoll, pw, ph);
+      }
+      if (shouldHideNativeForDirections()) setNativeMapHidden(true);
       if (!lastKey) redraw();
       else syncPoisIfVisible();
     }
   }, 400);
 
+  startDirectionsBootstrapCapture();
   redraw();
 })();
