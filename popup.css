@@ -1,0 +1,58 @@
+body {
+  margin: 0;
+  padding: 12px 14px 10px;
+  width: 300px;
+  font: 13px/1.4 system-ui, -apple-system, "Noto Sans TC", sans-serif;
+  color: #202124;
+  background: #fff;
+}
+h1 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.sub {
+  margin: 0 0 10px;
+  color: #5f6368;
+  font-size: 11.5px;
+}
+#modes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mode {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  grid-template-areas: "radio title" ". desc";
+  gap: 2px 4px;
+  padding: 8px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mode:hover {
+  background: #f8f9fa;
+}
+.mode:has(input:checked) {
+  border-color: #1a73e8;
+  background: #e8f0fe;
+}
+.mode input {
+  grid-area: radio;
+  margin: 2px 0 0;
+}
+.title {
+  grid-area: title;
+  font-weight: 600;
+}
+.desc {
+  grid-area: desc;
+  color: #5f6368;
+  font-size: 11.5px;
+}
+.hint {
+  margin: 10px 0 0;
+  color: #5f6368;
+  font-size: 11px;
+}

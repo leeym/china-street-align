@@ -51,6 +51,21 @@
   opacity: 0.5;
   z-index: 1;
 }
+/* Blended mode ("satellite"): the native canvas stays on screen and multiplies
+   over our WGS-84 photo. Maps clears the canvas opaque and also paints an opaque
+   black CSS background on it — without killing that background the photo never
+   shows (multiply then runs against black and the frame goes dark). */
+.gcj02-blend-native {
+  background: transparent !important;
+  background-color: transparent !important;
+  mix-blend-mode: multiply !important;
+}
+/* Multiply darkens: Maps' label halos are white (they vanish) and its dark text
+   lands on dark imagery. Lift and flatten the photo so native labels, shields
+   and POI pins stay readable on top of it. */
+#gcj02-aligner-root[data-align-mode="satellite"] .gcj02-aligner-pan {
+  filter: brightness(1.45) contrast(0.72) saturate(0.85);
+}
 .gcj02-hide-native {
   opacity: 0 !important;
   visibility: hidden !important;

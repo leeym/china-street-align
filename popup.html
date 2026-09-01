@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>China Street Align</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>China Street Align</h1>
+    <p class="sub">
+      Inside China, WGS-84 satellite imagery and every GCJ-02 layer must line up.
+      Pick which side moves.
+    </p>
+    <form id="modes">
+      <label class="mode">
+        <input type="radio" name="alignMode" value="streets" />
+        <span class="title">Shift the streets</span>
+        <span class="desc">
+          Hide the native map canvas and repaint streets, POIs, routes and
+          overlays on WGS-84 satellite tiles.
+        </span>
+      </label>
+      <label class="mode">
+        <input type="radio" name="alignMode" value="satellite" />
+        <span class="title">Shift the satellite</span>
+        <span class="desc">
+          Keep the native canvas — POIs, routes, terrain and Street View stay
+          exactly as Maps draws them — and slide the satellite photo under it.
+          Needs Maps' Map basemap, so a Satellite view reloads into Map view.
+        </span>
+      </label>
+      <label class="mode">
+        <input type="radio" name="alignMode" value="off" />
+        <span class="title">Off</span>
+        <span class="desc">Native Google Maps, no alignment.</span>
+      </label>
+    </form>
+    <p class="hint">Reload the Maps tab if a mode looks half-applied.</p>
+    <script src="popup.js"></script>
+  </body>
+</html>

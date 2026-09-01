@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.6.48";
+  let VERSION = "0.7.0";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -18,8 +18,15 @@
   const GESTURE_SETTLE_MAX_MS = 1500;
   const PAN_MOVE_PX = 3;
 
-  // Always on for users. postMessage setMode is only for automated tests.
-  let mode = "on";
+  const ALIGN_MODE_KEY = "alignMode";
+  const DEFAULT_ALIGN_MODE = "streets";
+  // Alignment mode, from the popup (chrome.storage.sync) or the postMessage test
+  // hook. "streets" hides the native canvas and repaints the GCJ world onto WGS
+  // satellite; "satellite" leaves the native canvas alone and slides the WGS
+  // satellite raster under it; "off" is native Maps.
+  let alignMode = DEFAULT_ALIGN_MODE;
+  let alignModeLoaded = false;
+  let basemapRewritePending = false;
   let root = null;
   let panEl = null;
   let statusEl = null;
@@ -159,6 +166,7 @@
     try { root?.remove(); } catch (_e) {}
     try { lastHost && (lastHost.style.clipPath = ""); lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     lastHost = null;
+    setNativeBlend(false);
     setNativeMapHidden(false);
     root = null;
     panEl = null;
@@ -184,11 +192,13 @@
   }
 
   function overlaySpec() {
-    const base = globalThis.Gcj02Aligner.overlaySpec(location.href);
+    const base = globalThis.Gcj02Aligner.overlaySpec(location.href, alignMode);
     return globalThis.Gcj02Aligner.withStreetViewCoverage(base, pegmanCover);
   }
 
   function setPegmanCover(on) {
+    // Blended mode never hides the canvas, so Maps paints its own coverage.
+    if (!streetsAlign()) return;
     const next = !!on;
     if (next === pegmanCover) return;
     pegmanCover = next;
@@ -228,11 +238,15 @@
   }
 
   function normalizeMode(v) {
-    return v === "off" ? "off" : "on";
+    return globalThis.Gcj02Aligner.normalizeAlignMode(v);
+  }
+
+  function streetsAlign() {
+    return alignMode === "streets";
   }
 
   function effectiveMode(st) {
-    if (normalizeMode(mode) === "off") return "off";
+    if (alignMode === "off") return "off";
     return st && !outOfChina(st.lat, st.lon) ? "on" : "off";
   }
 
@@ -330,6 +344,49 @@
       img.classList.toggle("gcj02-hide-native", hidden);
     });
     setNativePlaceMarkersHidden(hidden);
+  }
+
+  // Blended mode: keep every native layer on screen and let our WGS-84 imagery
+  // show through it. Maps clears the map canvas opaque AND paints an opaque
+  // black CSS background on it, so both have to go: `multiply` against a
+  // transparent element gives the native vector map over our photo, with all
+  // POIs, labels, routes, terrain and hit-testing still drawn by Maps.
+  function setNativeBlend(on) {
+    const isMap = globalThis.Gcj02Aligner?.shouldHideNativeCanvas
+      || ((cssW, cssH, bufW, bufH) => cssW * cssH >= 80000 || bufW * bufH >= 80000);
+    document.querySelectorAll("canvas").forEach((c) => {
+      const r = c.getBoundingClientRect();
+      if (!isMap(r.width, r.height, c.width, c.height)) {
+        if (!on) c.classList.remove("gcj02-blend-native");
+        return;
+      }
+      c.classList.toggle("gcj02-blend-native", !!on);
+    });
+    const host = root?.parentElement;
+    if (host) {
+      // Contain the blend so it cannot reach page chrome outside the map host.
+      host.style.isolation = on ? "isolate" : "";
+    }
+  }
+
+  // Blended mode owns the imagery, so Maps' own satellite basemap has to go:
+  // multiplying our shifted photo under Maps' unshifted photo double-exposes it.
+  // Returns true when it took over this redraw (rewriting, or unable to).
+  function maybeSwitchToMapBasemap() {
+    const lib = globalThis.Gcj02Aligner;
+    if (lib.mapDisplayType(lib.dataParam(location.href)) !== 3) return false;
+    const next = lib.satelliteAlignBasemapHref(location.href);
+    let lastAt = 0;
+    try { lastAt = Number(sessionStorage.getItem("gcj02BasemapRewriteAt")) || 0; } catch (_e) {}
+    if (!next || basemapRewritePending || !lib.shouldRewriteBasemap(lastAt, Date.now())) {
+      hideOverlay();
+      if (root) root.dataset.blendBlocked = "satellite-basemap";
+      return true;
+    }
+    basemapRewritePending = true;
+    try { sessionStorage.setItem("gcj02BasemapRewriteAt", String(Date.now())); } catch (_e) {}
+    location.replace(next);
+    return true;
   }
 
   function setNativePlaceMarkersHidden(hidden) {
@@ -672,12 +729,14 @@
 
   function startDirectionsBootstrapCapture() {
     if (directionsBootstrapTimer) return;
+    if (!streetsAlign()) return;
     if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return;
     directionsCaptureWaitTicks = 0;
     directionsBootstrapTimer = setInterval(() => {
       directionsCaptureWaitTicks++;
       if (
         !alive
+        || !streetsAlign()
         || !globalThis.Gcj02Aligner.isDirectionsView(location.href)
         || directionsOverlayReady()
       ) {
@@ -873,6 +932,8 @@
 
   function syncPoisIfVisible() {
     if (!alive || !root || root.style.display === "none") return;
+    // Blended mode leaves POIs and routes to Maps.
+    if (!streetsAlign()) return;
     const st = parseMapState();
     if (!st) return;
     const w = Math.max(root.clientWidth || root.getBoundingClientRect().width, 1);
@@ -898,6 +959,7 @@
     if (lastHost) {
       try { lastHost.style.clipPath = ""; lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     }
+    setNativeBlend(false);
     setNativeMapHidden(false);
     reportActionStatus(parseMapState());
   }
@@ -1091,12 +1153,14 @@
     const st = parseMapState();
     reportActionStatus(st);
     const active = effectiveMode(st);
+    const blend = !!spec.blendNative;
     if (spec.nativeOnly || active === "off" || !st || st.zoom < 5 || st.zoom > 21) {
       hideOverlay();
       return;
     }
+    if (blend && maybeSwitchToMapBasemap()) return;
 
-    if (globalThis.Gcj02Aligner.isDirectionsView(location.href) && !directionsOverlayReady()) {
+    if (!blend && globalThis.Gcj02Aligner.isDirectionsView(location.href) && !directionsOverlayReady()) {
       const size = directionsCaptureSize();
       if (size) tryDirectionsRouteSources(st, size.w, size.h);
       if (!directionsOverlayReady()) {
@@ -1110,9 +1174,19 @@
     const w = root.clientWidth || box.width;
     const h = root.clientHeight || box.height;
     if (!(w >= 32) || !(h >= 32)) return;
-    tryDirectionsRouteSources(st, w, h);
-    if (shouldHideNativeForDirections()) setNativeMapHidden(true);
-    else scheduleDirectionsRouteCapture(st, w, h);
+    if (blend) {
+      // Nothing native gets hidden or repainted — Maps keeps drawing the GCJ
+      // world and we only slide the WGS photo underneath it.
+      setNativeMapHidden(false);
+      setNativeBlend(true);
+    } else {
+      setNativeBlend(false);
+      tryDirectionsRouteSources(st, w, h);
+      if (shouldHideNativeForDirections()) setNativeMapHidden(true);
+      else scheduleDirectionsRouteCapture(st, w, h);
+    }
+    root.dataset.alignMode = alignMode;
+    delete root.dataset.blendBlocked;
     root.style.display = "";
     if (statusEl) statusEl.style.display = "";
 
@@ -1121,7 +1195,12 @@
     const tileSize = TILE * scale;
     // URL `@` is usually GCJ-02; lat/lon place queries are already WGS-84.
     // Center the overlay on the WGS twin of that camera (see overlayCamera).
-    const cam = globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon, urlCoordOpts());
+    // Blended mode: the native canvas is the GCJ world, so the imagery camera is
+    // always gcjToWgs(@) — no WGS lat/lon place exception, Maps renders `@` in
+    // its own GCJ frame on every URL shape.
+    const cam = blend
+      ? globalThis.Gcj02Aligner.imageryCamera(st.lat, st.lon)
+      : globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon, urlCoordOpts());
     const center = worldPixel(cam.lat, cam.lon, st.zoom);
     const tl = { x: center.x - w / 2, y: center.y - h / 2 };
     // Enough off-screen tiles that a mid-drag translate does not expose a gap.
@@ -1132,7 +1211,7 @@
     const y1 = Math.floor((tl.y + h) / tileSize) + pad;
     const max = 2 ** zTile;
     const key = [
-      active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), (spec.shadeLyrs || []).join("+"),
+      active, alignMode, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), (spec.shadeLyrs || []).join("+"),
       spec.extraLyrs.join("+"), urlCoordOpts()?.wgs84 ? "wgs" : "gcj",
       zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y),
       Math.round(w), Math.round(h)
@@ -1149,8 +1228,12 @@
       const sample = globalThis.Gcj02Aligner.overlayShiftPx(cam.lat, cam.lon, st.zoom);
       const offsetPx = sample.hypot;
       const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
-      setStatus(`Aligning · ${spec.label}${extras} · streets shifted GCJ→WGS · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
+      const how = blend
+        ? "WGS satellite shifted under native GCJ layers"
+        : "streets shifted GCJ→WGS";
+      setStatus(`Aligning · ${spec.label}${extras} · ${how} · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
+        alignMode,
         layer: spec.label,
         version: VERSION,
         zoom: st.zoom.toFixed(3),
@@ -1201,17 +1284,60 @@
         }
       }
     }
-    syncPois(st, w, h);
-    syncRoute(st, w, h);
+    if (!blend) {
+      syncPois(st, w, h);
+      syncRoute(st, w, h);
+    }
   }
 
   function setMode(v) {
     if (!alive) return;
-    mode = normalizeMode(v);
+    const next = normalizeMode(v);
+    if (next === alignMode) return;
+    alignMode = next;
+    // Switching modes must undo the other mode's side effects: streets hides the
+    // native canvas and paints POIs/routes, satellite blends it and paints none.
+    setNativeBlend(false);
+    setNativeMapHidden(false);
+    setHoveredPoi("");
+    if (panEl) {
+      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
+        .forEach((e) => e.remove());
+    }
+    directionsPolylines = [];
+    lastRouteKey = "";
     lastKey = "";
     lastPoiKey = "";
-    if (mode === "off") setHoveredPoi("");
+    if (root) root.dataset.alignMode = alignMode;
+    if (streetsAlign()) startDirectionsBootstrapCapture();
     redraw();
+  }
+
+  // Boot order matters: the first redraw waits for the stored mode, otherwise a
+  // satellite-mode user sees the streets overlay hide the canvas for a frame.
+  function applyStoredAlignMode(v) {
+    alignModeLoaded = true;
+    if (normalizeMode(v) === alignMode) {
+      lastKey = "";
+      redraw();
+      return;
+    }
+    setMode(v);
+  }
+
+  function loadAlignMode() {
+    try {
+      chrome.storage.sync.get({ [ALIGN_MODE_KEY]: DEFAULT_ALIGN_MODE }, (got) => {
+        try { void chrome.runtime.lastError; } catch (_e) {}
+        applyStoredAlignMode(got?.[ALIGN_MODE_KEY]);
+      });
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "sync" || !changes[ALIGN_MODE_KEY]) return;
+        setMode(changes[ALIGN_MODE_KEY].newValue);
+      });
+    } catch (_e) {
+      applyStoredAlignMode(alignMode);
+    }
   }
 
   // Test-only: Playwright posts setMode to force native Maps for On-vs-Off checks.
@@ -1243,6 +1369,7 @@
   try {
     const po = new PerformanceObserver((list) => {
       for (const e of list.getEntries()) {
+        if (!streetsAlign()) return;
         if (/\/maps\/vt\/pb=.*!2ssvv/i.test(e.name)) {
           setPegmanCover(true);
         }
@@ -1318,18 +1445,26 @@
         clipHostForChrome(found.host);
         if (fitOverlayToCanvas(found.host, found.canvas)) lastKey = "";
       }
-      const stPoll = parseMapState();
-      if (stPoll && root) {
-        const pw = root.clientWidth || root.getBoundingClientRect().width;
-        const ph = root.clientHeight || root.getBoundingClientRect().height;
-        if (pw >= 32 && ph >= 32) tryDirectionsRouteSources(stPoll, pw, ph);
+      if (streetsAlign()) {
+        const stPoll = parseMapState();
+        if (stPoll && root) {
+          const pw = root.clientWidth || root.getBoundingClientRect().width;
+          const ph = root.clientHeight || root.getBoundingClientRect().height;
+          if (pw >= 32 && ph >= 32) tryDirectionsRouteSources(stPoll, pw, ph);
+        }
+        if (shouldHideNativeForDirections()) setNativeMapHidden(true);
+      } else {
+        setNativeBlend(true);
       }
-      if (shouldHideNativeForDirections()) setNativeMapHidden(true);
       if (!lastKey) redraw();
       else syncPoisIfVisible();
     }
   }, 400);
 
+  loadAlignMode();
   startDirectionsBootstrapCapture();
-  redraw();
+  // If storage never answers (no permission, disabled profile), still draw.
+  setTimeout(() => {
+    if (!alignModeLoaded) applyStoredAlignMode(alignMode);
+  }, 300);
 })();

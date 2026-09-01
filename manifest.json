@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.6.48",
-  "description": "Inside China, shifts Google Maps street tiles onto WGS-84 satellite/terrain. Always on while the extension is enabled.",
+  "version": "0.7.0",
+  "description": "Inside China, aligns WGS-84 satellite imagery with the GCJ-02 map layers — shift the streets onto the photo, or the photo under the streets.",
+  "permissions": ["storage"],
   "host_permissions": [
     "https://www.google.com/*",
     "https://www.google.com.hk/*",
@@ -21,7 +22,8 @@
   ],
   "background": { "service_worker": "service-worker.js" },
   "action": {
-    "default_title": "China Street Align · idle"
+    "default_title": "China Street Align · idle",
+    "default_popup": "popup.html"
   },
   "content_scripts": [
     {

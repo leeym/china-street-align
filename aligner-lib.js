@@ -155,6 +155,42 @@
     };
   }
 
+  // Two ways to satisfy the one rule that matters (WGS-84 satellite must line up
+  // with every GCJ-02 layer):
+  //   "streets"   — hide the native canvas and repaint the GCJ world (streets,
+  //                 POIs, routes, overlays) shifted onto WGS satellite tiles.
+  //   "satellite" — leave the native canvas alone as the GCJ world and slide the
+  //                 WGS satellite raster under it instead, so POIs, routes,
+  //                 terrain, Street View and hit-testing stay exactly native.
+  // "off" is native Maps. The legacy test hook posts "on" for "streets".
+  const ALIGN_MODES = ["streets", "satellite", "off"];
+
+  function normalizeAlignMode(v) {
+    const s = String(v == null ? "" : v).trim().toLowerCase();
+    if (s === "off" || s === "native") return "off";
+    if (s === "satellite" || s === "sat" || s === "imagery" || s === "blend") return "satellite";
+    return "streets";
+  }
+
+  // Blended mode camera. The native canvas keeps drawing the GCJ-02 world around
+  // the URL `@`, so the WGS-84 imagery layer must be centred on the camera whose
+  // GCJ image is that `@` — i.e. gcjToWgs(@), the same step overlayCamera makes.
+  // No wgs84 opt here: Maps renders `@` in its own GCJ frame on every URL shape,
+  // including `/maps/place/<lat,lon>/` queries.
+  function imageryCamera(camLat, camLon) {
+    return gcjToWgs(Number(camLat), Number(camLon));
+  }
+
+  // Screen pixel of a WGS-84 feature on the blended imagery layer. Must equal
+  // gcjLatLonToScreenPx(wgsToGcj(feature), @) — the pixel Maps paints the GCJ
+  // twin of that feature on. That equality IS the alignment.
+  function imageryScreenPx(wgsLat, wgsLon, camLat, camLon, zoom, width, height) {
+    const cam = imageryCamera(camLat, camLon);
+    return gcjLatLonToScreenPx(
+      Number(wgsLat), Number(wgsLon), cam.lat, cam.lon, zoom, width, height
+    );
+  }
+
   // Place path is an explicit coordinate (DMS or decimal pair), not a named POI.
   function isLatLonPlaceName(name) {
     const s = String(name || "")
@@ -582,6 +618,57 @@
     return /\/maps\/dir\//i.test(String(href || ""));
   }
 
+  // Blended mode needs Maps' own basemap to be the vector map: in Maps' satellite
+  // view the canvas paints its own unshifted WGS imagery, and multiplying our
+  // shifted imagery under that double-exposes the photo. Drop the leading
+  // display-type group (`!3m1!1e3`, `!3m2!1e3!4b1`) so Maps loads the map
+  // basemap and our layer supplies the (aligned) imagery. Returns "" when the
+  // view is not satellite or the data param is a shape we cannot edit safely —
+  // Maps data params are length-prefixed, so a blind splice corrupts them.
+  // Maps remembers the last basemap, so it can put satellite back right after we
+  // rewrite the URL. Cap blended-mode rewrites so that never becomes a reload loop.
+  const BASEMAP_REWRITE_COOLDOWN_MS = 30000;
+
+  function shouldRewriteBasemap(lastAt, now) {
+    const t = Number(lastAt);
+    if (!Number.isFinite(t) || t <= 0) return true;
+    return Number(now) - t >= BASEMAP_REWRITE_COOLDOWN_MS;
+  }
+
+  function satelliteAlignBasemapHref(href) {
+    const url = String(href || "");
+    // `?` ends the path segment — without it `data=!3m1!1e3?hl=en` swallows the query.
+    const m = url.match(/([?&/])data=([^&#?]*)/);
+    if (!m) return "";
+    const raw = m[2];
+    const data = decodeURIComponent(raw);
+    if (mapDisplayType(data) !== 3) return "";
+    const head = data.match(/^!3m(\d+)!1e3/);
+    if (!head) return "";
+    const items = Number(head[1]);
+    let consumed = head[0].length;
+    // `!3mN` covers N sibling items and `!1e3` was the first. Consume the other
+    // N-1, all of which must be scalars (`!4b1`), never nested groups (`!3m2`).
+    for (let i = 1; i < items; i++) {
+      const tok = data.slice(consumed).match(/^!(\d+)([a-z])([^!]*)/);
+      if (!tok || tok[2] === "m") return "";
+      consumed += tok[0].length;
+    }
+    const prefix = data.slice(0, consumed);
+    // The prefix is only `!`, digits and letters, so the raw form differs from
+    // the decoded one at most in how `!` is written.
+    let rest = null;
+    if (raw.startsWith(prefix)) rest = raw.slice(prefix.length);
+    else if (raw.startsWith(prefix.replace(/!/g, "%21"))) rest = raw.slice(prefix.replace(/!/g, "%21").length);
+    if (rest == null) return "";
+    // A second display-type group deeper in the param would still be satellite.
+    if (rest && mapDisplayType(decodeURIComponent(rest)) === 3) return "";
+    const before = url.slice(0, m.index);
+    const after = url.slice(m.index + m[0].length);
+    if (!rest) return (before + after).replace(/[?&]$/, "");
+    return before + m[1] + "data=" + rest + after;
+  }
+
   function decodeGooglePolyline(str) {
     const coords = [];
     let index = 0;
@@ -923,8 +1010,9 @@
     return lines.filter((line) => line.length >= 2);
   }
 
-  function overlaySpec(href) {
+  function overlaySpec(href, alignMode) {
     const url = String(href || "");
+    const mode = normalizeAlignMode(alignMode);
     if (isNativeOnlyView(url)) {
       return {
         nativeOnly: true,
@@ -932,7 +1020,25 @@
         baseLyrs: [],
         roadLyrs: "",
         shadeLyrs: [],
-        extraLyrs: []
+        extraLyrs: [],
+        hideNative: false,
+        blendNative: false
+      };
+    }
+    // Blended mode paints one thing: WGS-84 satellite raster under an untouched
+    // native canvas. Streets, POIs, routes, terrain shade, traffic/transit/bike
+    // and Street View coverage all stay native (that is the whole point), so
+    // there is nothing else to request and nothing to hide.
+    if (mode === "satellite") {
+      return {
+        nativeOnly: false,
+        label: "imagery",
+        baseLyrs: ["s"],
+        roadLyrs: "",
+        shadeLyrs: [],
+        extraLyrs: [],
+        hideNative: false,
+        blendNative: true
       };
     }
     const data = dataParam(url);
@@ -947,13 +1053,19 @@
     // Hide native and redraw on overlay; force aligned street tiles so we never
     // flash misaligned GCJ satellite/street imagery during navigation.
     if (isDirectionsView(url)) {
-      return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs };
+      return {
+        nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs,
+        hideNative: true, blendNative: false
+      };
     }
     const type = mapDisplayType(data);
     const satellite = type === 3;
     const terrain = !satellite && layers.includes(4);
     if (satellite) {
-      return { nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", shadeLyrs: [], extraLyrs };
+      return {
+        nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", shadeLyrs: [], extraLyrs,
+        hideNative: true, blendNative: false
+      };
     }
     if (terrain) {
       // Outside China, terrain reads as colored streets + hillshade. Combined
@@ -966,16 +1078,22 @@
         baseLyrs: [],
         roadLyrs: "m",
         shadeLyrs: ["t"],
-        extraLyrs
+        extraLyrs,
+        hideNative: true,
+        blendNative: false
       };
     }
-    return { nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs };
+    return {
+      nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs,
+      hideNative: true, blendNative: false
+    };
   }
 
   // Pegman drag shows Street View coverage on the native canvas without putting
   // `!1e5` in the URL. While our overlay hides that canvas, force `svv` tiles.
   function withStreetViewCoverage(spec, want) {
-    if (!want || !spec || spec.nativeOnly) return spec;
+    // Blended mode never hides the canvas, so Maps paints its own coverage.
+    if (!want || !spec || spec.nativeOnly || spec.blendNative) return spec;
     const extras = spec.extraLyrs || [];
     if (extras.includes("svv")) return spec;
     return Object.assign({}, spec, { extraLyrs: extras.concat("svv") });
@@ -1054,6 +1172,13 @@
     overlayRoadTile,
     overlayCamera,
     overlayPoiScreenPx,
+    ALIGN_MODES,
+    normalizeAlignMode,
+    imageryCamera,
+    imageryScreenPx,
+    satelliteAlignBasemapHref,
+    BASEMAP_REWRITE_COOLDOWN_MS,
+    shouldRewriteBasemap,
     isLatLonPlaceName,
     urlCoordsAreWgs84,
     cleanPoiName,

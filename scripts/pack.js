@@ -34,6 +34,9 @@ const FILES = [
   "content.js",
   "content.css",
   "service-worker.js",
+  "popup.html",
+  "popup.css",
+  "popup.js",
   "LICENSE"
 ];
 
