@@ -1089,18 +1089,15 @@
     };
   }
 
-  // Blended mode only has something to do in a view that actually shows satellite
-  // imagery. On Maps' Map or Terrain basemap there is no photo to line up with,
-  // so the extension must stay out of the way completely — a street map with a
-  // photo blended under it is not what Maps looks like anywhere else.
-  //
-  // `takeover` is the catch: blended mode supplies the photo itself, which means
-  // switching Maps onto its Map basemap, after which the URL no longer says
-  // satellite. The caller remembers that the user asked for satellite and passes
-  // it back here, or the mode would erase itself one frame after engaging.
+  // Blended mode only paints after Maps' own satellite basemap is gone. While the
+  // URL still says satellite (`!1e3`), Google's unshifted photo is opaque inside
+  // the native canvas — multiplying our shifted photo under it double-exposes and
+  // misaligns by hundreds of pixels. `takeover` remembers that the user asked for
+  // a photo across the one-frame basemap switch onto Map; it must not keep a photo
+  // on a plain street-map view the user navigated to on their own.
   function blendWantsImagery(href, takeover) {
-    if (takeover) return true;
-    return mapDisplayType(dataParam(href)) === 3;
+    if (!takeover) return false;
+    return mapDisplayType(dataParam(href)) !== 3;
   }
 
   // Pegman drag shows Street View coverage on the native canvas without putting

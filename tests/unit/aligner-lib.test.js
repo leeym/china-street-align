@@ -1257,28 +1257,36 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     }
   });
 
-  it("satellite mode requests only WGS imagery on a satellite view", () => {
+  it("satellite mode waits on a satellite URL until the basemap switch", () => {
     const hrefs = [FORBIDDEN_CITY.satHref, XIAMEN_XINGLIN.href, DUISHAN.satHref];
     for (const href of hrefs) {
       const spec = lib.overlaySpec(href, "satellite");
-      assert.equal(spec.label, "imagery", href);
-      assert.deepEqual(spec.baseLyrs, ["s"], href);
-      // Streets, POIs, routes, terrain shade, traffic/transit/bike and Street
-      // View coverage all stay native — nothing else to fetch.
-      assert.equal(spec.roadLyrs, "", href);
-      assert.deepEqual(spec.shadeLyrs, [], href);
-      assert.deepEqual(spec.extraLyrs, [], href);
-      assert.equal(spec.blendNative, true, href);
-      assert.equal(spec.hideNative, false, href);
-      assert.equal(spec.nativeOnly, false, href);
+      assert.equal(spec.nativeOnly, true, href);
+      assert.equal(spec.blendNative, false, href);
+      const armed = lib.overlaySpec(href, "satellite", { imageryTakeover: true });
+      assert.equal(armed.nativeOnly, true, href);
+      assert.equal(armed.blendNative, false, href);
     }
   });
 
-  it("keeps painting imagery after the takeover drops satellite from the URL", () => {
+  it("satellite mode paints aligned imagery on a street map after takeover", () => {
+    const spec = lib.overlaySpec(DUISHAN.mapHref, "satellite", { imageryTakeover: true });
+    assert.equal(spec.label, "imagery");
+    assert.deepEqual(spec.baseLyrs, ["s"]);
+    assert.equal(spec.roadLyrs, "");
+    assert.deepEqual(spec.shadeLyrs, []);
+    assert.deepEqual(spec.extraLyrs, []);
+    assert.equal(spec.blendNative, true);
+    assert.equal(spec.hideNative, false);
+    assert.equal(spec.nativeOnly, false);
+  });
+
+  it("keeps painting imagery only after the takeover drops satellite from the URL", () => {
     // Blended mode supplies the photo itself, so it switches Maps onto the Map
     // basemap and the URL stops saying satellite one frame later. Without the
     // remembered intent the mode would erase itself the moment it engaged.
-    assert.equal(lib.blendWantsImagery(XIAMEN_XINGLIN.href, false), true);
+    assert.equal(lib.blendWantsImagery(XIAMEN_XINGLIN.href, false), false);
+    assert.equal(lib.blendWantsImagery(XIAMEN_XINGLIN.href, true), false);
     assert.equal(lib.blendWantsImagery(DUISHAN.mapHref, false), false);
     assert.equal(lib.blendWantsImagery(DUISHAN.mapHref, true), true);
     assert.equal(lib.blendWantsImagery(WUZHANGYUAN.terrainHref, false), false);
@@ -1286,6 +1294,9 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     assert.equal(taken.label, "imagery");
     assert.deepEqual(taken.baseLyrs, ["s"]);
     assert.equal(taken.blendNative, true);
+    const stillSat = lib.overlaySpec(XIAMEN_XINGLIN.href, "satellite", { imageryTakeover: true });
+    assert.equal(stillSat.nativeOnly, true);
+    assert.equal(stillSat.blendNative, false);
     // Streets mode ignores the flag entirely.
     assert.deepEqual(
       lib.overlaySpec(DUISHAN.mapHref, "streets", { imageryTakeover: true }),

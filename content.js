@@ -1328,6 +1328,7 @@
       globalThis.Gcj02Aligner.dataParam(location.href)
     );
     if (lastDisplayType === null && displayType === 3) setWantImagery(true);
+    if (lastDisplayType === null && displayType !== 3) setWantImagery(false);
     if (displayType !== lastDisplayType) {
       const previous = lastDisplayType;
       lastDisplayType = displayType;
@@ -1343,6 +1344,16 @@
         && Date.now() - userBasemapClickAt > USER_BASEMAP_CLICK_MS
       ) {
         setWantImagery(true);
+      }
+      // Landed on a plain street-map URL without coming from satellite: drop any
+      // stale session flag so map mode never gets a semi-transparent photo.
+      if (
+        displayType !== 3
+        && previous !== null
+        && previous !== 3
+        && Date.now() - userBasemapClickAt > USER_BASEMAP_CLICK_MS
+      ) {
+        setWantImagery(false);
       }
     }
     if (blendAlign() && displayType === 3 && !blendFallbackStreets) {
@@ -1663,8 +1674,10 @@
           if (pw >= 32 && ph >= 32) tryDirectionsRouteSources(stPoll, pw, ph);
         }
         if (shouldHideNativeForDirections()) setNativeMapHidden(true);
-      } else {
+      } else if (overlaySpec().blendNative) {
         setNativeBlend(true);
+      } else {
+        setNativeBlend(false);
       }
       if (!lastKey) redraw();
       else syncPoisIfVisible();

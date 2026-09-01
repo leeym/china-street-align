@@ -195,17 +195,18 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
     expect(s.offsetPx).toBeGreaterThan(20);
   });
 
-  test("keeps the photo across a navigation, and Maps' satellite does not return", async () => {
-    // The takeover left Maps on its Map basemap, so the URL no longer says
-    // satellite: the mode has to remember that the user asked for a photo.
+  test("drops the photo when navigating to a plain street-map view", async () => {
+    // After a takeover the URL no longer says satellite, but that does not mean
+    // every street-map page should keep a photo — a plain map view has none.
     await page.goto(MAP_URL, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(6000);
     expect(page.url()).not.toMatch(/!3m1!1e3/);
-    await waitForImageryLayer(page);
     const s = await blendStats(page);
+    expect(s.satTiles).toBe(0);
+    expect(s.loadedSatTiles).toBe(0);
+    expect(s.blendedCanvases).toBe(0);
     expect(s.hiddenNative).toBe(0);
-    expect(s.blendedCanvases).toBeGreaterThan(0);
-    expect(s.loadedSatTiles).toBeGreaterThan(0);
+    expect(["none", "absent"]).toContain(s.display);
   });
 
   test("a real click on Maps' basemap toggle drops back to the plain street map", async () => {
