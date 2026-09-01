@@ -11,7 +11,11 @@ const lib = globalThis.Gcj02Aligner;
 // "satellite" mode: keep the native Maps canvas — so POIs, labels, routes,
 // terrain and hit-testing stay exactly as they are outside China — and slide the
 // WGS-84 photo under it instead of repainting the GCJ world ourselves.
+//
+// It only engages where Maps would show a photo. On a street map there is no
+// satellite to align to, so it must change nothing at all.
 const MAP_URL = DUISHAN.mapHref;
+const SAT_URL = XIAMEN_XINGLIN.href;
 
 async function extensionId(context) {
   let [sw] = context.serviceWorkers();
@@ -49,6 +53,7 @@ async function blendStats(page) {
       alignMode: root?.dataset.alignMode || "",
       layer: root?.dataset.layer || "",
       mode: root?.dataset.mode || "",
+      display: root ? root.style.display : "absent",
       camLat: Number(root?.dataset.camLat || NaN),
       camLon: Number(root?.dataset.camLon || NaN),
       offsetPx: Number(root?.dataset.offsetPx || 0),
@@ -66,7 +71,9 @@ async function blendStats(page) {
       blendedCanvases: blended.length,
       blendModes: blended.map((c) => getComputedStyle(c).mixBlendMode),
       blendBackgrounds: blended.map((c) => getComputedStyle(c).backgroundColor),
-      panFilter: root ? getComputedStyle(root.querySelector(".gcj02-aligner-pan")).filter : "",
+      panFilter: root?.querySelector(".gcj02-aligner-pan")
+        ? getComputedStyle(root.querySelector(".gcj02-aligner-pan")).filter
+        : "",
       nativeCanvasesVisible: [...document.querySelectorAll("canvas")].filter((c) => {
         const r = c.getBoundingClientRect();
         const cs = getComputedStyle(c);
@@ -79,6 +86,29 @@ async function blendStats(page) {
   return Object.assign(raw, {
     expectCamLat: cam ? cam.lat : NaN,
     expectCamLon: cam ? cam.lon : NaN
+  });
+}
+
+/** Box of Maps' own basemap toggle, for a real (trusted) user click. */
+async function basemapToggleBox(page) {
+  return page.evaluate(() => {
+    const canvas = [...document.querySelectorAll("canvas")]
+      .filter((c) => c.getBoundingClientRect().width > 400)
+      .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (!canvas) return null;
+    const cr = canvas.getBoundingClientRect();
+    for (const el of document.querySelectorAll("button, [role='button'], label")) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
+      // +16: the canvas often starts at x=0 under the page's left rail, whose
+      // "Get app" button is the same size in the same corner.
+      if (r.left < cr.left + 16 || r.left > cr.left + 140) continue;
+      if (r.bottom > cr.bottom + 8 || r.bottom < cr.bottom - 180) continue;
+      const near = [el, ...(el.parentElement ? [...el.parentElement.children] : [])];
+      if (!near.some((n) => (n.getAttribute?.("aria-label") || "").length > 2)) continue;
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    return null;
   });
 }
 
@@ -97,20 +127,51 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
       sessionStorage.setItem("gcjDocSeq", String(n));
       window.__docSeq = n;
     });
+    await setModeViaPopup(context, extId, "satellite");
     await page.goto(MAP_URL, { waitUntil: "domcontentloaded" });
     await dismissConsent(page);
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(6000);
   });
 
   test.afterAll(async () => {
     await context?.close();
   });
 
-  test("keeps every native layer on screen and blends aligned imagery under it", async () => {
-    await setAlignerMode(context, page, "satellite");
+  test("leaves a street-map view completely alone — no photo where Maps has none", async () => {
+    await page.waitForTimeout(2000);
+    const s = await blendStats(page);
+    // Nothing painted, nothing blended, nothing hidden: native Maps, as outside China.
+    expect(s.satTiles).toBe(0);
+    expect(s.overlayRoads).toBe(0);
+    expect(s.overlayPois).toBe(0);
+    expect(s.blendedCanvases).toBe(0);
+    expect(s.hiddenNative).toBe(0);
+    expect(s.nativeCanvasesVisible).toBeGreaterThan(0);
+    expect(["none", "absent"]).toContain(s.display);
+  });
+
+  test("takes over a satellite view: aligned photo under untouched native layers", async () => {
+    await page.goto(SAT_URL, { waitUntil: "domcontentloaded" });
+    await dismissConsent(page);
+    await page.waitForFunction(() => /1e3/.test(location.href), null, { timeout: 30000 })
+      .catch(() => {});
+    const seqBefore = await page.evaluate(() => window.__docSeq);
+
+    // Maps stores the basemap as a user preference and re-adds `data=!3m1!1e3`
+    // on the next navigation, so rewriting the URL and reloading loses the race
+    // and leaves our shifted photo multiplied under Google's unshifted one —
+    // the misalignment this extension exists to remove. Clicking Maps' own
+    // corner toggle switches the basemap AND updates the preference.
+    await page.waitForFunction(
+      () => !/!3m1!1e3|%213m1%211e3/.test(location.href),
+      null,
+      { timeout: 60000 }
+    );
+    // Same document: the basemap changed through Maps' UI, not a navigation.
+    expect(await page.evaluate(() => window.__docSeq)).toBe(seqBefore);
+
     await waitForImageryLayer(page);
     const s = await blendStats(page);
-
     expect(s.alignMode).toBe("satellite");
     expect(s.layer).toBe("imagery");
     expect(s.mode).toBe("on");
@@ -121,8 +182,6 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
     expect(s.overlayShade).toBe(0);
     expect(s.overlayPois).toBe(0);
     expect(s.overlayRoutes).toBe(0);
-    // Only WGS-84 satellite raster, actually loaded.
-    expect(s.satTiles).toBeGreaterThan(0);
     expect(s.loadedSatTiles).toBeGreaterThan(0);
     // Maps paints its canvas opaque and gives it an opaque black CSS
     // background; both have to go or the photo never shows through.
@@ -136,7 +195,47 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
     expect(s.offsetPx).toBeGreaterThan(20);
   });
 
-  test("switching back to streets mode restores the hidden-canvas overlay", async () => {
+  test("keeps the photo across a navigation, and Maps' satellite does not return", async () => {
+    // The takeover left Maps on its Map basemap, so the URL no longer says
+    // satellite: the mode has to remember that the user asked for a photo.
+    await page.goto(MAP_URL, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(6000);
+    expect(page.url()).not.toMatch(/!3m1!1e3/);
+    await waitForImageryLayer(page);
+    const s = await blendStats(page);
+    expect(s.hiddenNative).toBe(0);
+    expect(s.blendedCanvases).toBeGreaterThan(0);
+    expect(s.loadedSatTiles).toBeGreaterThan(0);
+  });
+
+  test("a real click on Maps' basemap toggle drops back to the plain street map", async () => {
+    // During the takeover Maps' toggle still reads "Satellite", so a user click
+    // on it means "show me the other thing" — the street map, with no photo.
+    // Start from a plain view: a place page's sidebar can cover the corner widget.
+    await page.goto(SAT_URL, { waitUntil: "domcontentloaded" });
+    await dismissConsent(page);
+    await waitForImageryLayer(page);
+    await page.waitForTimeout(2000);
+    const box = await basemapToggleBox(page);
+    expect(box, "Maps' basemap toggle not found").not.toBeNull();
+    await page.mouse.move(box.x, box.y);
+    await page.waitForTimeout(700);
+    await page.mouse.click(box.x, box.y);
+    await page.waitForFunction(() => {
+      const root = document.getElementById("gcj02-aligner-root");
+      const hidden = !root || root.style.display === "none";
+      return hidden
+        && document.querySelectorAll("canvas.gcj02-blend-native").length === 0
+        && !/!3m1!1e3|%213m1%211e3/.test(location.href);
+    }, null, { timeout: 60000 });
+    const s = await blendStats(page);
+    expect(s.satTiles).toBe(0);
+    expect(s.blendedCanvases).toBe(0);
+    expect(s.hiddenNative).toBe(0);
+    expect(s.nativeCanvasesVisible).toBeGreaterThan(0);
+  });
+
+  test("switching to streets mode restores the hidden-canvas overlay", async () => {
     await setAlignerMode(context, page, "streets");
     await page.waitForFunction(() => {
       const root = document.getElementById("gcj02-aligner-root");
@@ -150,49 +249,20 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
     expect(s.hiddenNative).toBeGreaterThan(0);
   });
 
-  test("switches Maps off its own satellite basemap without a reload, and it sticks", async () => {
-    // Maps stores the basemap as a user preference: it re-adds `data=!3m1!1e3`
-    // on the next navigation, so rewriting the URL and reloading loses the race
-    // and leaves our shifted photo multiplied under Google's unshifted one —
-    // i.e. the misalignment this extension exists to remove. Clicking Maps' own
-    // corner toggle switches the basemap AND updates the preference.
+  test("the imagery layer follows a pointer drag so it stays glued to the canvas", async () => {
+    // Maps pans its own canvas live and only commits `@` on release, so the
+    // photo underneath has to travel with the pointer or it tears away from the
+    // streets mid-drag.
     await setModeViaPopup(context, extId, "satellite");
-    await page.goto(XIAMEN_XINGLIN.href, { waitUntil: "domcontentloaded" });
+    await page.goto(SAT_URL, { waitUntil: "domcontentloaded" });
     await dismissConsent(page);
-    await page.waitForFunction(() => /!3m1!1e3|%213m1%211e3|1e3/.test(location.href), null, { timeout: 30000 })
-      .catch(() => {});
-    const seqBefore = await page.evaluate(() => window.__docSeq);
-
     await page.waitForFunction(
       () => !/!3m1!1e3|%213m1%211e3/.test(location.href),
       null,
       { timeout: 60000 }
     );
-    // Same document: the basemap changed through Maps' UI, not a navigation.
-    expect(await page.evaluate(() => window.__docSeq)).toBe(seqBefore);
-
     await waitForImageryLayer(page);
-    const s = await blendStats(page);
-    expect(s.href).not.toMatch(/!3m1!1e3/);
-    expect(s.alignMode).toBe("satellite");
-    expect(s.hiddenNative).toBe(0);
-    expect(s.blendedCanvases).toBeGreaterThan(0);
-    expect(s.loadedSatTiles).toBeGreaterThan(0);
-
-    // And the preference stuck: a plain map URL must not come back as satellite.
-    await page.goto(DUISHAN.mapHref, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(9000);
-    expect(page.url()).not.toMatch(/!3m1!1e3/);
-    await waitForImageryLayer(page);
-    const after = await blendStats(page);
-    expect(after.hiddenNative).toBe(0);
-    expect(after.blendedCanvases).toBeGreaterThan(0);
-  });
-
-  test("the imagery layer follows a pointer drag so it stays glued to the canvas", async () => {
-    // Maps pans its own canvas live and only commits `@` on release, so the
-    // photo underneath has to travel with the pointer or it tears away from the
-    // streets mid-drag.
+    await page.waitForTimeout(2000);
     const box = await page.evaluate(() => {
       const r = document.getElementById("gcj02-aligner-root").getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };

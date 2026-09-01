@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.7.1";
+  let VERSION = "0.7.2";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -39,6 +39,15 @@
   let basemapSwitchTries = 0;
   let basemapClickAt = 0;
   let basemapToggleSig = "";
+  // Blended mode paints imagery only where Maps would show a photo. It supplies
+  // that photo itself, which means switching Maps onto its Map basemap — after
+  // which the URL no longer says satellite — so the user's "I want satellite"
+  // has to be remembered per tab, or the mode would erase itself immediately.
+  // On a street map or terrain view it must change nothing at all.
+  const WANT_IMAGERY_KEY = "gcj02WantImagery";
+  const USER_BASEMAP_CLICK_MS = 5000;
+  let wantImagery = false;
+  let userBasemapClickAt = 0;
   let blendFallbackStreets = false;
   let lastDisplayType = null;
   let root = null;
@@ -207,7 +216,9 @@
 
   function overlaySpec() {
     const mode = blendAlign() && blendFallbackStreets ? "streets" : alignMode;
-    const base = globalThis.Gcj02Aligner.overlaySpec(location.href, mode);
+    const base = globalThis.Gcj02Aligner.overlaySpec(location.href, mode, {
+      imageryTakeover: wantImagery
+    });
     return globalThis.Gcj02Aligner.withStreetViewCoverage(base, pegmanCover);
   }
 
@@ -258,6 +269,40 @@
 
   function blendAlign() {
     return alignMode === "satellite";
+  }
+
+  function loadWantImagery() {
+    try {
+      wantImagery = sessionStorage.getItem(WANT_IMAGERY_KEY) === "1";
+    } catch (_e) {
+      wantImagery = false;
+    }
+  }
+
+  function setWantImagery(v) {
+    const next = !!v;
+    if (next === wantImagery) return;
+    wantImagery = next;
+    try { sessionStorage.setItem(WANT_IMAGERY_KEY, next ? "1" : "0"); } catch (_e) {}
+    lastKey = "";
+    if (root) root.dataset.wantImagery = next ? "1" : "0";
+  }
+
+  // Maps' corner toggle is the only basemap control the user has, and during a
+  // takeover it reads "Satellite" even though a photo is already on screen. Treat
+  // a real click on it as "flip what I am looking at": out of the takeover back
+  // to the plain street map, or into it.
+  function onBasemapTogglePointer(ev) {
+    if (!alive || !ev.isTrusted || !blendAlign()) return;
+    const toggle = nativeBasemapToggle();
+    if (!toggle) return;
+    const r = toggle.getBoundingClientRect();
+    if (ev.clientX < r.left || ev.clientX > r.right) return;
+    if (ev.clientY < r.top || ev.clientY > r.bottom) return;
+    userBasemapClickAt = Date.now();
+    setWantImagery(!wantImagery);
+    basemapSwitchTries = 0;
+    basemapToggleSig = "";
   }
 
   // True whenever the streets machinery (POIs, routes, coverage, canvas hiding)
@@ -402,16 +447,22 @@
     if (!found) return null;
     const cr = found.canvas.getBoundingClientRect();
     const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
-    let btn = null;
+    const hits = [];
     document.querySelectorAll("button, [role='button'], label").forEach((el) => {
-      if (btn || el.closest("#gcj02-aligner-root")) return;
+      if (el.closest("#gcj02-aligner-root")) return;
       if (!isToggle(el.getBoundingClientRect(), cr)) return;
       // The toggle square carries an aria-label (localized) on itself or on a
       // sibling that renders the other basemap's thumbnail.
       if (!basemapToggleSignature(el)) return;
-      btn = el;
+      hits.push(el);
     });
-    return btn;
+    // Hovering expands the widget, which puts a <label> over the button and
+    // earlier in document order — and a synthetic click on that label does
+    // nothing. The button is the element Maps binds the switch to.
+    return hits.find((el) => el.tagName === "BUTTON")
+      || hits.find((el) => el.getAttribute("role") === "button")
+      || hits[0]
+      || null;
   }
 
   // The aria-label the toggle carries for the basemap it would switch TO
@@ -443,12 +494,6 @@
   // Returns true when it took over this redraw: either a basemap switch is in
   // flight, or we gave up and the streets fallback needs a fresh redraw.
   function maybeSwitchToMapBasemap() {
-    const lib = globalThis.Gcj02Aligner;
-    if (lib.mapDisplayType(lib.dataParam(location.href)) !== 3) {
-      basemapSwitchTries = 0;
-      basemapToggleSig = "";
-      return false;
-    }
     // Never blend over Maps' own photo while the switch is pending.
     hideOverlay();
     ensureRoot();
@@ -479,7 +524,13 @@
     }
     if (basemapSwitchTries >= BASEMAP_SWITCH_MAX_TRIES || (basemapSwitchTries > 0 && !toggle)) {
       // Cannot reach the toggle (moved, hidden, unknown skin). Alignment matters
-      // more than staying native, so render this view the streets way instead.
+      // more than staying native, so render this view the streets way instead —
+      // but only if the user is actually asking for a photo. If they just toggled
+      // out of the takeover, leaving Maps alone is what they asked for.
+      if (!wantImagery) {
+        setDiag("native-satellite");
+        return false;
+      }
       if (!blendFallbackStreets) {
         blendFallbackStreets = true;
         lastKey = "";
@@ -1061,6 +1112,14 @@
     gestureHold = null;
     endZoomAnim(true);
     clearPanVisual();
+    // Hidden must mean nothing painted: a street-map view in blended mode, or
+    // anything outside China, has to leave no tiles of ours in the DOM. lastKey
+    // goes with them or the next redraw would think the tiles are still there.
+    if (panEl) {
+      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
+        .forEach((e) => e.remove());
+      lastKey = "";
+    }
     if (root) {
       root.style.display = "none";
       root.dataset.mode = "off";
@@ -1268,11 +1327,28 @@
     const displayType = globalThis.Gcj02Aligner.mapDisplayType(
       globalThis.Gcj02Aligner.dataParam(location.href)
     );
+    if (lastDisplayType === null && displayType === 3) setWantImagery(true);
     if (displayType !== lastDisplayType) {
+      const previous = lastDisplayType;
       lastDisplayType = displayType;
       basemapSwitchTries = 0;
       basemapToggleSig = "";
       blendFallbackStreets = false;
+      // A satellite view arriving from a URL or a navigation says the user wants
+      // a photo. One arriving because the user just clicked the corner toggle
+      // does not: that click already set the intent (and may have cleared it).
+      if (
+        displayType === 3
+        && previous !== null
+        && Date.now() - userBasemapClickAt > USER_BASEMAP_CLICK_MS
+      ) {
+        setWantImagery(true);
+      }
+    }
+    if (blendAlign() && displayType === 3 && !blendFallbackStreets) {
+      // Maps must never keep its own satellite basemap in this mode: its photo
+      // is unshifted, opaque and drawn in the same canvas as the GCJ vectors.
+      if (maybeSwitchToMapBasemap()) return;
     }
     const spec = overlaySpec();
     const st = parseMapState();
@@ -1283,8 +1359,6 @@
       hideOverlay();
       return;
     }
-    if (blend && maybeSwitchToMapBasemap()) return;
-
     if (!blend && globalThis.Gcj02Aligner.isDirectionsView(location.href) && !directionsOverlayReady()) {
       const size = directionsCaptureSize();
       if (size) tryDirectionsRouteSources(st, size.w, size.h);
@@ -1517,6 +1591,8 @@
   // Smooth zoom preview for wheel and the corner +/- controls.
   document.addEventListener("wheel", onMapWheel, { capture: true, passive: true });
   document.addEventListener("pointerdown", onZoomButtonDown, true);
+  // Real clicks on Maps' basemap toggle flip whether blended mode paints a photo.
+  document.addEventListener("click", onBasemapTogglePointer, true);
   addEventListener("blur", () => {
     endPanDrag(null);
     endZoomAnim(false);
@@ -1595,6 +1671,7 @@
     }
   }, 400);
 
+  loadWantImagery();
   loadAlignMode();
   startDirectionsBootstrapCapture();
   // If storage never answers (no permission, disabled profile), still draw.

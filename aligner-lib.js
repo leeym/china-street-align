@@ -636,6 +636,7 @@
   // localized ("Interactive map").
   const BASEMAP_TOGGLE_MIN_PX = 55;
   const BASEMAP_TOGGLE_MAX_PX = 110;
+  const BASEMAP_TOGGLE_EDGE_PX = 16;
 
   function isBasemapToggleBox(box, canvasBox) {
     if (!box || !canvasBox) return false;
@@ -643,9 +644,11 @@
     const h = Number(box.height);
     if (!(w >= BASEMAP_TOGGLE_MIN_PX && w <= BASEMAP_TOGGLE_MAX_PX)) return false;
     if (!(h >= BASEMAP_TOGGLE_MIN_PX && h <= BASEMAP_TOGGLE_MAX_PX)) return false;
-    // Inside the canvas, hugging its bottom-left corner. `left >= canvas.left`
-    // is what keeps the page's own left rail ("Get app") out of the match.
-    if (Number(box.left) < Number(canvasBox.left)) return false;
+    // Inside the canvas, hugging its bottom-left corner but clear of the very
+    // edge: the map canvas often starts at x=0, *under* the page's own left rail,
+    // so `left >= canvas.left` alone still matches the rail's "Get app" button.
+    // The real widget carries a margin from the map edge.
+    if (Number(box.left) < Number(canvasBox.left) + BASEMAP_TOGGLE_EDGE_PX) return false;
     if (Number(box.left) > Number(canvasBox.left) + 140) return false;
     if (Number(box.bottom) > Number(canvasBox.bottom) + 8) return false;
     if (Number(box.bottom) < Number(canvasBox.bottom) - 180) return false;
@@ -994,7 +997,7 @@
     return lines.filter((line) => line.length >= 2);
   }
 
-  function overlaySpec(href, alignMode) {
+  function overlaySpec(href, alignMode, opts) {
     const url = String(href || "");
     const mode = normalizeAlignMode(alignMode);
     if (isNativeOnlyView(url)) {
@@ -1014,6 +1017,19 @@
     // and Street View coverage all stay native (that is the whole point), so
     // there is nothing else to request and nothing to hide.
     if (mode === "satellite") {
+      if (!blendWantsImagery(url, opts && opts.imageryTakeover)) {
+        // Street map / terrain: nothing to align, so change nothing at all.
+        return {
+          nativeOnly: true,
+          label: "native",
+          baseLyrs: [],
+          roadLyrs: "",
+          shadeLyrs: [],
+          extraLyrs: [],
+          hideNative: false,
+          blendNative: false
+        };
+      }
       return {
         nativeOnly: false,
         label: "imagery",
@@ -1071,6 +1087,20 @@
       nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs,
       hideNative: true, blendNative: false
     };
+  }
+
+  // Blended mode only has something to do in a view that actually shows satellite
+  // imagery. On Maps' Map or Terrain basemap there is no photo to line up with,
+  // so the extension must stay out of the way completely — a street map with a
+  // photo blended under it is not what Maps looks like anywhere else.
+  //
+  // `takeover` is the catch: blended mode supplies the photo itself, which means
+  // switching Maps onto its Map basemap, after which the URL no longer says
+  // satellite. The caller remembers that the user asked for satellite and passes
+  // it back here, or the mode would erase itself one frame after engaging.
+  function blendWantsImagery(href, takeover) {
+    if (takeover) return true;
+    return mapDisplayType(dataParam(href)) === 3;
   }
 
   // Pegman drag shows Street View coverage on the native canvas without putting
@@ -1160,9 +1190,11 @@
     normalizeAlignMode,
     imageryCamera,
     imageryScreenPx,
+    blendWantsImagery,
     isBasemapToggleBox,
     BASEMAP_TOGGLE_MIN_PX,
     BASEMAP_TOGGLE_MAX_PX,
+    BASEMAP_TOGGLE_EDGE_PX,
     isLatLonPlaceName,
     urlCoordsAreWgs84,
     cleanPoiName,

@@ -1238,15 +1238,27 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     assert.equal(lib.normalizeAlignMode("native"), "off");
   });
 
-  it("satellite mode requests only WGS imagery and hides nothing", () => {
-    const hrefs = [
+  it("satellite mode paints nothing on a view that has no photo to align", () => {
+    // A street map with a photo blended under it is not what Maps looks like
+    // anywhere else, and there is no satellite to line up with, so the mode must
+    // change nothing at all — same as outside China.
+    for (const href of [
       FORBIDDEN_CITY.mapHref,
-      FORBIDDEN_CITY.satHref,
+      DUISHAN.mapHref,
       WUZHANGYUAN.terrainHref,
-      XIAMEN_XINGLIN.href,
-      "https://www.google.com/maps/dir/A/B/@39.91,116.39,15z",
-      "https://www.google.com/maps/@39.91,116.39,15z/data=!5m1!1e1"
-    ];
+      "https://www.google.com/maps/@39.91,116.39,15z",
+      "https://www.google.com/maps/dir/A/B/@39.91,116.39,15z"
+    ]) {
+      const spec = lib.overlaySpec(href, "satellite");
+      assert.equal(spec.nativeOnly, true, href);
+      assert.deepEqual(spec.baseLyrs, [], href);
+      assert.equal(spec.blendNative, false, href);
+      assert.equal(spec.hideNative, false, href);
+    }
+  });
+
+  it("satellite mode requests only WGS imagery on a satellite view", () => {
+    const hrefs = [FORBIDDEN_CITY.satHref, XIAMEN_XINGLIN.href, DUISHAN.satHref];
     for (const href of hrefs) {
       const spec = lib.overlaySpec(href, "satellite");
       assert.equal(spec.label, "imagery", href);
@@ -1260,6 +1272,25 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
       assert.equal(spec.hideNative, false, href);
       assert.equal(spec.nativeOnly, false, href);
     }
+  });
+
+  it("keeps painting imagery after the takeover drops satellite from the URL", () => {
+    // Blended mode supplies the photo itself, so it switches Maps onto the Map
+    // basemap and the URL stops saying satellite one frame later. Without the
+    // remembered intent the mode would erase itself the moment it engaged.
+    assert.equal(lib.blendWantsImagery(XIAMEN_XINGLIN.href, false), true);
+    assert.equal(lib.blendWantsImagery(DUISHAN.mapHref, false), false);
+    assert.equal(lib.blendWantsImagery(DUISHAN.mapHref, true), true);
+    assert.equal(lib.blendWantsImagery(WUZHANGYUAN.terrainHref, false), false);
+    const taken = lib.overlaySpec(DUISHAN.mapHref, "satellite", { imageryTakeover: true });
+    assert.equal(taken.label, "imagery");
+    assert.deepEqual(taken.baseLyrs, ["s"]);
+    assert.equal(taken.blendNative, true);
+    // Streets mode ignores the flag entirely.
+    assert.deepEqual(
+      lib.overlaySpec(DUISHAN.mapHref, "streets", { imageryTakeover: true }),
+      lib.overlaySpec(DUISHAN.mapHref, "streets")
+    );
   });
 
   it("keeps streets mode exactly as it was, and still hides native there", () => {
@@ -1363,15 +1394,26 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     // to click Maps' corner toggle, which is only identifiable by geometry:
     // obfuscated class names, localized aria-label.
     const canvas = { left: 72, top: 0, bottom: 800, right: 1280 };
+    // The map canvas often starts at x=0, *under* the page's own left rail.
+    const fullWidthCanvas = { left: 0, top: 0, bottom: 900, right: 1440 };
     // The real widget, measured on live Maps at a 1100x800 viewport.
     assert.equal(
       lib.isBasemapToggleBox({ left: 94, bottom: 778, width: 75, height: 75 }, canvas),
       true
     );
-    // The page's own left rail sits at the same height but starts left of the
-    // canvas — that is what made a naive search click "Get app".
+    assert.equal(
+      lib.isBasemapToggleBox({ left: 94, bottom: 878, width: 75, height: 75 }, fullWidthCanvas),
+      true
+    );
+    // The page's own left rail sits at the same height and, with a full-width
+    // canvas, at the same left edge — that is what made a naive search click
+    // "Get app" instead of the basemap toggle.
     assert.equal(
       lib.isBasemapToggleBox({ left: 0, bottom: 784, width: 72, height: 56 }, canvas),
+      false
+    );
+    assert.equal(
+      lib.isBasemapToggleBox({ left: 0, bottom: 884, width: 72, height: 60 }, fullWidthCanvas),
       false
     );
     // Wrong place, wrong size.
@@ -1401,6 +1443,9 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     // streets way instead.
     assert.match(contentJs, /function clickNativeBasemapToggle\(el\)/);
     assert.match(contentJs, /function nativeBasemapToggle\(\)/);
+    // Hover puts a <label> over the button, earlier in document order, and a
+    // synthetic click on that label does nothing.
+    assert.match(contentJs, /hits\.find\(\(el\) => el\.tagName === "BUTTON"\)/);
     // A click flips the toggle, so re-clicking too soon flips back to satellite:
     // gate on both the label flip and a settle delay.
     assert.match(contentJs, /basemapToggleSig && sig && sig !== basemapToggleSig/);
@@ -1455,13 +1500,20 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     assert.match(popupJs, /chrome\.storage\.sync\.get/);
 
     // Content script: storage-driven mode, blend branch, no native hiding there.
-    assert.match(contentJs, /overlaySpec\(location\.href, mode\)/);
+    assert.match(contentJs, /overlaySpec\(location\.href, mode, \{/);
     assert.match(contentJs, /const blend = !!spec\.blendNative/);
     assert.match(contentJs, /function setNativeBlend\(on\)/);
     assert.match(contentJs, /gcj02-blend-native/);
     assert.match(contentJs, /root\.dataset\.alignMode = alignMode/);
     assert.match(contentJs, /imageryCamera\(st\.lat, st\.lon\)/);
     assert.match(contentJs, /nativeBasemapToggle\(\)/);
+    assert.match(contentJs, /imageryTakeover: wantImagery/);
+    // Standing down must leave no tiles of ours behind.
+    assert.match(contentJs, /Hidden must mean nothing painted/);
+    assert.match(contentJs, /WANT_IMAGERY_KEY/);
+    assert.match(contentJs, /function onBasemapTogglePointer\(ev\)/);
+    assert.match(contentJs, /ev\.isTrusted/);
+    assert.match(contentJs, /setWantImagery\(!wantImagery\)/);
     // Blended mode must not repaint or hide anything native.
     assert.match(contentJs, /if \(blend\) \{\n      \/\/[\s\S]{0,200}setNativeMapHidden\(false\);\n      setNativeBlend\(true\);/);
     assert.match(contentJs, /if \(!blend\) \{\n      syncPois\(st, w, h\);\n      syncRoute\(st, w, h\);/);
