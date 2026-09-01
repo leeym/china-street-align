@@ -91,6 +91,12 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
     context = await launchExtensionContext();
     extId = await extensionId(context);
     page = await context.newPage();
+    // Count documents so a test can prove the basemap switch did not reload.
+    await page.addInitScript(() => {
+      const n = Number(sessionStorage.getItem("gcjDocSeq") || 0) + 1;
+      sessionStorage.setItem("gcjDocSeq", String(n));
+      window.__docSeq = n;
+    });
     await page.goto(MAP_URL, { waitUntil: "domcontentloaded" });
     await dismissConsent(page);
     await page.waitForTimeout(4000);
@@ -144,17 +150,27 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
     expect(s.hiddenNative).toBeGreaterThan(0);
   });
 
-  test("the popup writes the mode to storage and a satellite URL reloads into map view", async () => {
+  test("switches Maps off its own satellite basemap without a reload, and it sticks", async () => {
+    // Maps stores the basemap as a user preference: it re-adds `data=!3m1!1e3`
+    // on the next navigation, so rewriting the URL and reloading loses the race
+    // and leaves our shifted photo multiplied under Google's unshifted one —
+    // i.e. the misalignment this extension exists to remove. Clicking Maps' own
+    // corner toggle switches the basemap AND updates the preference.
     await setModeViaPopup(context, extId, "satellite");
-    // A Maps satellite view paints its own unshifted photo, so blended mode
-    // reloads into the map basemap and supplies the (aligned) photo itself.
     await page.goto(XIAMEN_XINGLIN.href, { waitUntil: "domcontentloaded" });
     await dismissConsent(page);
+    await page.waitForFunction(() => /!3m1!1e3|%213m1%211e3|1e3/.test(location.href), null, { timeout: 30000 })
+      .catch(() => {});
+    const seqBefore = await page.evaluate(() => window.__docSeq);
+
     await page.waitForFunction(
       () => !/!3m1!1e3|%213m1%211e3/.test(location.href),
       null,
       { timeout: 60000 }
     );
+    // Same document: the basemap changed through Maps' UI, not a navigation.
+    expect(await page.evaluate(() => window.__docSeq)).toBe(seqBefore);
+
     await waitForImageryLayer(page);
     const s = await blendStats(page);
     expect(s.href).not.toMatch(/!3m1!1e3/);
@@ -162,6 +178,15 @@ test.describe.serial("satellite mode: shift the photo, keep native Maps", () => 
     expect(s.hiddenNative).toBe(0);
     expect(s.blendedCanvases).toBeGreaterThan(0);
     expect(s.loadedSatTiles).toBeGreaterThan(0);
+
+    // And the preference stuck: a plain map URL must not come back as satellite.
+    await page.goto(DUISHAN.mapHref, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(9000);
+    expect(page.url()).not.toMatch(/!3m1!1e3/);
+    await waitForImageryLayer(page);
+    const after = await blendStats(page);
+    expect(after.hiddenNative).toBe(0);
+    expect(after.blendedCanvases).toBeGreaterThan(0);
   });
 
   test("the imagery layer follows a pointer drag so it stays glued to the canvas", async () => {

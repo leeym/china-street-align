@@ -1356,45 +1356,84 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     );
   });
 
-  it("swaps Maps' own satellite basemap out so the blend has something to show", () => {
-    // Maps' satellite view paints its own unshifted photo into the canvas;
-    // multiplying ours under it double-exposes. Drop the display-type group.
+  it("finds Maps' basemap toggle by geometry, not by class or locale", () => {
+    // Maps keeps the basemap as a stored preference and re-adds `data=!3m1!1e3`
+    // on the next navigation, so rewriting the URL and reloading loses the race
+    // and leaves the blend over Google's own unshifted photo. Blended mode has
+    // to click Maps' corner toggle, which is only identifiable by geometry:
+    // obfuscated class names, localized aria-label.
+    const canvas = { left: 72, top: 0, bottom: 800, right: 1280 };
+    // The real widget, measured on live Maps at a 1100x800 viewport.
     assert.equal(
-      lib.satelliteAlignBasemapHref("https://www.google.com/maps/@39.9,116.4,1647m/data=!3m1!1e3?hl=en"),
-      "https://www.google.com/maps/@39.9,116.4,1647m?hl=en"
-    );
-    assert.equal(
-      lib.satelliteAlignBasemapHref(FORBIDDEN_CITY.satHref),
-      FORBIDDEN_CITY.satHref.replace("!3m1!1e3", "")
-    );
-    // `!3m2!1e3!4b1`: the group covers two scalars, so both must go.
-    const duishan = lib.satelliteAlignBasemapHref(DUISHAN.satHref);
-    assert.equal(duishan, DUISHAN.satHref.replace("!3m2!1e3!4b1", ""));
-    assert.equal(lib.mapDisplayType(lib.dataParam(duishan)), 0);
-    assert.match(duishan, /!4m6!3m5!1s0x34148e6ab5fe7f93:0x9985637b6ac4b21e/);
-    // Percent-encoded `!` is the same URL.
-    assert.equal(
-      lib.satelliteAlignBasemapHref("https://www.google.com/maps/@39.9,116.4,15z/data=%213m1%211e3%214m2%212m1%216e1"),
-      "https://www.google.com/maps/@39.9,116.4,15z/data=%214m2%212m1%216e1"
-    );
-    // Already a map view, or a shape we cannot splice safely: leave it alone.
-    assert.equal(lib.satelliteAlignBasemapHref(FORBIDDEN_CITY.mapHref), "");
-    assert.equal(lib.satelliteAlignBasemapHref(WUZHANGYUAN.terrainHref), "");
-    assert.equal(lib.satelliteAlignBasemapHref("https://www.google.com/maps/@39.9,116.4,15z"), "");
-    assert.equal(
-      lib.satelliteAlignBasemapHref("https://www.google.com/maps/@39.9,116.4,15z/data=!4m2!3m1!1e3"),
-      ""
-    );
-  });
-
-  it("caps basemap rewrites so a remembered satellite view cannot reload-loop", () => {
-    assert.equal(lib.shouldRewriteBasemap(0, 1e6), true);
-    assert.equal(lib.shouldRewriteBasemap(null, 1e6), true);
-    assert.equal(lib.shouldRewriteBasemap(1e6, 1e6 + 100), false);
-    assert.equal(
-      lib.shouldRewriteBasemap(1e6, 1e6 + lib.BASEMAP_REWRITE_COOLDOWN_MS),
+      lib.isBasemapToggleBox({ left: 94, bottom: 778, width: 75, height: 75 }, canvas),
       true
     );
+    // The page's own left rail sits at the same height but starts left of the
+    // canvas — that is what made a naive search click "Get app".
+    assert.equal(
+      lib.isBasemapToggleBox({ left: 0, bottom: 784, width: 72, height: 56 }, canvas),
+      false
+    );
+    // Wrong place, wrong size.
+    assert.equal(
+      lib.isBasemapToggleBox({ left: 94, bottom: 400, width: 75, height: 75 }, canvas),
+      false
+    );
+    assert.equal(
+      lib.isBasemapToggleBox({ left: 94, bottom: 778, width: 24, height: 24 }, canvas),
+      false
+    );
+    assert.equal(
+      lib.isBasemapToggleBox({ left: 600, bottom: 778, width: 75, height: 75 }, canvas),
+      false
+    );
+    assert.equal(lib.isBasemapToggleBox(null, canvas), false);
+    assert.ok(lib.BASEMAP_TOGGLE_MIN_PX < lib.BASEMAP_TOGGLE_MAX_PX);
+    // The reload path is gone: it could not win against the stored preference.
+    assert.equal(lib.satelliteAlignBasemapHref, undefined);
+    assert.doesNotMatch(contentJs, /location\.replace/);
+    assert.doesNotMatch(contentJs, /gcj02BasemapRewriteAt/);
+  });
+
+  it("stands down to streets rendering if the basemap will not switch", () => {
+    // Alignment is the one rule that cannot be dropped, so an unreachable toggle
+    // must not leave the user on Maps' unshifted photo: render the view the
+    // streets way instead.
+    assert.match(contentJs, /function clickNativeBasemapToggle\(el\)/);
+    assert.match(contentJs, /function nativeBasemapToggle\(\)/);
+    // A click flips the toggle, so re-clicking too soon flips back to satellite:
+    // gate on both the label flip and a settle delay.
+    assert.match(contentJs, /basemapToggleSig && sig && sig !== basemapToggleSig/);
+    assert.match(contentJs, /BASEMAP_SWITCH_SETTLE_MS/);
+    assert.match(contentJs, /isBasemapToggleBox/);
+    assert.match(contentJs, /BASEMAP_SWITCH_MAX_TRIES/);
+    assert.match(contentJs, /blendFallbackStreets = true/);
+    assert.match(
+      contentJs,
+      /const mode = blendAlign\(\) && blendFallbackStreets \? "streets" : alignMode/
+    );
+    // Never blend while Maps is still painting its own photo.
+    assert.match(contentJs, /\/\/ Never blend over Maps' own photo while the switch is pending\.\n    hideOverlay\(\);/);
+    // Hover before click: Maps binds the switch via jsaction on the expanded widget.
+    assert.match(contentJs, /"pointerover", "mouseover", "mouseenter", "mousemove"/);
+    assert.match(contentJs, /"pointerdown", "mousedown", "pointerup", "mouseup", "click"/);
+    // Panning rewrites `@` constantly; only a display-type change re-arms.
+    assert.match(contentJs, /if \(displayType !== lastDisplayType\)/);
+  });
+
+  it("re-shows a hidden overlay: measure the layer laid out, not display:none", () => {
+    // hideOverlay() sets display:none (out of China, native-only view, pending
+    // basemap switch). redraw() then measured root before restoring display, so
+    // it read 0x0, hit its own size guard and returned — the overlay could never
+    // come back in that document. The blended-mode basemap switch made that
+    // latent trap reachable on every satellite URL.
+    const redraw = contentJs.slice(contentJs.indexOf("  function redraw() {"));
+    const guard = redraw.indexOf('if (!(w >= 32) || !(h >= 32)) return;');
+    const show = redraw.indexOf('if (root.style.display === "none") root.style.display = "";');
+    const measure = redraw.indexOf('const box = root.getBoundingClientRect();');
+    assert.ok(show > 0, "redraw must un-hide root before measuring it");
+    assert.ok(show < measure, "display restore must precede the measurement");
+    assert.ok(measure < guard, "measurement must precede the size guard");
   });
 
   it("wires both modes through storage, the popup, and the blend CSS", () => {
@@ -1416,14 +1455,13 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     assert.match(popupJs, /chrome\.storage\.sync\.get/);
 
     // Content script: storage-driven mode, blend branch, no native hiding there.
-    assert.match(contentJs, /overlaySpec\(location\.href, alignMode\)/);
+    assert.match(contentJs, /overlaySpec\(location\.href, mode\)/);
     assert.match(contentJs, /const blend = !!spec\.blendNative/);
     assert.match(contentJs, /function setNativeBlend\(on\)/);
     assert.match(contentJs, /gcj02-blend-native/);
     assert.match(contentJs, /root\.dataset\.alignMode = alignMode/);
     assert.match(contentJs, /imageryCamera\(st\.lat, st\.lon\)/);
-    assert.match(contentJs, /satelliteAlignBasemapHref/);
-    assert.match(contentJs, /shouldRewriteBasemap/);
+    assert.match(contentJs, /nativeBasemapToggle\(\)/);
     // Blended mode must not repaint or hide anything native.
     assert.match(contentJs, /if \(blend\) \{\n      \/\/[\s\S]{0,200}setNativeMapHidden\(false\);\n      setNativeBlend\(true\);/);
     assert.match(contentJs, /if \(!blend\) \{\n      syncPois\(st, w, h\);\n      syncRoute\(st, w, h\);/);

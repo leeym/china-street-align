@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.7.0";
+  let VERSION = "0.7.1";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -26,7 +26,21 @@
   // satellite raster under it; "off" is native Maps.
   let alignMode = DEFAULT_ALIGN_MODE;
   let alignModeLoaded = false;
-  let basemapRewritePending = false;
+  // Blended mode needs Maps' vector basemap; these track the switch away from
+  // Maps' own satellite and the streets fallback when the toggle is unreachable.
+  // Maps paints the corner widget late, and after a click it takes a moment to
+  // rewrite the URL, so be patient before standing down.
+  const BASEMAP_SWITCH_MAX_TRIES = 6;
+  const BASEMAP_SWITCH_RETRY_MS = 1200;
+  // A toggle click flips the basemap, so a second click too soon flips it back.
+  const BASEMAP_SWITCH_SETTLE_MS = 2500;
+  // How long a flipped toggle label buys before we try clicking again.
+  const BASEMAP_SWITCH_LAND_MS = 6000;
+  let basemapSwitchTries = 0;
+  let basemapClickAt = 0;
+  let basemapToggleSig = "";
+  let blendFallbackStreets = false;
+  let lastDisplayType = null;
   let root = null;
   let panEl = null;
   let statusEl = null;
@@ -192,7 +206,8 @@
   }
 
   function overlaySpec() {
-    const base = globalThis.Gcj02Aligner.overlaySpec(location.href, alignMode);
+    const mode = blendAlign() && blendFallbackStreets ? "streets" : alignMode;
+    const base = globalThis.Gcj02Aligner.overlaySpec(location.href, mode);
     return globalThis.Gcj02Aligner.withStreetViewCoverage(base, pegmanCover);
   }
 
@@ -241,8 +256,15 @@
     return globalThis.Gcj02Aligner.normalizeAlignMode(v);
   }
 
+  function blendAlign() {
+    return alignMode === "satellite";
+  }
+
+  // True whenever the streets machinery (POIs, routes, coverage, canvas hiding)
+  // is what paints this view — either the streets mode, or blended mode standing
+  // down because Maps would not give up its own satellite basemap.
   function streetsAlign() {
-    return alignMode === "streets";
+    return alignMode === "streets" || (blendAlign() && blendFallbackStreets);
   }
 
   function effectiveMode(st) {
@@ -371,21 +393,113 @@
 
   // Blended mode owns the imagery, so Maps' own satellite basemap has to go:
   // multiplying our shifted photo under Maps' unshifted photo double-exposes it.
-  // Returns true when it took over this redraw (rewriting, or unable to).
+  // Maps keeps the basemap as a stored preference and re-adds `data=!3m1!1e3` on
+  // the next navigation, so rewriting the URL and reloading just loses the race
+  // (that left the blend showing Google's unshifted photo — the original bug).
+  // Click Maps' own corner toggle instead: no reload, and the choice sticks.
+  function nativeBasemapToggle() {
+    const found = overlayHost();
+    if (!found) return null;
+    const cr = found.canvas.getBoundingClientRect();
+    const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
+    let btn = null;
+    document.querySelectorAll("button, [role='button'], label").forEach((el) => {
+      if (btn || el.closest("#gcj02-aligner-root")) return;
+      if (!isToggle(el.getBoundingClientRect(), cr)) return;
+      // The toggle square carries an aria-label (localized) on itself or on a
+      // sibling that renders the other basemap's thumbnail.
+      if (!basemapToggleSignature(el)) return;
+      btn = el;
+    });
+    return btn;
+  }
+
+  // The aria-label the toggle carries for the basemap it would switch TO
+  // ("Interactive map" in satellite view, "Satellite" in map view — localized).
+  // Reading it is how we tell a click that landed from one that did not, in any
+  // language. Deliberately aria-only: the widget's TEXT changes on hover
+  // ("Layers" → "Map"), so including text reads our own hover as a flip.
+  function basemapToggleSignature(el) {
+    if (!el) return "";
+    const near = [el, ...(el.parentElement ? [...el.parentElement.children] : [])];
+    const parts = [];
+    for (const n of near) {
+      const aria = n.getAttribute?.("aria-label") || "";
+      if (aria.length > 2) parts.push(aria);
+    }
+    return parts.join("|").slice(0, 120);
+  }
+
+  function clickNativeBasemapToggle(el) {
+    const fire = (type) => el.dispatchEvent(
+      new MouseEvent(type, { bubbles: true, cancelable: true, view: window })
+    );
+    // Maps expands the widget on hover and binds the switch via jsaction, so the
+    // hover has to land before the click.
+    ["pointerover", "mouseover", "mouseenter", "mousemove"].forEach(fire);
+    ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(fire);
+  }
+
+  // Returns true when it took over this redraw: either a basemap switch is in
+  // flight, or we gave up and the streets fallback needs a fresh redraw.
   function maybeSwitchToMapBasemap() {
     const lib = globalThis.Gcj02Aligner;
-    if (lib.mapDisplayType(lib.dataParam(location.href)) !== 3) return false;
-    const next = lib.satelliteAlignBasemapHref(location.href);
-    let lastAt = 0;
-    try { lastAt = Number(sessionStorage.getItem("gcj02BasemapRewriteAt")) || 0; } catch (_e) {}
-    if (!next || basemapRewritePending || !lib.shouldRewriteBasemap(lastAt, Date.now())) {
-      hideOverlay();
-      if (root) root.dataset.blendBlocked = "satellite-basemap";
+    if (lib.mapDisplayType(lib.dataParam(location.href)) !== 3) {
+      basemapSwitchTries = 0;
+      basemapToggleSig = "";
+      return false;
+    }
+    // Never blend over Maps' own photo while the switch is pending.
+    hideOverlay();
+    ensureRoot();
+    if (root) root.style.display = "none";
+    const setDiag = (v) => {
+      if (!root) return;
+      root.dataset.blendBlocked = "satellite-basemap";
+      root.dataset.blendSwitch = `${v}:${basemapSwitchTries}`;
+    };
+    const again = (ms) => {
+      clearTimeout(timer);
+      timer = setTimeout(redraw, ms);
+    };
+
+    const toggle = nativeBasemapToggle();
+    const sig = basemapToggleSignature(toggle);
+    const sinceClick = basemapClickAt ? Date.now() - basemapClickAt : Infinity;
+    // The toggle names the basemap it switches TO, so our click flips its label.
+    // A flipped label with a stale URL means Maps accepted the switch and simply
+    // has not rewritten `@`/`data=` yet — clicking again there would flip
+    // straight back to satellite and leave the blend double-exposed. Both waits
+    // are bounded so a misread label cannot wedge the mode.
+    const flipped = !!(basemapToggleSig && sig && sig !== basemapToggleSig);
+    if (sinceClick < BASEMAP_SWITCH_SETTLE_MS || (flipped && sinceClick < BASEMAP_SWITCH_LAND_MS)) {
+      setDiag(flipped ? "landed" : "settling");
+      again(BASEMAP_SWITCH_RETRY_MS);
       return true;
     }
-    basemapRewritePending = true;
-    try { sessionStorage.setItem("gcj02BasemapRewriteAt", String(Date.now())); } catch (_e) {}
-    location.replace(next);
+    if (basemapSwitchTries >= BASEMAP_SWITCH_MAX_TRIES || (basemapSwitchTries > 0 && !toggle)) {
+      // Cannot reach the toggle (moved, hidden, unknown skin). Alignment matters
+      // more than staying native, so render this view the streets way instead.
+      if (!blendFallbackStreets) {
+        blendFallbackStreets = true;
+        lastKey = "";
+        setDiag("fallback-streets");
+        again(0);
+      }
+      return true;
+    }
+    if (!toggle) {
+      // Maps paints the corner widget late; wait for it before standing down.
+      setDiag("waiting");
+      again(BASEMAP_SWITCH_RETRY_MS);
+      return true;
+    }
+    basemapSwitchTries += 1;
+    basemapToggleSig = sig;
+    basemapClickAt = Date.now();
+    clickNativeBasemapToggle(toggle);
+    setDiag("clicked");
+    again(BASEMAP_SWITCH_RETRY_MS);
     return true;
   }
 
@@ -1149,6 +1263,17 @@
 
   function redraw() {
     if (!alive || gestureBusy()) return;
+    // Re-arm the basemap switch only when the display type itself changes —
+    // panning rewrites `@` constantly and must not restart the click attempts.
+    const displayType = globalThis.Gcj02Aligner.mapDisplayType(
+      globalThis.Gcj02Aligner.dataParam(location.href)
+    );
+    if (displayType !== lastDisplayType) {
+      lastDisplayType = displayType;
+      basemapSwitchTries = 0;
+      basemapToggleSig = "";
+      blendFallbackStreets = false;
+    }
     const spec = overlaySpec();
     const st = parseMapState();
     reportActionStatus(st);
@@ -1170,6 +1295,11 @@
     }
 
     if (!ensureRoot()) return;
+    // Measure with the layer laid out. A `display: none` root (hideOverlay ran
+    // earlier in this document — out of China, a native-only view, a pending
+    // basemap switch) reports 0x0, and the size guard below then returned before
+    // anything could show it again, wedging the overlay off for good.
+    if (root.style.display === "none") root.style.display = "";
     const box = root.getBoundingClientRect();
     const w = root.clientWidth || box.width;
     const h = root.clientHeight || box.height;
@@ -1308,6 +1438,10 @@
     lastRouteKey = "";
     lastKey = "";
     lastPoiKey = "";
+    basemapSwitchTries = 0;
+    basemapClickAt = 0;
+    basemapToggleSig = "";
+    blendFallbackStreets = false;
     if (root) root.dataset.alignMode = alignMode;
     if (streetsAlign()) startDirectionsBootstrapCapture();
     redraw();

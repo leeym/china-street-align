@@ -625,49 +625,33 @@
   // basemap and our layer supplies the (aligned) imagery. Returns "" when the
   // view is not satellite or the data param is a shape we cannot edit safely —
   // Maps data params are length-prefixed, so a blind splice corrupts them.
-  // Maps remembers the last basemap, so it can put satellite back right after we
-  // rewrite the URL. Cap blended-mode rewrites so that never becomes a reload loop.
-  const BASEMAP_REWRITE_COOLDOWN_MS = 30000;
+  // Maps stores the basemap as a user preference, not just a URL parameter: it
+  // re-adds `data=!3m1!1e3` on the next navigation, so rewriting the URL and
+  // reloading cannot win. Blended mode flips the basemap through Maps' own
+  // corner toggle instead (no reload, and the preference sticks).
+  //
+  // That toggle is a square control in the bottom-left corner of the map canvas
+  // showing a thumbnail of the OTHER basemap. Matching on geometry keeps it
+  // language-independent; Maps' class names are obfuscated and its aria-label is
+  // localized ("Interactive map").
+  const BASEMAP_TOGGLE_MIN_PX = 55;
+  const BASEMAP_TOGGLE_MAX_PX = 110;
 
-  function shouldRewriteBasemap(lastAt, now) {
-    const t = Number(lastAt);
-    if (!Number.isFinite(t) || t <= 0) return true;
-    return Number(now) - t >= BASEMAP_REWRITE_COOLDOWN_MS;
+  function isBasemapToggleBox(box, canvasBox) {
+    if (!box || !canvasBox) return false;
+    const w = Number(box.width);
+    const h = Number(box.height);
+    if (!(w >= BASEMAP_TOGGLE_MIN_PX && w <= BASEMAP_TOGGLE_MAX_PX)) return false;
+    if (!(h >= BASEMAP_TOGGLE_MIN_PX && h <= BASEMAP_TOGGLE_MAX_PX)) return false;
+    // Inside the canvas, hugging its bottom-left corner. `left >= canvas.left`
+    // is what keeps the page's own left rail ("Get app") out of the match.
+    if (Number(box.left) < Number(canvasBox.left)) return false;
+    if (Number(box.left) > Number(canvasBox.left) + 140) return false;
+    if (Number(box.bottom) > Number(canvasBox.bottom) + 8) return false;
+    if (Number(box.bottom) < Number(canvasBox.bottom) - 180) return false;
+    return true;
   }
 
-  function satelliteAlignBasemapHref(href) {
-    const url = String(href || "");
-    // `?` ends the path segment — without it `data=!3m1!1e3?hl=en` swallows the query.
-    const m = url.match(/([?&/])data=([^&#?]*)/);
-    if (!m) return "";
-    const raw = m[2];
-    const data = decodeURIComponent(raw);
-    if (mapDisplayType(data) !== 3) return "";
-    const head = data.match(/^!3m(\d+)!1e3/);
-    if (!head) return "";
-    const items = Number(head[1]);
-    let consumed = head[0].length;
-    // `!3mN` covers N sibling items and `!1e3` was the first. Consume the other
-    // N-1, all of which must be scalars (`!4b1`), never nested groups (`!3m2`).
-    for (let i = 1; i < items; i++) {
-      const tok = data.slice(consumed).match(/^!(\d+)([a-z])([^!]*)/);
-      if (!tok || tok[2] === "m") return "";
-      consumed += tok[0].length;
-    }
-    const prefix = data.slice(0, consumed);
-    // The prefix is only `!`, digits and letters, so the raw form differs from
-    // the decoded one at most in how `!` is written.
-    let rest = null;
-    if (raw.startsWith(prefix)) rest = raw.slice(prefix.length);
-    else if (raw.startsWith(prefix.replace(/!/g, "%21"))) rest = raw.slice(prefix.replace(/!/g, "%21").length);
-    if (rest == null) return "";
-    // A second display-type group deeper in the param would still be satellite.
-    if (rest && mapDisplayType(decodeURIComponent(rest)) === 3) return "";
-    const before = url.slice(0, m.index);
-    const after = url.slice(m.index + m[0].length);
-    if (!rest) return (before + after).replace(/[?&]$/, "");
-    return before + m[1] + "data=" + rest + after;
-  }
 
   function decodeGooglePolyline(str) {
     const coords = [];
@@ -1176,9 +1160,9 @@
     normalizeAlignMode,
     imageryCamera,
     imageryScreenPx,
-    satelliteAlignBasemapHref,
-    BASEMAP_REWRITE_COOLDOWN_MS,
-    shouldRewriteBasemap,
+    isBasemapToggleBox,
+    BASEMAP_TOGGLE_MIN_PX,
+    BASEMAP_TOGGLE_MAX_PX,
     isLatLonPlaceName,
     urlCoordsAreWgs84,
     cleanPoiName,

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Inside China, aligns WGS-84 satellite imagery with the GCJ-02 map layers — shift the streets onto the photo, or the photo under the streets.",
   "permissions": ["storage"],
   "host_permissions": [
