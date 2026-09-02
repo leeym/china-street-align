@@ -40,16 +40,18 @@
   opacity: 1;
   z-index: 3;
 }
-/* Terrain = shifted street `m` + unshifted WGS `t` shade.
-   Raw `t` is near-black (mean~6, max~70): invert alone leaves ridges ~180–255
-   so multiply barely marks cliffs. Pull toward mid-gray then contrast so ridges
-   darken while flats stay near-white — tuned vs Seattle terrain (opacity 0.28
-   was too faint; heavier brightness crush darkened the whole frame). */
+/* Terrain = shifted street `m`, unshifted WGS `t` shade (multiply), shifted `h`
+   labels on top. Never CSS-shift combined `p`. */
 #gcj02-aligner-root[data-layer="terrain"] .gcj02-shade[data-lyrs="t"] {
-  filter: invert(1) brightness(0.68) contrast(2.2);
+  filter: invert(1) brightness(0.58) contrast(3.1);
   mix-blend-mode: multiply;
-  opacity: 0.5;
+  opacity: 0.56;
   z-index: 1;
+}
+#gcj02-aligner-root[data-layer="terrain"] .gcj02-road[data-lyrs="h"],
+#gcj02-aligner-root[data-layer="terrain"] .gcj02-tile[data-lyrs="h"] {
+  z-index: 3;
+  opacity: 1;
 }
 /* Blended mode ("satellite"): the native canvas stays on screen and multiplies
    over our WGS-84 photo. Maps clears the canvas opaque and also paints an opaque
@@ -62,8 +64,9 @@
 }
 /* Multiply darkens: Maps' label halos are white (they vanish) and its dark text
    lands on dark imagery. Lift and flatten the photo so native labels, shields
-   and POI pins stay readable on top of it. */
-#gcj02-aligner-root[data-align-mode="satellite"] .gcj02-aligner-pan {
+   and POI pins stay readable on top of it. Place/search pages paint their own
+   full-opacity overlay instead — do not wash that out with the blend lift. */
+#gcj02-aligner-root[data-multiply-blend="1"] .gcj02-aligner-pan {
   filter: brightness(1.45) contrast(0.72) saturate(0.85);
 }
 .gcj02-hide-native {
@@ -84,6 +87,45 @@
   pointer-events: none;
   max-width: 520px;
 }
+#gcj02-aligner-modebar {
+  position: fixed;
+  right: 12px;
+  top: 10px;
+  z-index: 1000011;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  font: 11px/1.2 system-ui, -apple-system, "Noto Sans TC", sans-serif;
+  pointer-events: auto !important;
+}
+.gcj02-modebar-title {
+  color: #5f6368;
+  font-weight: 600;
+  padding: 0 4px 0 2px;
+}
+.gcj02-mode-btn {
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #202124;
+  border-radius: 6px;
+  padding: 4px 7px;
+  cursor: pointer;
+  font: inherit;
+}
+.gcj02-mode-btn:hover {
+  background: #f8f9fa;
+}
+.gcj02-mode-btn.is-active {
+  border-color: #1a73e8;
+  background: #e8f0fe;
+  color: #174ea6;
+  font-weight: 600;
+}
 .gcj02-route {
   position: absolute !important;
   left: 0;
@@ -92,6 +134,7 @@
   pointer-events: none !important;
   z-index: 4 !important;
 }
+.gcj02-poi {
   position: absolute !important;
   transform: translate(-13px, -100%);
   z-index: 2;
@@ -101,6 +144,13 @@
   gap: 4px;
   pointer-events: none !important;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+.gcj02-poi.is-place-pin .gcj02-poi-icon,
+.gcj02-poi.is-place-pin .gcj02-poi-label {
+  display: none !important;
+}
+.gcj02-poi.is-place-pin .gcj02-poi-teardrop {
+  display: block !important;
 }
 .gcj02-poi.is-hover {
   z-index: 6;
@@ -166,4 +216,12 @@
 .gcj02-poi.is-hover .gcj02-poi-teardrop,
 .gcj02-poi.is-hover .gcj02-poi-tooltip {
   display: block !important;
+}
+/* Hybrid: hide Maps' satellite basemap controls while directions/search/terrain
+   layers need the vector map — click blocking is the backstop if Maps re-renders. */
+.gcj02-sat-gated,
+[data-gcj02-sat-gated="1"] {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }

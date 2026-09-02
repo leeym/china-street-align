@@ -1,13 +1,14 @@
 {
   "name": "china-street-align",
-  "version": "0.7.2",
-  "description": "Chrome extension: in China, shift Google Maps GCJ-02 street tiles onto WGS-84 satellite imagery.",
+  "version": "0.8.0",
+  "description": "Chrome extension: in China, Hybrid mode aligns WGS-84 satellite with GCJ-02 map layers when possible, and falls back to Google's map when native layers are needed.",
   "main": "content.js",
   "scripts": {
     "pack": "node scripts/pack.js",
     "test": "node --test tests/unit/*.test.js && playwright test",
     "test:unit": "node --test tests/unit/*.test.js",
     "test:e2e": "playwright test",
+    "test:popup": "playwright test tests/popup.spec.js",
     "test:ui": "playwright test --ui"
   },
   "keywords": [],

@@ -19,63 +19,31 @@
   const PAN_MOVE_PX = 3;
 
   const ALIGN_MODE_KEY = "alignMode";
-  const DEFAULT_ALIGN_MODE = "streets";
-  // Alignment mode, from the popup (chrome.storage.sync) or the postMessage test
-  // hook. "streets" hides the native canvas and repaints the GCJ world onto WGS
-  // satellite; "satellite" leaves the native canvas alone and slides the WGS
-  // satellite raster under it; "off" is native Maps.
+  const DEFAULT_ALIGN_MODE = "hybrid";
+  // Alignment mode: "hybrid" paints crisp WGS satellite + shifted labels when
+  // possible; "off" is native Maps. Legacy streets/satellite values normalize
+  // to hybrid via aligner-lib.
   let alignMode = DEFAULT_ALIGN_MODE;
   let alignModeLoaded = false;
-  // Blended mode needs Maps' vector basemap; these track the switch away from
-  // Maps' own satellite and the streets fallback when the toggle is unreachable.
-  // Maps paints the corner widget late, and after a click it takes a moment to
-  // rewrite the URL, so be patient before standing down.
+  let alignModeReadId = 0;
   const BASEMAP_SWITCH_MAX_TRIES = 6;
-  const BASEMAP_SWITCH_RETRY_MS = 1200;
-  // A toggle click flips the basemap, so a second click too soon flips it back.
-  const BASEMAP_SWITCH_SETTLE_MS = 2500;
-  // How long a flipped toggle label buys before we try clicking again.
-  const BASEMAP_SWITCH_LAND_MS = 6000;
-  let basemapSwitchTries = 0;
-  let basemapClickAt = 0;
-  let basemapToggleSig = "";
-  // Blended mode paints imagery only where Maps would show a photo. It supplies
-  // that photo itself, which means switching Maps onto its Map basemap — after
-  // which the URL no longer says satellite — so the user's "I want satellite"
-  // has to be remembered per tab, or the mode would erase itself immediately.
-  // On a street map or terrain view it must change nothing at all.
-  const WANT_IMAGERY_KEY = "gcj02WantImagery";
-  const USER_BASEMAP_CLICK_MS = 5000;
-  let wantImagery = false;
-  let userBasemapClickAt = 0;
-  let blendFallbackStreets = false;
-  let lastDisplayType = null;
+  let hybridRewindTries = 0;
+  let directionsLatchUntil = 0;
+  let lastDirectionsOpen = false;
   let root = null;
   let panEl = null;
   let statusEl = null;
+  let modeBar = null;
   let timer = null;
   let pollTimer = null;
   let lastKey = "";
+  let lastStatusSig = "";
   let lastHref = "";
   let lastPoiKey = "";
   let lastHost = null;
   let lastActionInChina = null;
   let hoveredPoiKey = "";
   let alive = true;
-  // Pegman drag: Maps paints SV coverage on the (hidden) native canvas without
-  // `!1e5` in the URL — keep overlay `svv` tiles while the drag is active.
-  let pegmanCover = false;
-  // Directions routes are canvas-painted; fetch /preview/directions polylines and redraw.
-  let directionsPolylines = [];
-  let lastRouteKey = "";
-  let lastDirectionsPreviewUrl = "";
-  let directionsFetchTimer = null;
-  let directionsRouteCaptureKey = "";
-  let directionsRouteCaptureTimer = null;
-  let directionsRouteCaptureAttempts = 0;
-  let directionsBootstrapTimer = null;
-  let directionsCaptureWaitTicks = 0;
-  const MIN_CANVAS_ROUTE_PTS = 8;
   // While the user drags, Maps updates the camera only on release (URL `@`).
   // Native canvas is hidden, so translate the overlay with the pointer so tiles
   // follow the cursor the way Off does outside China.
@@ -88,28 +56,69 @@
   let gestureHold = null;
   const obs = new MutationObserver(() => {
     if (!alive || gestureBusy()) return;
+    if (noteDirectionsStateChange()) {
+      lastKey = "";
+      clearTimeout(timer);
+      timer = setTimeout(redraw, 80);
+      return;
+    }
     if (location.href === lastHref) {
       syncPoisIfVisible();
+      if (hybridAlign() && directionsPanelOpen() && hybridStillOnSatelliteBasemap()) {
+        maybeHybridRewindToMap();
+      }
       return;
     }
     lastHref = location.href;
     lastKey = "";
     lastPoiKey = "";
-    lastRouteKey = "";
-    directionsPolylines = [];
-    lastDirectionsPreviewUrl = "";
-    directionsRouteCaptureKey = "";
-    directionsRouteCaptureAttempts = 0;
-    directionsCaptureWaitTicks = 0;
-    clearTimeout(directionsRouteCaptureTimer);
-    if (directionsBootstrapTimer) {
-      clearInterval(directionsBootstrapTimer);
-      directionsBootstrapTimer = null;
-    }
-    startDirectionsBootstrapCapture();
     clearTimeout(timer);
     timer = setTimeout(redraw, 120);
   });
+
+  function noteDirectionsStateChange() {
+    const open = directionsPanelOpen();
+    const changed = open !== lastDirectionsOpen;
+    if (changed) {
+      lastDirectionsOpen = open;
+      if (open) hybridRewindTries = 0;
+    }
+    return changed;
+  }
+
+  function armDirectionsLatch() {
+    directionsLatchUntil = Date.now() + 120000;
+    hybridRewindTries = 0;
+    lastDirectionsOpen = true;
+    lastKey = "";
+    setTimeout(redraw, 0);
+    setTimeout(redraw, 120);
+    setTimeout(redraw, 450);
+    setTimeout(redraw, 1200);
+  }
+
+  function isDirectionsActivator(el) {
+    if (!el || el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) return false;
+    if (el.getAttribute?.("data-item-id") === "directions") return true;
+    const blob = [
+      el.getAttribute?.("aria-label"),
+      el.getAttribute?.("data-tooltip"),
+      el.getAttribute?.("data-value"),
+      el.getAttribute?.("jsaction"),
+      el.textContent
+    ].filter(Boolean).join(" ");
+    if (/directions|規劃路線|规划路线|路线|路線|導航|导航|get directions/i.test(blob)) return true;
+    const href = el.getAttribute?.("href") || "";
+    return /\/maps\/dir\//i.test(href);
+  }
+
+  function onDirectionsActivatorPointer(ev) {
+    const el = ev.target instanceof Element
+      ? ev.target.closest("button, a, [role='button'], [role='tab'], [jsaction]")
+      : null;
+    if (!isDirectionsActivator(el)) return;
+    armDirectionsLatch();
+  }
 
   function gestureBusy() {
     return !!(panDrag || zoomAnim || gestureHold);
@@ -182,6 +191,7 @@
     alive = false;
     try { obs.disconnect(); } catch (_e) {}
     clearTimeout(timer);
+    clearTimeout(satGateNoticeTimer);
     clearInterval(pollTimer);
     endZoomAnim(true);
     panDrag = null;
@@ -189,8 +199,10 @@
     try { root?.remove(); } catch (_e) {}
     try { lastHost && (lastHost.style.clipPath = ""); lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     lastHost = null;
-    setNativeBlend(false);
     setNativeMapHidden(false);
+    clearSatelliteBasemapGate();
+    try { modeBar?.remove(); } catch (_e) {}
+    modeBar = null;
     root = null;
     panEl = null;
     statusEl = null;
@@ -214,33 +226,53 @@
     } catch (_e) {}
   }
 
+  function satellitePhotoBasemap() {
+    return globalThis.Gcj02Aligner.mapDisplayType(
+      globalThis.Gcj02Aligner.dataParam(location.href)
+    ) === 3;
+  }
+
+  // Photo satellite basemap lists aerial providers (CNES/Airbus/Maxar). Vector maps
+  // may still show a generic "Imagery ©" line without those names.
+  function nativeMapShowsSatelliteImagery() {
+    const blob = document.body?.innerText || "";
+    if (/Imagery\s*©[^©\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    if (/©\d{4}\s*(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    return false;
+  }
+
+  function requestPageWorldMapSwitch() {
+    window.postMessage({ source: "gcj02-aligner", type: "switchToMapBasemap" }, "*");
+  }
+
+  const NATIVE_ONLY_SPEC = {
+    nativeOnly: true,
+    label: "native",
+    baseLyrs: [],
+    roadLyrs: "",
+    shadeLyrs: [],
+    extraLyrs: [],
+    hideNative: false,
+    blendNative: false
+  };
+
   function overlaySpec() {
-    const mode = blendAlign() && blendFallbackStreets ? "streets" : alignMode;
-    const base = globalThis.Gcj02Aligner.overlaySpec(location.href, mode, {
-      imageryTakeover: wantImagery
-    });
-    return globalThis.Gcj02Aligner.withStreetViewCoverage(base, pegmanCover);
-  }
-
-  function setPegmanCover(on) {
-    // Blended mode never hides the canvas, so Maps paints its own coverage.
-    if (!streetsAlign()) return;
-    const next = !!on;
-    if (next === pegmanCover) return;
-    pegmanCover = next;
-    lastKey = "";
-    if (!gestureBusy()) redraw();
-  }
-
-  function onPegmanPointerDown(ev) {
-    if (!(ev.target instanceof Element)) return;
-    if (!globalThis.Gcj02Aligner.isStreetViewPegmanTarget(ev.target)) return;
-    setPegmanCover(true);
-  }
-
-  function onPegmanPointerUp() {
-    if (!pegmanCover) return;
-    setPegmanCover(false);
+    if (hybridYieldsNativeCanvas()) return NATIVE_ONLY_SPEC;
+    const placeAligned = placeAlignedOverlaySpec();
+    if (placeAligned) return placeAligned;
+    if (hybridCrispSatellite()) {
+      return {
+        nativeOnly: false,
+        label: "satellite",
+        baseLyrs: ["s"],
+        roadLyrs: "h",
+        shadeLyrs: [],
+        extraLyrs: [],
+        hideNative: true,
+        blendNative: false
+      };
+    }
+    return NATIVE_ONLY_SPEC;
   }
 
   function parseMapState() {
@@ -267,49 +299,480 @@
     return globalThis.Gcj02Aligner.normalizeAlignMode(v);
   }
 
-  function blendAlign() {
-    return alignMode === "satellite";
+  function hybridAlign() {
+    return alignMode === "hybrid";
   }
 
-  function loadWantImagery() {
-    try {
-      wantImagery = sessionStorage.getItem(WANT_IMAGERY_KEY) === "1";
-    } catch (_e) {
-      wantImagery = false;
+  function hybridNeedsNativeLayers() {
+    if (!hybridAlign()) return false;
+    if (directionsPanelOpen()) return true;
+    return globalThis.Gcj02Aligner.hybridNeedsNativeLayers(location.href, false);
+  }
+
+  function directionsPanelOpen() {
+    if (directionsLatchUntil > Date.now()) return true;
+    if (/\/maps\/dir(?:\/|$|[?#])/i.test(location.pathname)) return true;
+    if (globalThis.Gcj02Aligner.hasDirectionsRouteData(location.href)) return true;
+    if (document.querySelector(
+      "[data-trip-index], [data-section-id='directions'], [jsaction*='pane.directions'], #directions"
+    )) return true;
+    for (const el of document.querySelectorAll("button, [role='tab']")) {
+      const label = basemapControlLabel(el).trim();
+      if (!/^(driving|transit|walking|bicycling|開車|开车|驾车|大眾運輸|公共交通|步行|騎車|骑车|摩托車|摩托车)$/i.test(label)) {
+        continue;
+      }
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.left < window.innerWidth * 0.45) return true;
+    }
+    for (const el of document.querySelectorAll("input")) {
+      const meta = [
+        el.getAttribute("aria-label"),
+        el.getAttribute("placeholder"),
+        el.getAttribute("aria-placeholder")
+      ].filter(Boolean).join(" ");
+      if (!/(origin|destination|starting|start point|choose|起點|起点|目的地|你的位置|your location|location)/i.test(meta)) {
+        continue;
+      }
+      const r = el.getBoundingClientRect();
+      if (r.width > 48 && r.height > 6 && r.left < window.innerWidth * 0.45) return true;
+    }
+    return false;
+  }
+
+  function hybridCrispSatellite() {
+    return hybridAlign() && !hybridNeedsNativeLayers() && satellitePhotoBasemap();
+  }
+
+  // Hybrid yields to Google's native canvas when overlay cannot paint crisply
+  // or must not redraw Google layers (search, directions, terrain, traffic, etc.).
+  function hybridYieldsNativeCanvas() {
+    if (!hybridAlign()) return false;
+    if (hybridNeedsNativeLayers()) return true;
+    if (placeAlignedPinActive()) return false;
+    if (!satellitePhotoBasemap()) return true;
+    if (globalThis.Gcj02Aligner.isPlaceView(location.href)) {
+      return !globalThis.Gcj02Aligner.placeNeedsAlignedPin(
+        location.href,
+        satellitePhotoBasemap()
+      );
+    }
+    return false;
+  }
+
+  function placeAlignedPinActive() {
+    if (effectiveMode(parseMapState()) === "off") return false;
+    if (globalThis.Gcj02Aligner.hybridNeedsNativeLayers(location.href, false)) return false;
+    if (directionsPanelOpen()) return false;
+    return globalThis.Gcj02Aligner.placeNeedsAlignedPin(
+      location.href,
+      satellitePhotoBasemap()
+    );
+  }
+
+  function hybridPlaceAlignedOverlay() {
+    return hybridAlign() && placeAlignedPinActive();
+  }
+
+  function placeAlignedOverlaySpec() {
+    if (!placeAlignedPinActive()) return null;
+    const base = satellitePhotoBasemap()
+      ? {
+          nativeOnly: false,
+          label: "satellite",
+          baseLyrs: ["s"],
+          roadLyrs: "h",
+          shadeLyrs: [],
+          extraLyrs: [],
+          hideNative: true,
+          blendNative: false
+        }
+      : {
+          nativeOnly: false,
+          label: "map",
+          baseLyrs: [],
+          roadLyrs: "m",
+          shadeLyrs: [],
+          extraLyrs: [],
+          hideNative: true,
+          blendNative: false
+        };
+    return base;
+  }
+
+  function satelliteBasemapGateActive() {
+    if (!alive || !hybridAlign()) return false;
+    if (satellitePhotoBasemap()) return false;
+    if (!hybridNeedsNativeLayers()) return false;
+    const st = parseMapState();
+    return effectiveMode(st) === "on";
+  }
+
+  function basemapControlLabel(el) {
+    return String(
+      el.getAttribute("aria-label")
+      || el.getAttribute("title")
+      || el.textContent
+      || ""
+    ).replace(/\s+/g, " ").trim();
+  }
+
+  function basemapToggleWouldEnableSatellite(sig) {
+    const s = String(sig || "");
+    if (basemapLabelIsSat(s)) return true;
+    return /(interactive map|互動式地圖|互动地图)/i.test(s);
+  }
+
+  function clearSatelliteBasemapGate() {
+    delete document.documentElement.dataset.gcj02SatGate;
+    for (const el of document.querySelectorAll("[data-gcj02-sat-gated]")) {
+      el.removeAttribute("data-gcj02-sat-gated");
+      el.classList.remove("gcj02-sat-gated");
+      el.removeAttribute("aria-hidden");
     }
   }
 
-  function setWantImagery(v) {
-    const next = !!v;
-    if (next === wantImagery) return;
-    wantImagery = next;
-    try { sessionStorage.setItem(WANT_IMAGERY_KEY, next ? "1" : "0"); } catch (_e) {}
-    lastKey = "";
-    if (root) root.dataset.wantImagery = next ? "1" : "0";
+  function markSatelliteBasemapGated(el) {
+    if (!el) return;
+    el.setAttribute("data-gcj02-sat-gated", "1");
+    el.classList.add("gcj02-sat-gated");
+    el.setAttribute("aria-hidden", "true");
   }
 
-  // Maps' corner toggle is the only basemap control the user has, and during a
-  // takeover it reads "Satellite" even though a photo is already on screen. Treat
-  // a real click on it as "flip what I am looking at": out of the takeover back
-  // to the plain street map, or into it.
-  function onBasemapTogglePointer(ev) {
-    if (!alive || !ev.isTrusted || !blendAlign()) return;
-    const toggle = nativeBasemapToggle();
+  function gateSatelliteBasemapPickerItems() {
+    for (const el of document.querySelectorAll(
+      '[role="menuitemradio"], [role="menuitem"], [role="radio"], button, [role="button"], label'
+    )) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (!isBasemapLayerPicker(el)) continue;
+      if (!basemapLabelIsSat(basemapControlLabel(el))) continue;
+      markSatelliteBasemapGated(el);
+    }
+  }
+
+  function gateSatelliteBasemapToggles() {
+    const found = overlayHost();
+    if (!found) return;
+    const cr = found.canvas.getBoundingClientRect();
+    const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
+    const stripPath = /\/maps\/(dir|place|search)\//.test(location.pathname);
+    for (const el of document.querySelectorAll("button, [role='button'], label")) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
+      const sig = basemapToggleSignature(el);
+      if (!sig || !basemapToggleWouldEnableSatellite(sig)) continue;
+      const corner = isToggle(r, cr);
+      const strip = stripPath && r.bottom <= cr.bottom + 8 && r.bottom >= cr.bottom - 180;
+      if (!corner && !strip) continue;
+      markSatelliteBasemapGated(resolveBasemapButton(el) || el);
+    }
+  }
+
+  function syncSatelliteBasemapGate() {
+    if (!satelliteBasemapGateActive()) {
+      clearSatelliteBasemapGate();
+      return;
+    }
+    document.documentElement.dataset.gcj02SatGate = "1";
+    gateSatelliteBasemapPickerItems();
+    gateSatelliteBasemapToggles();
+  }
+
+  let satGateNoticeUntil = 0;
+  let satGateNoticeTimer = 0;
+
+  function flashSatelliteGateNotice() {
+    satGateNoticeUntil = Date.now() + 2800;
+    if (statusEl) {
+      statusEl.textContent = `${alignModeLabel()} · v${VERSION}`;
+      statusEl.style.display = "";
+    }
+    clearTimeout(satGateNoticeTimer);
+    satGateNoticeTimer = setTimeout(() => {
+      satGateNoticeUntil = 0;
+      if (alive && !gestureBusy()) redraw();
+    }, 2900);
+  }
+
+  function onSatelliteBasemapGatePointer(ev) {
+    if (!alive || !ev.isTrusted || !satelliteBasemapGateActive()) return;
+    const el = ev.target instanceof Element ? ev.target : null;
+    if (el) {
+      const hit = el.closest(
+        '[role="menuitemradio"], [role="menuitem"], [role="radio"], button, [role="button"]'
+      );
+      if (hit && isBasemapLayerPicker(hit) && basemapLabelIsSat(basemapControlLabel(hit))) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+        flashSatelliteGateNotice();
+        return;
+      }
+    }
+    const toggle = basemapToggleAtPoint(ev.clientX, ev.clientY);
     if (!toggle) return;
-    const r = toggle.getBoundingClientRect();
-    if (ev.clientX < r.left || ev.clientX > r.right) return;
-    if (ev.clientY < r.top || ev.clientY > r.bottom) return;
-    userBasemapClickAt = Date.now();
-    setWantImagery(!wantImagery);
-    basemapSwitchTries = 0;
-    basemapToggleSig = "";
+    if (!basemapToggleWouldEnableSatellite(basemapToggleSignature(toggle))) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    ev.stopImmediatePropagation();
+    flashSatelliteGateNotice();
   }
 
-  // True whenever the streets machinery (POIs, routes, coverage, canvas hiding)
-  // is what paints this view — either the streets mode, or blended mode standing
-  // down because Maps would not give up its own satellite basemap.
-  function streetsAlign() {
-    return alignMode === "streets" || (blendAlign() && blendFallbackStreets);
+  function hybridStillOnSatelliteBasemap() {
+    if (satellitePhotoBasemap()) return true;
+    if (/!3m\d+!1e3|%213m\d+%211e3/i.test(location.href)) return true;
+    if (hybridAlign() && hybridNeedsNativeLayers() && nativeMapShowsSatelliteImagery()) return true;
+    return false;
+  }
+
+  function rewindHybridToVectorMap() {
+    if (!hybridStillOnSatelliteBasemap()) return false;
+    requestPageWorldMapSwitch();
+    if (clickBasemapViaLayersMenu(true) && !hybridStillOnSatelliteBasemap()) return true;
+    const chip = mapBasemapChip(true);
+    if (chip) {
+      clickNativeBasemapToggle(chip);
+      if (!hybridStillOnSatelliteBasemap()) return true;
+    }
+    const toggle = nativeBasemapToggle();
+    if (toggle) {
+      const sig = basemapToggleSignature(toggle);
+      if (basemapChipSwitchesToMap(sig)) {
+        clickNativeBasemapToggle(toggle);
+        if (!hybridStillOnSatelliteBasemap()) return true;
+      }
+    }
+    tryStripSatelliteBasemapUrl();
+    return false;
+  }
+
+  // Switch satellite → map when Hybrid must keep Google's native canvas (directions,
+  // search, terrain, traffic, …). Never skip overlay teardown while retrying.
+  function maybeHybridRewindToMap() {
+    if (!hybridAlign() || !hybridNeedsNativeLayers()) {
+      hybridRewindTries = 0;
+      return;
+    }
+    if (!hybridStillOnSatelliteBasemap()) {
+      hybridRewindTries = 0;
+      return;
+    }
+    const cap = directionsPanelOpen()
+      ? (nativeMapShowsSatelliteImagery() ? 160 : 48)
+      : BASEMAP_SWITCH_MAX_TRIES;
+    if (hybridRewindTries >= cap) return;
+    rewindHybridToVectorMap();
+    hybridRewindTries += 1;
+  }
+
+  function alignModeLabel() {
+    if (satGateNoticeUntil > Date.now()) {
+      return "Hybrid · satellite blocked while layers active";
+    }
+    if (alignMode === "hybrid") {
+      if (hybridPlaceAlignedOverlay()) return "Hybrid · place pin";
+      if (hybridYieldsNativeCanvas()) return "Hybrid · native layers";
+      return hybridNeedsNativeLayers()
+        ? "Hybrid · map layers"
+        : "Hybrid · crisp satellite";
+    }
+    return "Off";
+  }
+
+  function updateIdleStatus() {
+    if (!statusEl) return;
+    const st = parseMapState();
+    if (effectiveMode(st) === "off") {
+      statusEl.style.display = "none";
+      return;
+    }
+    if (overlayIsVisible()) return;
+    statusEl.textContent = `${alignModeLabel()} · v${VERSION}`;
+    statusEl.style.display = "";
+    updateModeBar();
+  }
+
+  function ensureModeBar() {
+    if (modeBar) return modeBar;
+    modeBar = document.createElement("div");
+    modeBar.id = "gcj02-aligner-modebar";
+    modeBar.innerHTML = [
+      '<span class="gcj02-modebar-title">Align</span>',
+      '<button type="button" class="gcj02-mode-btn" data-mode="hybrid">Hybrid</button>',
+      '<button type="button" class="gcj02-mode-btn" data-mode="off">Off</button>'
+    ].join("");
+    modeBar.addEventListener("click", (ev) => {
+      const btn = ev.target instanceof Element ? ev.target.closest("[data-mode]") : null;
+      if (!btn || !alive) return;
+      const mode = normalizeMode(btn.getAttribute("data-mode"));
+      try {
+        persistAlignMode(mode);
+      } catch (_e) {}
+      setMode(mode);
+    });
+    document.body.appendChild(modeBar);
+    return modeBar;
+  }
+
+  function updateModeBar() {
+    const st = parseMapState();
+    const inChina = !!(st && !outOfChina(st.lat, st.lon));
+    if (!inChina) {
+      if (modeBar) modeBar.style.display = "none";
+      return;
+    }
+    const bar = ensureModeBar();
+    bar.style.display = "";
+    bar.dataset.alignMode = alignMode;
+    bar.querySelectorAll(".gcj02-mode-btn").forEach((btn) => {
+      const on = normalizeMode(btn.getAttribute("data-mode")) === alignMode;
+      btn.classList.toggle("is-active", on);
+    });
+  }
+
+  function syncNativeLayersChrome() {
+    ensureModeBar();
+    if (!statusEl) {
+      statusEl = document.createElement("div");
+      statusEl.id = "gcj02-aligner-status";
+      statusEl.style.zIndex = String(CHROME_Z);
+      document.body.appendChild(statusEl);
+    }
+    statusEl.textContent = `${alignModeLabel()} · v${VERSION}`;
+    statusEl.style.display = "";
+    updateModeBar();
+  }
+
+  function isBasemapLayerPicker(el) {
+    const menu = el.closest('[role="menu"], [role="listbox"], [role="radiogroup"]');
+    if (!menu) return false;
+    const blob = String(menu.textContent || "");
+    const hasMap = /(map|地圖|地图|街道|road|預設|预设|default|roadmap)/i.test(blob);
+    const hasSat = /(satellite|衛星|卫星)/i.test(blob);
+    return hasMap && hasSat;
+  }
+
+  function basemapLabelIsSat(label) {
+    const s = String(label || "");
+    if (/satellite|衛星|卫星/i.test(s)) return true;
+    return false;
+  }
+
+  // Chip/preview label for the basemap you switch TO (not the current mode).
+  function basemapChipSwitchesToMap(sig) {
+    const s = String(sig || "");
+    if (/interactive map|互動式地圖|互动地图/i.test(s)) return true;
+    return basemapLabelIsMap(s);
+  }
+
+  function basemapChipSwitchesToSat(sig) {
+    const s = String(sig || "");
+    if (/satellite|衛星|卫星/i.test(s)) return true;
+    return false;
+  }
+
+  function minimapBasemapButton(el) {
+    if (!el) return null;
+    if (el.tagName === "BUTTON") return el;
+    const root = el.closest("button[jsaction*='minimap']") || el.parentElement;
+    if (root) {
+      const btn = root.matches?.("button[jsaction*='minimap']")
+        ? root
+        : root.querySelector?.("button[jsaction*='minimap.main'], button[jsaction*='minimap']");
+      if (btn) return btn;
+    }
+    return resolveBasemapButton(el) || el;
+  }
+
+  function basemapLabelIsMap(label) {
+    const s = String(label || "");
+    if (/satellite|衛星|卫星/i.test(s)) return false;
+    if (/interactive map|互動式地圖|互动地图/i.test(s)) return true;
+    return /(map|地圖|地图|街道|road|預設|预设|default|roadmap)/i.test(s);
+  }
+
+  function basemapLayersButton() {
+    for (const el of document.querySelectorAll("button, [role='button']")) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      const aria = String(el.getAttribute("aria-label") || "").trim();
+      if (/^(layers|map type|圖層|图层|地圖類型|地图类型)/i.test(aria)) return el;
+      const labelled = el.getAttribute("aria-labelledby");
+      if (labelled) {
+        const labelEl = document.getElementById(labelled);
+        const text = (labelEl?.textContent || "").trim();
+        if (/^(layers|圖層|图层)$/i.test(text)) return el;
+      }
+      const text = String(el.textContent || "").replace(/\s+/g, " ").trim();
+      if (/^(layers|圖層|图层)$/i.test(text)) return el;
+    }
+    return null;
+  }
+
+  function clickBasemapInOpenLayersMenu(wantMap) {
+    for (const el of document.querySelectorAll(
+      '[role="menuitemradio"], [role="menuitem"], [role="radio"], button, [role="button"], label'
+    )) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      const label = String(
+        el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || ""
+      ).replace(/\s+/g, " ").trim();
+      if (!label) continue;
+      const inPicker = isBasemapLayerPicker(el);
+      if (!inPicker && !/^(預設|预设|default|map|地圖|地图|街道|road ?map|roadmap)$/i.test(label)) continue;
+      if (wantMap ? basemapLabelIsMap(label) : basemapLabelIsSat(label)) {
+        clickNativeBasemapToggle(el);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Place pages often hide the corner thumbnail; the Layers menu still works.
+  function clickBasemapViaLayersMenu(wantMap) {
+    if (clickBasemapInOpenLayersMenu(wantMap)) return true;
+    const btn = basemapLayersButton();
+    if (!btn) return false;
+    clickNativeBasemapToggle(btn);
+    return clickBasemapInOpenLayersMenu(wantMap);
+  }
+
+  // Place/search pages put the basemap chip in the bottom strip, not the corner.
+  // Match the element under the pointer directly — nativeBasemapToggle() can
+  // return a different widget than the one the user actually clicked.
+  function basemapToggleAtPoint(x, y) {
+    const found = overlayHost();
+    if (!found) return null;
+    const cr = found.canvas.getBoundingClientRect();
+    if (y < cr.bottom - 180 || y > cr.bottom + 8) return null;
+    const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
+    for (const el of document.querySelectorAll("button, [role='button'], label")) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      const r = el.getBoundingClientRect();
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
+      if (!basemapToggleSignature(el)) continue;
+      if (!isToggle(r, cr) && !/\/maps\/dir\//.test(location.pathname)) continue;
+      return el.tagName === "BUTTON"
+        ? el
+        : el.closest("button, [role='button']")
+        || el;
+    }
+    if (/\/maps\/(dir|place|search)\//.test(location.pathname)) {
+      const onSatUrl = globalThis.Gcj02Aligner.mapDisplayType(
+        globalThis.Gcj02Aligner.dataParam(location.href)
+      ) === 3;
+      const strip = bottomStripBasemapToggle(cr, onSatUrl);
+      if (strip) {
+        const r = strip.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return strip;
+      }
+    }
+    return null;
+  }
+
+  function hybridOverlayActive() {
+    const st = parseMapState();
+    return hybridAlign() && effectiveMode(st) === "on" && !hybridYieldsNativeCanvas();
   }
 
   function effectiveMode(st) {
@@ -413,39 +876,90 @@
     setNativePlaceMarkersHidden(hidden);
   }
 
-  // Blended mode: keep every native layer on screen and let our WGS-84 imagery
-  // show through it. Maps clears the map canvas opaque AND paints an opaque
-  // black CSS background on it, so both have to go: `multiply` against a
-  // transparent element gives the native vector map over our photo, with all
-  // POIs, labels, routes, terrain and hit-testing still drawn by Maps.
-  function setNativeBlend(on) {
-    const isMap = globalThis.Gcj02Aligner?.shouldHideNativeCanvas
-      || ((cssW, cssH, bufW, bufH) => cssW * cssH >= 80000 || bufW * bufH >= 80000);
-    document.querySelectorAll("canvas").forEach((c) => {
-      const r = c.getBoundingClientRect();
-      if (!isMap(r.width, r.height, c.width, c.height)) {
-        if (!on) c.classList.remove("gcj02-blend-native");
-        return;
-      }
-      c.classList.toggle("gcj02-blend-native", !!on);
-    });
-    const host = root?.parentElement;
-    if (host) {
-      // Contain the blend so it cannot reach page chrome outside the map host.
-      host.style.isolation = on ? "isolate" : "";
-    }
+  function resolveBasemapButton(el) {
+    return el.tagName === "BUTTON"
+      ? el
+      : el.closest("button, [role='button']")
+      || el;
   }
 
-  // Blended mode owns the imagery, so Maps' own satellite basemap has to go:
-  // multiplying our shifted photo under Maps' unshifted photo double-exposes it.
-  // Maps keeps the basemap as a stored preference and re-adds `data=!3m1!1e3` on
-  // the next navigation, so rewriting the URL and reloading just loses the race
-  // (that left the blend showing Google's unshifted photo — the original bug).
-  // Click Maps' own corner toggle instead: no reload, and the choice sticks.
+  function mapBasemapChip(onSatUrl) {
+    const found = overlayHost();
+    if (!found) return null;
+    const cr = found.canvas.getBoundingClientRect();
+    const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
+    for (const el of document.querySelectorAll(
+      "button[jsaction*='minimap'], [aria-label], [title], button, [role='button'], label"
+    )) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      const sig = basemapToggleSignature(el)
+        || String(el.getAttribute("title") || "").trim();
+      if (!sig) continue;
+      if (onSatUrl ? !basemapChipSwitchesToMap(sig) : !basemapChipSwitchesToSat(sig)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 24 || r.height < 12) continue;
+      const inBottomStrip = r.bottom >= cr.bottom - 220 && r.bottom <= cr.bottom + 40;
+      const inCorner = isToggle ? isToggle(r, cr) : false;
+      if (!inBottomStrip && !inCorner) continue;
+      return minimapBasemapButton(el);
+    }
+    return null;
+  }
+
+  function bottomStripBasemapToggle(cr, onSatUrl) {
+    const chip = mapBasemapChip(onSatUrl);
+    if (chip) return chip;
+    const candidates = [];
+    for (const el of document.querySelectorAll(
+      "button, [role='button'], label, [aria-label]"
+    )) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
+      if (r.bottom > cr.bottom + 8 || r.bottom < cr.bottom - 180) continue;
+      const sig = basemapToggleSignature(el);
+      if (!sig) continue;
+      if (
+        !basemapLabelIsSat(sig)
+        && !basemapLabelIsMap(sig)
+        && !basemapChipSwitchesToMap(sig)
+        && !basemapChipSwitchesToSat(sig)
+      ) continue;
+      candidates.push(el);
+    }
+    // Place/search: one chip toggles map↔satellite; zh-TW keeps aria "互動式地圖"
+    // in both directions so label matching alone cannot find the control on `!1e3`.
+    if (
+      /\/maps\/(place|search)\//.test(location.pathname)
+      && candidates.length === 1
+    ) {
+      const sig = basemapToggleSignature(candidates[0]);
+      if (onSatUrl ? basemapChipSwitchesToMap(sig) : basemapChipSwitchesToSat(sig)) {
+        return resolveBasemapButton(candidates[0]);
+      }
+    }
+    for (const el of candidates) {
+      const sig = basemapToggleSignature(el);
+      if (onSatUrl ? basemapChipSwitchesToMap(sig) : basemapChipSwitchesToSat(sig)) {
+        return resolveBasemapButton(el);
+      }
+    }
+    return null;
+  }
+
   function nativeBasemapToggle() {
     const found = overlayHost();
     if (!found) return null;
     const cr = found.canvas.getBoundingClientRect();
+    const onSatUrl = hybridStillOnSatelliteBasemap();
+    const chip = mapBasemapChip(onSatUrl);
+    if (chip) return chip;
+    // Place/search/directions UIs park the basemap chip in the bottom strip, not
+    // the corner thumbnail.
+    if (/\/maps\/(place|search|dir)\//.test(location.pathname)) {
+      const strip = bottomStripBasemapToggle(cr, onSatUrl);
+      if (strip) return strip;
+    }
     const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
     const hits = [];
     document.querySelectorAll("button, [role='button'], label").forEach((el) => {
@@ -459,10 +973,11 @@
     // Hovering expands the widget, which puts a <label> over the button and
     // earlier in document order — and a synthetic click on that label does
     // nothing. The button is the element Maps binds the switch to.
-    return hits.find((el) => el.tagName === "BUTTON")
+    const corner = hits.find((el) => el.tagName === "BUTTON")
       || hits.find((el) => el.getAttribute("role") === "button")
-      || hits[0]
-      || null;
+      || hits[0];
+    if (corner) return corner;
+    return bottomStripBasemapToggle(cr, onSatUrl);
   }
 
   // The aria-label the toggle carries for the basemap it would switch TO
@@ -482,75 +997,62 @@
   }
 
   function clickNativeBasemapToggle(el) {
-    const fire = (type) => el.dispatchEvent(
-      new MouseEvent(type, { bubbles: true, cancelable: true, view: window })
-    );
-    // Maps expands the widget on hover and binds the switch via jsaction, so the
-    // hover has to land before the click.
-    ["pointerover", "mouseover", "mouseenter", "mousemove"].forEach(fire);
-    ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(fire);
+    const target = minimapBasemapButton(el) || el;
+    const r = target.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const base = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: x,
+      clientY: y,
+      screenX: window.screenX + x,
+      screenY: window.screenY + y,
+      button: 0
+    };
+    const ptr = (type, extra = {}) => {
+      target.dispatchEvent(new PointerEvent(type, {
+        ...base,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        ...extra
+      }));
+    };
+    const mouse = (type, extra = {}) => {
+      target.dispatchEvent(new MouseEvent(type, { ...base, ...extra }));
+    };
+    ["pointerover", "mouseover", "mouseenter", "pointerenter", "mousemove"].forEach((t) => {
+      ptr(t);
+      mouse(t);
+    });
+    ptr("pointerdown", { buttons: 1 });
+    mouse("mousedown", { buttons: 1 });
+    ptr("pointerup", { buttons: 0 });
+    mouse("mouseup", { buttons: 0 });
+    mouse("click", { buttons: 0 });
+    if (typeof target.click === "function") target.click();
   }
 
-  // Returns true when it took over this redraw: either a basemap switch is in
-  // flight, or we gave up and the streets fallback needs a fresh redraw.
-  function maybeSwitchToMapBasemap() {
-    // Never blend over Maps' own photo while the switch is pending.
-    hideOverlay();
-    ensureRoot();
-    if (root) root.style.display = "none";
-    const setDiag = (v) => {
-      if (!root) return;
-      root.dataset.blendBlocked = "satellite-basemap";
-      root.dataset.blendSwitch = `${v}:${basemapSwitchTries}`;
-    };
-    const again = (ms) => {
-      clearTimeout(timer);
-      timer = setTimeout(redraw, ms);
-    };
-
-    const toggle = nativeBasemapToggle();
-    const sig = basemapToggleSignature(toggle);
-    const sinceClick = basemapClickAt ? Date.now() - basemapClickAt : Infinity;
-    // The toggle names the basemap it switches TO, so our click flips its label.
-    // A flipped label with a stale URL means Maps accepted the switch and simply
-    // has not rewritten `@`/`data=` yet — clicking again there would flip
-    // straight back to satellite and leave the blend double-exposed. Both waits
-    // are bounded so a misread label cannot wedge the mode.
-    const flipped = !!(basemapToggleSig && sig && sig !== basemapToggleSig);
-    if (sinceClick < BASEMAP_SWITCH_SETTLE_MS || (flipped && sinceClick < BASEMAP_SWITCH_LAND_MS)) {
-      setDiag(flipped ? "landed" : "settling");
-      again(BASEMAP_SWITCH_RETRY_MS);
-      return true;
-    }
-    if (basemapSwitchTries >= BASEMAP_SWITCH_MAX_TRIES || (basemapSwitchTries > 0 && !toggle)) {
-      // Cannot reach the toggle (moved, hidden, unknown skin). Alignment matters
-      // more than staying native, so render this view the streets way instead —
-      // but only if the user is actually asking for a photo. If they just toggled
-      // out of the takeover, leaving Maps alone is what they asked for.
-      if (!wantImagery) {
-        setDiag("native-satellite");
-        return false;
-      }
-      if (!blendFallbackStreets) {
-        blendFallbackStreets = true;
-        lastKey = "";
-        setDiag("fallback-streets");
-        again(0);
-      }
-      return true;
-    }
-    if (!toggle) {
-      // Maps paints the corner widget late; wait for it before standing down.
-      setDiag("waiting");
-      again(BASEMAP_SWITCH_RETRY_MS);
-      return true;
-    }
-    basemapSwitchTries += 1;
-    basemapToggleSig = sig;
-    basemapClickAt = Date.now();
-    clickNativeBasemapToggle(toggle);
-    setDiag("clicked");
-    again(BASEMAP_SWITCH_RETRY_MS);
+  function tryStripSatelliteBasemapUrl() {
+    const href = location.href;
+    if (!/!3m\d+!1e3|%213m\d+%211e3/i.test(href)) return false;
+    let next = href
+      .replace(/!3m(\d+)!1e3/g, "!3m$1!1e0")
+      .replace(/%213m(\d+)%211e3/gi, (_m, n) => `%213m${n}%211e0`);
+    next = next.replace(/([?&/])data=([^?&#]*)/, (m, pre, data) => {
+      const raw = data.includes("%") ? decodeURIComponent(data) : data;
+      if (!/!3m\d+!1e3/.test(raw)) return m;
+      const stripped = raw.replace(/!3m(\d+)!1e3/g, "!3m$1!1e0");
+      if (!stripped) return pre.slice(0, -1);
+      return `${pre}data=${data.includes("%") ? encodeURIComponent(stripped) : stripped}`;
+    });
+    next = next.replace(/([?&/])data=(?=[?&#]|$)/, "$1").replace(/\?&/, "?");
+    if (next === href) return false;
+    history.replaceState(history.state, "", next);
+    lastHref = "";
+    lastKey = "";
     return true;
   }
 
@@ -607,6 +1109,18 @@
     clipHostForChrome(host);
     fitOverlayToCanvas(host, canvas);
     return true;
+  }
+
+  function alignStatusHow(spec) {
+    if (hybridAlign() && hybridCrispSatellite()) return "crisp WGS satellite + shifted labels";
+    if (placeAlignedPinActive()) {
+      return satellitePhotoBasemap()
+        ? "aligned satellite + place teardrop"
+        : "aligned streets + place teardrop";
+    }
+    if (hybridYieldsNativeCanvas()) return "native Google layers";
+    if (hybridAlign() && hybridNeedsNativeLayers()) return "map basemap · aligned overlay";
+    return "native Google layers";
   }
 
   function setStatus(text, extra) {
@@ -825,13 +1339,26 @@
       : undefined;
   }
 
-  // Placement lives in overlayPoiScreenPx, which does its own GCJ→WGS camera
-  // step (unless the place path is an explicit WGS lat/lon query).
-  function syncPois(st, w, h) {
-    if (!root || !panEl) return;
-    const pois = collectPoisFromDocument();
+  function primaryPlacePoi() {
+    const coords = globalThis.Gcj02Aligner.parsePlaceCoords(location.href);
+    if (!coords) return [];
+    const key = poiCoordKey(coords.lat, coords.lon);
+    const fromDoc = collectPoisFromDocument().find(
+      (p) => poiCoordKey(p.lat, p.lon) === key
+    );
+    if (fromDoc) return [fromDoc];
+    const rawPath = globalThis.Gcj02Aligner.placeNameFromHref(location.href) || "";
+    const name = globalThis.Gcj02Aligner.shortPlaceTitleFromPath(rawPath)
+      || globalThis.Gcj02Aligner.cleanPoiName(rawPath)
+      || globalThis.Gcj02Aligner.cleanPoiName((document.querySelector("h1")?.textContent || "").trim())
+      || "Place";
+    return [{ lat: coords.lat, lon: coords.lon, name, kind: "place", description: "" }];
+  }
+
+  function paintPoiMarkers(st, w, h, pois, placePin) {
     const poiKey = [
       w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
+      placePin ? "place-pin" : "pois",
       pois.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)},${p.kind},${p.name},${p.description || ""}`).join("|")
     ].join(";");
     if (poiKey === lastPoiKey) {
@@ -850,6 +1377,7 @@
       );
       const el = document.createElement("div");
       el.className = "gcj02-poi";
+      if (placePin) el.classList.add("is-place-pin");
       el.dataset.key = poiCoordKey(poi.lat, poi.lon);
       el.dataset.wgsLat = String(screen.lat);
       el.dataset.wgsLon = String(screen.lon);
@@ -870,241 +1398,26 @@
     root.dataset.poiKinds = pois.map((p) => p.kind).join(",");
   }
 
-  function directionsWaypointsKey() {
-    return globalThis.Gcj02Aligner.parseDirectionsWaypoints(location.href)
-      .map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`)
-      .join(";");
-  }
-
-  function directionsCaptureSize() {
-    const found = overlayHost();
-    if (!found) return null;
-    const br = found.canvas.getBoundingClientRect();
-    return {
-      w: Math.max(br.width || 0, found.canvas.clientWidth || 0, 1),
-      h: Math.max(br.height || 0, found.canvas.clientHeight || 0, 1)
-    };
-  }
-
-  function directionsOverlayReady() {
-    if (canvasRouteUsable()) return true;
-    if (directionsRoutePaintable()) return true;
-    return directionsCaptureWaitTicks >= 100;
-  }
-
-  function startDirectionsBootstrapCapture() {
-    if (directionsBootstrapTimer) return;
-    if (!streetsAlign()) return;
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return;
-    directionsCaptureWaitTicks = 0;
-    directionsBootstrapTimer = setInterval(() => {
-      directionsCaptureWaitTicks++;
-      if (
-        !alive
-        || !streetsAlign()
-        || !globalThis.Gcj02Aligner.isDirectionsView(location.href)
-        || directionsOverlayReady()
-      ) {
-        clearInterval(directionsBootstrapTimer);
-        directionsBootstrapTimer = null;
-        if (!gestureBusy()) redraw();
-        return;
-      }
-      const st = parseMapState();
-      const size = directionsCaptureSize();
-      if (st && size) tryDirectionsRouteSources(st, size.w, size.h);
-      if (directionsCaptureWaitTicks >= 100) {
-        clearInterval(directionsBootstrapTimer);
-        directionsBootstrapTimer = null;
-        if (!gestureBusy()) redraw();
-      }
-    }, 250);
-  }
-
-  function directionsRoutePaintable() {
-    return directionsPolylines.some((line) => line.length >= 2);
-  }
-
-  function canvasRouteUsable() {
-    return (directionsPolylines[0]?.length || 0) >= MIN_CANVAS_ROUTE_PTS;
-  }
-
-  function tryDirectionsRouteSources(st, w, h) {
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href) || !st) return;
-    const pre = overlayHost();
-    if (pre && !canvasRouteUsable()) {
-      const br = pre.canvas.getBoundingClientRect();
-      captureDirectionsRouteFromCanvas(st, br.width || w, br.height || h);
-    }
-    if (!directionsRoutePaintable()) scanBufferedDirectionsResources(true);
-  }
-
-  function shouldHideNativeForDirections() {
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return true;
-    if (canvasRouteUsable()) return true;
-    if (directionsRoutePaintable()) return true;
-    return directionsCaptureWaitTicks >= 100;
-  }
-
-  function captureDirectionsRouteFromCanvas(st, w, h) {
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href) || !st) return false;
-    const key = [
-      directionsWaypointsKey(),
-      st.zoom.toFixed(3),
-      st.lat.toFixed(5),
-      st.lon.toFixed(5),
-      w,
-      h
-    ].join("|");
-    if (key === directionsRouteCaptureKey && canvasRouteUsable()) return true;
-
-    const found = overlayHost();
-    const canvas = found?.canvas;
-    if (!canvas) return false;
-    let imageData;
-    try {
-      imageData = globalThis.Gcj02Aligner.readMapCanvasImageData(canvas);
-    } catch (_e) {
-      return false;
-    }
-    if (!imageData) return false;
-    const waypoints = globalThis.Gcj02Aligner.parseDirectionsWaypoints(location.href);
-    const lines = globalThis.Gcj02Aligner.extractRouteLineFromCanvasImageData(
-      imageData.data,
-      imageData.width,
-      imageData.height,
-      canvas.clientWidth || w,
-      canvas.clientHeight || h,
-      st.lat,
-      st.lon,
-      st.zoom,
-      w,
-      h,
-      waypoints[0] || null,
-      waypoints[waypoints.length - 1] || null
-    );
-    if (!lines.length || lines[0].length < MIN_CANVAS_ROUTE_PTS) return false;
-    directionsPolylines = lines;
-    directionsRouteCaptureKey = key;
-    lastRouteKey = "";
-    return true;
-  }
-
-  function scheduleDirectionsRouteCapture(st, w, h) {
-    clearTimeout(directionsRouteCaptureTimer);
-    if (directionsRouteCaptureAttempts > 40) return;
-    directionsRouteCaptureTimer = setTimeout(() => {
-      directionsRouteCaptureAttempts++;
-      if (!alive || gestureBusy()) return;
-      if (captureDirectionsRouteFromCanvas(st, w, h)) {
-        directionsRouteCaptureAttempts = 0;
-        if (!gestureBusy()) redraw();
-        return;
-      }
-      scheduleDirectionsRouteCapture(st, w, h);
-    }, 280);
-  }
-
-  function scanBufferedDirectionsResources(force) {
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) return;
-    if (!force && directionsPolylines.length) return;
-    for (const e of performance.getEntriesByType("resource")) {
-      if (/\/maps\/preview\/directions/i.test(e.name)) {
-        queueDirectionsFetch(e.name, !!force);
-        return;
-      }
-    }
-  }
-
-  function queueDirectionsFetch(previewUrl, force) {
-    const url = String(previewUrl || "");
-    if (!url) return;
-    if (!force && url === lastDirectionsPreviewUrl) return;
-    lastDirectionsPreviewUrl = url;
-    clearTimeout(directionsFetchTimer);
-    directionsFetchTimer = setTimeout(() => {
-      fetch(url)
-        .then((r) => r.text())
-        .then((body) => {
-          const canvasPts = directionsPolylines[0]?.length || 0;
-          const lines = globalThis.Gcj02Aligner.extractDirectionsPolylines(body, location.href);
-          if (!lines.length) return;
-          const previewPts = lines[0]?.length || 0;
-          if (canvasPts >= MIN_CANVAS_ROUTE_PTS && canvasPts >= previewPts) return;
-          directionsPolylines = lines;
-          lastRouteKey = "";
-          if (!gestureBusy()) redraw();
-        })
-        .catch(() => {});
-    }, 120);
-  }
-
-  function syncRoute(st, w, h) {
-    if (!panEl) return;
-    if (!globalThis.Gcj02Aligner.isDirectionsView(location.href)) {
-      panEl.querySelectorAll(".gcj02-route").forEach((e) => e.remove());
-      lastRouteKey = "";
-      directionsPolylines = [];
-      directionsRouteCaptureKey = "";
-      directionsRouteCaptureAttempts = 0;
-      directionsCaptureWaitTicks = 0;
-      clearTimeout(directionsRouteCaptureTimer);
+  // Placement lives in overlayPoiScreenPx, which does its own GCJ→WGS camera
+  // step (unless the place path is an explicit WGS lat/lon query).
+  function syncPois(st, w, h) {
+    if (!root || !panEl) return;
+    if (hybridYieldsNativeCanvas() || !placeAlignedPinActive()) {
+      panEl.querySelectorAll(".gcj02-poi").forEach((e) => e.remove());
+      lastPoiKey = "";
       return;
     }
-    if (!canvasRouteUsable()) {
-      tryDirectionsRouteSources(st, w, h);
-    }
-    if (!directionsRoutePaintable()) {
-      scheduleDirectionsRouteCapture(st, w, h);
-    }
-    const routeKey = [
-      w, h, st.zoom.toFixed(3), st.lat.toFixed(5), st.lon.toFixed(5),
-      directionsPolylines.map((line) => line.length).join(";")
-    ].join(",");
-    if (routeKey === lastRouteKey) return;
-    lastRouteKey = routeKey;
-    panEl.querySelectorAll(".gcj02-route").forEach((e) => e.remove());
-    if (!directionsPolylines.length) return;
-
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "gcj02-route");
-    svg.setAttribute("width", String(w));
-    svg.setAttribute("height", String(h));
-    svg.setAttribute("aria-hidden", "true");
-    for (const line of directionsPolylines) {
-      const pts = line.map((pt) => {
-        const s = globalThis.Gcj02Aligner.overlayPoiScreenPx(
-          pt.lat, pt.lon, st.lat, st.lon, st.zoom, w, h, urlCoordOpts()
-        );
-        return `${s.x},${s.y}`;
-      }).join(" ");
-      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-      poly.setAttribute("points", pts);
-      poly.setAttribute("fill", "none");
-      poly.setAttribute("stroke", "#1a73e8");
-      poly.setAttribute("stroke-width", "6");
-      poly.setAttribute("stroke-linecap", "round");
-      poly.setAttribute("stroke-linejoin", "round");
-      poly.setAttribute("opacity", "0.92");
-      svg.appendChild(poly);
-    }
-    panEl.appendChild(svg);
-    if (root) {
-      root.dataset.routeSegments = String(directionsPolylines.length);
-      root.dataset.routePoints = String(directionsPolylines.reduce((n, line) => n + line.length, 0));
-    }
+    paintPoiMarkers(st, w, h, primaryPlacePoi(), true);
   }
 
   function syncPoisIfVisible() {
     if (!alive || !root || root.style.display === "none") return;
-    // Blended mode leaves POIs and routes to Maps.
-    if (!streetsAlign()) return;
+    if (!hybridOverlayActive()) return;
     const st = parseMapState();
     if (!st) return;
     const w = Math.max(root.clientWidth || root.getBoundingClientRect().width, 1);
     const h = Math.max(root.clientHeight || root.getBoundingClientRect().height, 1);
     syncPois(st, w, h);
-    syncRoute(st, w, h);
   }
 
   function hideOverlay() {
@@ -1112,9 +1425,8 @@
     gestureHold = null;
     endZoomAnim(true);
     clearPanVisual();
-    // Hidden must mean nothing painted: a street-map view in blended mode, or
-    // anything outside China, has to leave no tiles of ours in the DOM. lastKey
-    // goes with them or the next redraw would think the tiles are still there.
+    // Hidden must mean nothing painted — out of China or native-only views
+    // must leave no tiles of ours in the DOM.
     if (panEl) {
       panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
         .forEach((e) => e.remove());
@@ -1128,13 +1440,14 @@
       root.dataset.poiCount = "0";
     }
     lastPoiKey = "";
+    clearSatelliteBasemapGate();
     if (statusEl) statusEl.style.display = "none";
     if (lastHost) {
       try { lastHost.style.clipPath = ""; lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     }
-    setNativeBlend(false);
     setNativeMapHidden(false);
     reportActionStatus(parseMapState());
+    updateIdleStatus();
   }
 
   function overlayIsVisible() {
@@ -1322,103 +1635,54 @@
 
   function redraw() {
     if (!alive || gestureBusy()) return;
-    // Re-arm the basemap switch only when the display type itself changes —
-    // panning rewrites `@` constantly and must not restart the click attempts.
-    const displayType = globalThis.Gcj02Aligner.mapDisplayType(
-      globalThis.Gcj02Aligner.dataParam(location.href)
-    );
-    if (lastDisplayType === null && displayType === 3) setWantImagery(true);
-    if (lastDisplayType === null && displayType !== 3) setWantImagery(false);
-    if (displayType !== lastDisplayType) {
-      const previous = lastDisplayType;
-      lastDisplayType = displayType;
-      basemapSwitchTries = 0;
-      basemapToggleSig = "";
-      blendFallbackStreets = false;
-      // A satellite view arriving from a URL or a navigation says the user wants
-      // a photo. One arriving because the user just clicked the corner toggle
-      // does not: that click already set the intent (and may have cleared it).
-      if (
-        displayType === 3
-        && previous !== null
-        && Date.now() - userBasemapClickAt > USER_BASEMAP_CLICK_MS
-      ) {
-        setWantImagery(true);
-      }
-      // Landed on a plain street-map URL without coming from satellite: drop any
-      // stale session flag so map mode never gets a semi-transparent photo.
-      if (
-        displayType !== 3
-        && previous !== null
-        && previous !== 3
-        && Date.now() - userBasemapClickAt > USER_BASEMAP_CLICK_MS
-      ) {
-        setWantImagery(false);
-      }
-    }
-    if (blendAlign() && displayType === 3 && !blendFallbackStreets) {
-      // Maps must never keep its own satellite basemap in this mode: its photo
-      // is unshifted, opaque and drawn in the same canvas as the GCJ vectors.
-      if (maybeSwitchToMapBasemap()) return;
+    if (hybridAlign() && hybridNeedsNativeLayers()) {
+      maybeHybridRewindToMap();
+      setNativeMapHidden(false);
+      hideOverlay();
+      syncSatelliteBasemapGate();
+      syncNativeLayersChrome();
+      return;
     }
     const spec = overlaySpec();
     const st = parseMapState();
     reportActionStatus(st);
     const active = effectiveMode(st);
-    const blend = !!spec.blendNative;
     if (spec.nativeOnly || active === "off" || !st || st.zoom < 5 || st.zoom > 21) {
+      if (hybridYieldsNativeCanvas()) setNativeMapHidden(false);
       hideOverlay();
       return;
     }
-    if (!blend && globalThis.Gcj02Aligner.isDirectionsView(location.href) && !directionsOverlayReady()) {
-      const size = directionsCaptureSize();
-      if (size) tryDirectionsRouteSources(st, size.w, size.h);
-      if (!directionsOverlayReady()) {
-        if (size) scheduleDirectionsRouteCapture(st, size.w, size.h);
-        return;
-      }
-    }
 
     if (!ensureRoot()) return;
-    // Measure with the layer laid out. A `display: none` root (hideOverlay ran
-    // earlier in this document — out of China, a native-only view, a pending
-    // basemap switch) reports 0x0, and the size guard below then returned before
-    // anything could show it again, wedging the overlay off for good.
     if (root.style.display === "none") root.style.display = "";
     const box = root.getBoundingClientRect();
     const w = root.clientWidth || box.width;
     const h = root.clientHeight || box.height;
     if (!(w >= 32) || !(h >= 32)) return;
-    if (blend) {
-      // Nothing native gets hidden or repainted — Maps keeps drawing the GCJ
-      // world and we only slide the WGS photo underneath it.
-      setNativeMapHidden(false);
-      setNativeBlend(true);
-    } else {
-      setNativeBlend(false);
-      tryDirectionsRouteSources(st, w, h);
-      if (shouldHideNativeForDirections()) setNativeMapHidden(true);
-      else scheduleDirectionsRouteCapture(st, w, h);
-    }
+
+    setNativeMapHidden(true);
     root.dataset.alignMode = alignMode;
-    delete root.dataset.blendBlocked;
+    if (hybridAlign()) {
+      root.dataset.hybridLayer = placeAlignedPinActive()
+        ? (satellitePhotoBasemap() ? "place-satellite" : "place-map")
+        : hybridNeedsNativeLayers()
+          ? "map"
+          : "photo";
+      root.dataset.satGate = satelliteBasemapGateActive() ? "1" : "0";
+    } else {
+      delete root.dataset.hybridLayer;
+      delete root.dataset.satGate;
+    }
+    syncSatelliteBasemapGate();
     root.style.display = "";
     if (statusEl) statusEl.style.display = "";
 
     const zTile = Math.min(21, Math.max(0, Math.round(st.zoom)));
     const scale = 2 ** (st.zoom - zTile);
     const tileSize = TILE * scale;
-    // URL `@` is usually GCJ-02; lat/lon place queries are already WGS-84.
-    // Center the overlay on the WGS twin of that camera (see overlayCamera).
-    // Blended mode: the native canvas is the GCJ world, so the imagery camera is
-    // always gcjToWgs(@) — no WGS lat/lon place exception, Maps renders `@` in
-    // its own GCJ frame on every URL shape.
-    const cam = blend
-      ? globalThis.Gcj02Aligner.imageryCamera(st.lat, st.lon)
-      : globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon, urlCoordOpts());
+    const cam = globalThis.Gcj02Aligner.overlayCamera(st.lat, st.lon, urlCoordOpts());
     const center = worldPixel(cam.lat, cam.lon, st.zoom);
     const tl = { x: center.x - w / 2, y: center.y - h / 2 };
-    // Enough off-screen tiles that a mid-drag translate does not expose a gap.
     const pad = Math.max(4, Math.ceil(Math.max(w, h) / tileSize) + 1);
     const x0 = Math.floor(tl.x / tileSize) - pad;
     const y0 = Math.floor(tl.y / tileSize) - pad;
@@ -1428,24 +1692,17 @@
     const key = [
       active, alignMode, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), (spec.shadeLyrs || []).join("+"),
       spec.extraLyrs.join("+"), urlCoordOpts()?.wgs84 ? "wgs" : "gcj",
+      "overlay",
       zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y),
       Math.round(w), Math.round(h)
     ].join(",");
-    if (key !== lastKey) {
-      lastKey = key;
-      lastPoiKey = "";
-      // Drop pan/zoom preview in the same turn as placing tiles for the new
-      // camera so the frame never shows old tiles at identity transform.
-      clearPanVisual();
-      if (panEl) panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
-      else root.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
-
-      const sample = globalThis.Gcj02Aligner.overlayShiftPx(cam.lat, cam.lon, st.zoom);
-      const offsetPx = sample.hypot;
-      const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
-      const how = blend
-        ? "WGS satellite shifted under native GCJ layers"
-        : "streets shifted GCJ→WGS";
+    const sample = globalThis.Gcj02Aligner.overlayShiftPx(cam.lat, cam.lon, st.zoom);
+    const offsetPx = sample.hypot;
+    const extras = spec.extraLyrs.length ? `+${spec.extraLyrs.join("+")}` : "";
+    const how = alignStatusHow(spec);
+    const statusSig = `${spec.label}${extras}:${how}:${st.zoom.toFixed(2)}`;
+    if (statusSig !== lastStatusSig) {
+      lastStatusSig = statusSig;
       setStatus(`Aligning · ${spec.label}${extras} · ${how} · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
         alignMode,
@@ -1461,11 +1718,16 @@
         camLat: cam.lat.toFixed(6),
         camLon: cam.lon.toFixed(6)
       });
+    }
+    if (key !== lastKey) {
+      lastKey = key;
+      lastPoiKey = "";
+      clearPanVisual();
+      if (panEl) panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
+      else root.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade").forEach((e) => e.remove());
 
       const shift = (rdx, rdy) => `translate3d(${rdx}px,${rdy}px,0)`;
       const hasBase = spec.baseLyrs.length > 0;
-      // One camera shift for every street tile. Per-tile evil shifts warped the
-      // road layer so search pins (single vector) drifted vs X235 across zoom.
       const roadShift = shift(sample.dx, sample.dy);
 
       for (let ty = y0; ty <= y1; ty++) {
@@ -1478,9 +1740,6 @@
           const left = pW.x - center.x + w / 2 - tileSize / 2;
           const top = pW.y - center.y + h / 2 - tileSize / 2;
 
-          // Satellite `s` stays on WGS. Terrain: shifted colored streets `m`, then
-          // unshifted WGS shade `t` on top (outside-China look). Never CSS-shift
-          // combined `p` (X235 climbs the west 五丈原 face with the cliffs).
           for (const lyrs of spec.baseLyrs) {
             placeTile("gcj02-tile", lyrs, left, top, tileSize, "", wx, ty, zTile);
           }
@@ -1490,19 +1749,23 @@
               spec.roadLyrs, left, top, tileSize, roadShift, wx, ty, zTile
             );
           }
-          for (const lyrs of spec.extraLyrs) {
-            placeTile("gcj02-road", lyrs, left, top, tileSize, roadShift, wx, ty, zTile);
-          }
           for (const lyrs of spec.shadeLyrs || []) {
             placeTile("gcj02-shade", lyrs, left, top, tileSize, "", wx, ty, zTile);
+          }
+          if (spec.topLyrs) {
+            placeTile(
+              "gcj02-road",
+              spec.topLyrs, left, top, tileSize, roadShift, wx, ty, zTile
+            );
+          }
+          for (const lyrs of spec.extraLyrs) {
+            placeTile("gcj02-road", lyrs, left, top, tileSize, roadShift, wx, ty, zTile);
           }
         }
       }
     }
-    if (!blend) {
-      syncPois(st, w, h);
-      syncRoute(st, w, h);
-    }
+    syncPois(st, w, h);
+    updateModeBar();
   }
 
   function setMode(v) {
@@ -1510,30 +1773,21 @@
     const next = normalizeMode(v);
     if (next === alignMode) return;
     alignMode = next;
-    // Switching modes must undo the other mode's side effects: streets hides the
-    // native canvas and paints POIs/routes, satellite blends it and paints none.
-    setNativeBlend(false);
     setNativeMapHidden(false);
     setHoveredPoi("");
     if (panEl) {
       panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
         .forEach((e) => e.remove());
     }
-    directionsPolylines = [];
-    lastRouteKey = "";
     lastKey = "";
     lastPoiKey = "";
-    basemapSwitchTries = 0;
-    basemapClickAt = 0;
-    basemapToggleSig = "";
-    blendFallbackStreets = false;
+    hybridRewindTries = 0;
     if (root) root.dataset.alignMode = alignMode;
-    if (streetsAlign()) startDirectionsBootstrapCapture();
+    updateModeBar();
     redraw();
   }
 
-  // Boot order matters: the first redraw waits for the stored mode, otherwise a
-  // satellite-mode user sees the streets overlay hide the canvas for a frame.
+  // Boot order matters: the first redraw waits for the stored mode.
   function applyStoredAlignMode(v) {
     alignModeLoaded = true;
     if (normalizeMode(v) === alignMode) {
@@ -1544,15 +1798,64 @@
     setMode(v);
   }
 
+  function persistAlignMode(mode) {
+    const payload = { [ALIGN_MODE_KEY]: normalizeMode(mode) };
+    try {
+      chrome.storage.sync.set(payload, () => {
+        try { void chrome.runtime.lastError; } catch (_e) {}
+      });
+    } catch (_e) {}
+    try {
+      chrome.storage.local.set(payload, () => {
+        try { void chrome.runtime.lastError; } catch (_e) {}
+      });
+    } catch (_e) {}
+  }
+
+  function readStoredAlignMode(cb) {
+    const readId = ++alignModeReadId;
+    const finish = (v) => {
+      if (readId !== alignModeReadId) return;
+      try { cb(v); } catch (_e) {}
+    };
+    const keys = { [ALIGN_MODE_KEY]: DEFAULT_ALIGN_MODE };
+    const readSync = (localMode) => {
+      try {
+        chrome.storage.sync.get(keys, (sync) => {
+          try { void chrome.runtime.lastError; } catch (_e) {}
+          const syncMode = sync?.[ALIGN_MODE_KEY];
+          if (localMode != null && syncMode != null && localMode !== syncMode) finish(localMode);
+          else finish(syncMode ?? localMode ?? DEFAULT_ALIGN_MODE);
+        });
+      } catch (_e) {
+        finish(localMode ?? DEFAULT_ALIGN_MODE);
+      }
+    };
+    try {
+      chrome.storage.local.get(keys, (local) => {
+        try { void chrome.runtime.lastError; } catch (_e) {}
+        readSync(local?.[ALIGN_MODE_KEY]);
+      });
+    } catch (_e) {
+      readSync(null);
+    }
+  }
+
+  function onStoredAlignModeChanged(mode) {
+    alignModeReadId += 1;
+    applyStoredAlignMode(mode);
+  }
+
   function loadAlignMode() {
     try {
-      chrome.storage.sync.get({ [ALIGN_MODE_KEY]: DEFAULT_ALIGN_MODE }, (got) => {
-        try { void chrome.runtime.lastError; } catch (_e) {}
-        applyStoredAlignMode(got?.[ALIGN_MODE_KEY]);
+      readStoredAlignMode((v) => {
+        if (alignModeLoaded) return;
+        applyStoredAlignMode(v);
       });
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== "sync" || !changes[ALIGN_MODE_KEY]) return;
-        setMode(changes[ALIGN_MODE_KEY].newValue);
+        if (area !== "sync" && area !== "local") return;
+        if (!changes[ALIGN_MODE_KEY]) return;
+        onStoredAlignModeChanged(changes[ALIGN_MODE_KEY].newValue);
       });
     } catch (_e) {
       applyStoredAlignMode(alignMode);
@@ -1564,7 +1867,16 @@
     if (!alive || ev.source !== window) return;
     if (ev.data?.source !== "gcj02-aligner") return;
     if (ev.data?.type === "setMode") setMode(ev.data.mode);
-    if (ev.data?.type === "setPegmanCover") setPegmanCover(!!ev.data.on);
+    if (ev.data?.type === "getBasemapToggleBox") {
+      const toggle = nativeBasemapToggle();
+      const box = toggle
+        ? (() => {
+          const r = toggle.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        })()
+        : null;
+      window.postMessage({ source: "gcj02-aligner", type: "basemapToggleBox", box }, "*");
+    }
   });
 
   // Off paints the red teardrop+tooltip on the native canvas when the sidebar
@@ -1579,35 +1891,16 @@
   document.addEventListener("pointermove", onPanPointerMove, true);
   document.addEventListener("pointerup", endPanDrag, true);
   document.addEventListener("pointercancel", endPanDrag, true);
-  // Pegman drag: show shifted Street View coverage (`svv`) while native canvas is hidden.
-  document.addEventListener("pointerdown", onPegmanPointerDown, true);
-  document.addEventListener("pointerup", onPegmanPointerUp, true);
-  document.addEventListener("pointercancel", onPegmanPointerUp, true);
-  // Backup: Maps still requests /vt/pb=!2ssvv… while pegman is active even though we
-  // hide the native canvas — mirror that by forcing our coverage tiles.
-  try {
-    const po = new PerformanceObserver((list) => {
-      for (const e of list.getEntries()) {
-        if (!streetsAlign()) return;
-        if (/\/maps\/vt\/pb=.*!2ssvv/i.test(e.name)) {
-          setPegmanCover(true);
-        }
-        if (/\/maps\/preview\/directions/i.test(e.name)) {
-          queueDirectionsFetch(e.name);
-        }
-      }
-    });
-    po.observe({ type: "resource", buffered: true });
-  } catch (_e) {}
   // Smooth zoom preview for wheel and the corner +/- controls.
   document.addEventListener("wheel", onMapWheel, { capture: true, passive: true });
   document.addEventListener("pointerdown", onZoomButtonDown, true);
-  // Real clicks on Maps' basemap toggle flip whether blended mode paints a photo.
-  document.addEventListener("click", onBasemapTogglePointer, true);
+  document.addEventListener("pointerdown", onSatelliteBasemapGatePointer, true);
+  document.addEventListener("click", onSatelliteBasemapGatePointer, true);
+  document.addEventListener("pointerdown", onDirectionsActivatorPointer, true);
+  document.addEventListener("click", onDirectionsActivatorPointer, true);
   addEventListener("blur", () => {
     endPanDrag(null);
     endZoomAnim(false);
-    onPegmanPointerUp();
   });
 
   obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
@@ -1636,14 +1929,30 @@
   });
   pollTimer = setInterval(() => {
     if (!alive || gestureBusy()) return;
+    if (noteDirectionsStateChange()) {
+      lastKey = "";
+      redraw();
+      return;
+    }
     if (location.href !== lastHref) {
       lastHref = location.href;
       lastKey = "";
       redraw();
       return;
     }
+    if (hybridAlign() && directionsPanelOpen()) {
+      if (hybridStillOnSatelliteBasemap()) maybeHybridRewindToMap();
+      if (root && root.style.display !== "none") {
+        lastKey = "";
+        redraw();
+        return;
+      }
+    }
     const spec = overlaySpec();
     if (spec.nativeOnly) {
+      if (hybridAlign() && hybridNeedsNativeLayers() && hybridStillOnSatelliteBasemap()) {
+        maybeHybridRewindToMap();
+      }
       if (root && root.style.display !== "none") {
         lastKey = "";
         redraw();
@@ -1666,27 +1975,13 @@
         clipHostForChrome(found.host);
         if (fitOverlayToCanvas(found.host, found.canvas)) lastKey = "";
       }
-      if (streetsAlign()) {
-        const stPoll = parseMapState();
-        if (stPoll && root) {
-          const pw = root.clientWidth || root.getBoundingClientRect().width;
-          const ph = root.clientHeight || root.getBoundingClientRect().height;
-          if (pw >= 32 && ph >= 32) tryDirectionsRouteSources(stPoll, pw, ph);
-        }
-        if (shouldHideNativeForDirections()) setNativeMapHidden(true);
-      } else if (overlaySpec().blendNative) {
-        setNativeBlend(true);
-      } else {
-        setNativeBlend(false);
-      }
+      if (hybridOverlayActive()) setNativeMapHidden(true);
       if (!lastKey) redraw();
       else syncPoisIfVisible();
     }
   }, 400);
 
-  loadWantImagery();
   loadAlignMode();
-  startDirectionsBootstrapCapture();
   // If storage never answers (no permission, disabled profile), still draw.
   setTimeout(() => {
     if (!alignModeLoaded) applyStoredAlignMode(alignMode);

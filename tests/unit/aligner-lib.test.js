@@ -16,7 +16,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   //    translate them onto the WGS-84 camera with one camera overlayShiftPx.
   //    Search POIs are canvas-painted by Maps (not DOM), so On redraws icon+label
   //    at Off GCJ mercator plus that same rigid camera vector.
-  //    Terrain: shifted street `m` + unshifted shade `t` (never shifted `p` —
+  //    Terrain: shifted `m` + unshifted shade `t` + shifted `h` (never shifted `p` —
   //    that makes X235 climb the west 五丈原 cliff instead of the valley).
   const { XIAMEN_XINGLIN, WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
 
@@ -35,25 +35,20 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
   });
 
   it("never transforms terrain shade tiles (WGS-84 stays put)", () => {
+    // Hybrid no longer paints terrain overlay; shade CSS remains for any future use.
     const spec = lib.overlaySpec("https://www.google.com/maps/@34.25,107.62,15z/data=!5m1!1e4");
-    assert.deepEqual(spec.baseLyrs, []);
-    assert.equal(spec.roadLyrs, "m");
-    assert.deepEqual(spec.shadeLyrs, ["t"]);
-    assert.notEqual(spec.roadLyrs, "p");
+    assert.equal(spec.nativeOnly, true);
+    assert.match(contentCss, /gcj02-shade/);
     assert.match(contentJs, /placeTile\("gcj02-shade"/);
   });
 
-  it("always CSS-shifts street/terrain/extra tiles onto WGS inside China", () => {
-    assert.equal(lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z").roadLyrs, "m");
-    assert.equal(
-      lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").roadLyrs,
-      "m"
-    );
-    assert.deepEqual(
-      lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").shadeLyrs,
-      ["t"]
-    );
+  it("always CSS-shifts hybrid label tiles onto WGS satellite inside China", () => {
     assert.equal(lib.overlaySpec(XIAMEN_XINGLIN.href).roadLyrs, "h");
+    assert.equal(lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z").nativeOnly, true);
+    assert.equal(
+      lib.overlaySpec("https://www.google.com/maps/@24.6,118.07,16z/data=!5m1!1e4").nativeOnly,
+      true
+    );
     assert.match(contentJs, /const roadShift = shift\(sample\.dx, sample\.dy\)/);
     assert.match(
       contentJs,
@@ -106,6 +101,12 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(lib.urlCoordsAreWgs84(t.href), true);
     assert.equal(lib.urlCoordsAreWgs84(t.satHref), true);
     assert.equal(lib.urlCoordsAreWgs84(FORBIDDEN_CITY.mapHref), false);
+
+    const taihe = "https://www.google.com/maps/place/%E5%A4%AA%E5%92%8C%E6%AE%BF/@39.917273,116.3970962,17z";
+    assert.equal(lib.placeNeedsAlignedPin(taihe, false), false);
+    assert.equal(lib.placeNeedsAlignedPin(taihe, true), true);
+    assert.equal(lib.placeNeedsAlignedPin(t.href, false), true);
+    assert.equal(lib.placeNeedsAlignedPin(t.href, true), false);
 
     const cam = lib.overlayCamera(t.lat, t.lon, { wgs84: true });
     assert.equal(cam.lat, t.lat);
@@ -315,7 +316,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /effectiveMode/);
   });
 
-  it("ships a popup + storage switch between the two alignment modes", () => {
+  it("ships a popup + storage switch for Hybrid and Off", () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, "manifest.json"), "utf8"));
     assert.equal(manifest.action?.default_popup, "popup.html");
     assert.ok((manifest.permissions || []).includes("storage"));
@@ -326,10 +327,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /chrome\.storage\.sync\.get/);
     assert.match(contentJs, /chrome\.storage\.onChanged/);
     assert.match(contentJs, /type === "setMode"/);
-    assert.match(contentJs, /setPegmanCover/);
-    assert.match(contentJs, /withStreetViewCoverage/);
-    assert.match(contentJs, /isStreetViewPegmanTarget/);
-    assert.match(contentJs, /onPegmanPointerDown/);
+    assert.match(contentJs, /data-mode="hybrid"/);
     const sw = fs.readFileSync(path.join(rootDir, "service-worker.js"), "utf8");
     assert.match(sw, /setActionStatus/);
     assert.match(sw, /OffscreenCanvas/);
@@ -547,10 +545,17 @@ describe("China landmark URLs stay in the overlay and get a GCJ pixel shift", ()
         assert.ok(Math.abs(st.zoom - place.expectZoom) < 0.05, `${place.name} zoom ${st.zoom}`);
       }
       assert.equal(lib.outOfChina(st.lat, st.lon), false, place.name);
-      assert.equal(spec.nativeOnly, false, place.name);
-      assert.equal(spec.label, "satellite", place.name);
-      assert.deepEqual(spec.baseLyrs, ["s"]);
-      assert.equal(spec.roadLyrs, "h");
+      const search = /\/maps\/search\//.test(href);
+      const satellite = lib.mapDisplayType(lib.dataParam(href)) === 3;
+      const crisp = satellite && !search && !lib.hybridNeedsNativeLayers(href, false);
+      if (crisp) {
+        assert.equal(spec.nativeOnly, false, place.name);
+        assert.equal(spec.label, "satellite", place.name);
+        assert.deepEqual(spec.baseLyrs, ["s"]);
+        assert.equal(spec.roadLyrs, "h");
+      } else {
+        assert.equal(spec.nativeOnly, true, place.name);
+      }
       const shift = lib.overlayShiftPx(st.lat, st.lon, st.zoom);
       assert.ok(shift.hypot > 20, `${place.name} shift ${shift.hypot}px`);
     });
@@ -672,25 +677,13 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(spec.roadLyrs, "h");
   });
 
-  it("keeps WGS terrain shade unshifted over shifted street map", () => {
+  it("yields native for terrain (hybrid forces map basemap)", () => {
     const spec = lib.overlaySpec(TERRAIN);
-    assert.equal(spec.nativeOnly, false);
-    assert.equal(spec.label, "terrain");
-    // Never shift combined `p` — cliffs move with roads (X235 on west face).
-    assert.deepEqual(spec.baseLyrs, []);
-    assert.equal(spec.roadLyrs, "m");
-    assert.deepEqual(spec.shadeLyrs, ["t"]);
-    assert.notEqual(spec.roadLyrs, "p");
-    const placeSpec = lib.overlaySpec(WUZHANGYUAN.terrainHref);
-    assert.equal(placeSpec.label, "terrain");
-    assert.equal(placeSpec.roadLyrs, "m");
-    assert.deepEqual(placeSpec.shadeLyrs, ["t"]);
-    assert.match(contentCss, /gcj02-shade/);
-    assert.match(contentCss, /mix-blend-mode:\s*multiply/);
-    assert.match(contentCss, /invert\(1\)/);
-    assert.match(contentCss, /brightness\(0\.68\)/);
-    assert.match(contentCss, /contrast\(2\.2\)/);
-    assert.match(contentCss, /opacity:\s*0\.5/);
+    assert.equal(spec.nativeOnly, true);
+    assert.equal(spec.label, "native");
+    assert.equal(lib.isTerrainView(TERRAIN), true);
+    assert.equal(lib.overlaySpec(WUZHANGYUAN.terrainHref).nativeOnly, true);
+    assert.equal(lib.overlaySpec(WUZHANGYUAN.scenicTerrainHref).nativeOnly, true);
   });
 
   it("reads terrain from a search URL that already has other data tokens", () => {
@@ -698,31 +691,26 @@ describe("Google Maps layer overlay spec", () => {
       "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2473397,107.6112456,14.06z/data=!4m2!2m1!6e1";
     const on =
       "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2473397,107.6112456,14.06z/data=!4m2!2m1!6e1!5m1!1e4";
-    const offSpec = lib.overlaySpec(off);
-    const onSpec = lib.overlaySpec(on);
-    assert.equal(offSpec.label, "map");
-    assert.equal(offSpec.roadLyrs, "m");
-    assert.equal(onSpec.label, "terrain");
-    assert.equal(onSpec.roadLyrs, "m");
-    assert.deepEqual(onSpec.shadeLyrs, ["t"]);
+    assert.equal(lib.overlaySpec(off).nativeOnly, true);
+    assert.equal(lib.overlaySpec(on).nativeOnly, true);
+    assert.equal(lib.hybridNeedsNativeLayers(on, false), true);
   });
 
-  it("adds traffic, transit, bicycling, and Street View coverage tiles", () => {
-    assert.deepEqual(lib.overlaySpec(TRAFFIC).extraLyrs, ["h,traffic"]);
-    assert.deepEqual(lib.overlaySpec(TRANSIT).extraLyrs, ["m,transit"]);
-    assert.deepEqual(lib.overlaySpec(BIKE).extraLyrs, ["h,bike"]);
-    assert.deepEqual(lib.overlaySpec(SV_COVER).extraLyrs, ["svv"]);
-    const both = lib.overlaySpec(TERRAIN_TRAFFIC);
-    assert.equal(both.label, "terrain");
-    assert.deepEqual(both.extraLyrs, ["h,traffic"]);
+  it("treats traffic, transit, bicycling and SV layer URLs as native-only", () => {
+    assert.equal(lib.overlaySpec(TRAFFIC).nativeOnly, true);
+    assert.equal(lib.overlaySpec(TRANSIT).nativeOnly, true);
+    assert.equal(lib.overlaySpec(BIKE).nativeOnly, true);
+    assert.equal(lib.overlaySpec(SV_COVER).nativeOnly, true);
+    assert.equal(lib.overlaySpec(TERRAIN_TRAFFIC).nativeOnly, true);
+    assert.equal(lib.hybridNeedsNativeLayers(TRAFFIC, false), true);
   });
 
-  it("can force Street View coverage tiles while pegman is dragged", () => {
+  it("withStreetViewCoverage is a no-op under hybrid native-only specs", () => {
     const map = lib.overlaySpec(MAP);
-    assert.deepEqual(map.extraLyrs, []);
-    assert.deepEqual(lib.withStreetViewCoverage(map, true).extraLyrs, ["svv"]);
+    assert.equal(map.nativeOnly, true);
+    assert.deepEqual(lib.withStreetViewCoverage(map, true).extraLyrs, []);
     assert.deepEqual(lib.withStreetViewCoverage(map, false).extraLyrs, []);
-    assert.deepEqual(lib.withStreetViewCoverage(lib.overlaySpec(SV_COVER), true).extraLyrs, ["svv"]);
+    assert.deepEqual(lib.withStreetViewCoverage(lib.overlaySpec(SV_COVER), true).extraLyrs, []);
     assert.equal(lib.withStreetViewCoverage(lib.overlaySpec(STREET_VIEW), true).nativeOnly, true);
   });
 
@@ -748,12 +736,10 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(lib.isStreetViewPegmanTarget(mk({ "aria-label": "Zoom in" })), false);
   });
 
-  it("does not treat the default map as native-only", () => {
+  it("treats a plain street map as native-only in hybrid mode", () => {
     const spec = lib.overlaySpec(MAP);
-    assert.equal(spec.nativeOnly, false);
-    assert.equal(spec.label, "map");
-    assert.equal(spec.roadLyrs, "m");
-    assert.deepEqual(spec.baseLyrs, []);
+    assert.equal(spec.nativeOnly, true);
+    assert.equal(spec.label, "native");
   });
 
   it("hands Street View and 3D Earth back to native Maps", () => {
@@ -764,18 +750,14 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(lib.overlaySpec(SAT).nativeOnly, false);
   });
 
-  it("forces aligned street overlay on directions even when URL is satellite", () => {
+  it("keeps directions on the native canvas in hybrid mode", () => {
     const dir =
       "https://www.google.com/maps/dir/%E6%95%85%E5%AE%AE%E5%8D%88%E9%96%80/%E5%A4%A9%E5%AE%89%E9%96%80/@39.9112947,116.3947854,1180m/data=!3m2!1e3!4b1!4m14!4m13!1m5!1m1!1s0x35f052c194aa1469:0x82c6fcd5085ca28d!2m2!1d116.39721!2d39.9138664!1m5!1m1!1s0x36637698dc4374d9:0x6928cb83a148399a!2m2!1d116.3974799!2d39.9087202!3e2";
     assert.equal(lib.isDirectionsView(dir), true);
     assert.equal(lib.isNativeOnlyView(dir), false);
     const spec = lib.overlaySpec(dir);
-    assert.equal(spec.nativeOnly, false);
-    assert.equal(spec.label, "map");
-    assert.equal(spec.roadLyrs, "m");
-    assert.deepEqual(spec.baseLyrs, []);
-    assert.match(contentJs, /extractDirectionsPolylines/);
-    assert.match(contentJs, /syncRoute/);
+    assert.equal(spec.nativeOnly, true);
+    assert.doesNotMatch(contentJs, /function syncRoute/);
   });
 
   it("decodes Google directions polylines near Beijing", () => {
@@ -1111,12 +1093,13 @@ describe("search result POIs on the overlay", () => {
     }
   });
 
-  it("draws overlay POI markers from place links in the content script", () => {
+  it("draws aligned place teardrops from place links in the content script", () => {
     assert.match(contentJs, /collectPoisFromAnchors/);
     assert.match(contentJs, /gcj02-poi/);
     assert.match(contentCss, /\.gcj02-poi-icon/);
-    assert.match(contentJs, /syncPoisIfVisible/);
-    assert.match(contentJs, /\/maps\/place\//);
+    assert.match(contentJs, /placeAlignedPinActive/);
+    assert.match(contentJs, /primaryPlacePoi/);
+    assert.match(contentJs, /is-place-pin/);
   });
 });
 
@@ -1214,275 +1197,122 @@ describe("street tiles and POI markers share one screen mapping", () => {
   });
 });
 
-describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
-  // The one rule: WGS-84 satellite must line up with every GCJ-02 layer. Two
-  // ways to get there, and the popup switches between them:
-  //   streets   — hide the native canvas, repaint the GCJ world onto WGS tiles
-  //   satellite — leave the native canvas (and therefore every native feature)
-  //               alone, slide the WGS photo under it
-  const { LANDMARKS, FORBIDDEN_CITY, DUISHAN, WUZHANGYUAN, XIAMEN_XINGLIN } =
+describe("ALIGN MODES: Hybrid and Off", () => {
+  const { FORBIDDEN_CITY, DUISHAN, WUZHANGYUAN, XIAMEN_XINGLIN } =
     require("../fixtures/overlay-landmarks");
-  const W = 1440;
-  const H = 900;
 
-  it("normalizes mode names, including the legacy 'on' test hook", () => {
-    assert.deepEqual(lib.ALIGN_MODES, ["streets", "satellite", "off"]);
-    assert.equal(lib.normalizeAlignMode("streets"), "streets");
-    assert.equal(lib.normalizeAlignMode("on"), "streets");
-    assert.equal(lib.normalizeAlignMode(undefined), "streets");
-    assert.equal(lib.normalizeAlignMode("garbage"), "streets");
-    assert.equal(lib.normalizeAlignMode("satellite"), "satellite");
-    assert.equal(lib.normalizeAlignMode("SAT"), "satellite");
-    assert.equal(lib.normalizeAlignMode(" Blend "), "satellite");
+  it("normalizes mode names and migrates legacy streets/satellite to hybrid", () => {
+    assert.deepEqual(lib.ALIGN_MODES, ["hybrid", "off"]);
+    assert.equal(lib.normalizeAlignMode("hybrid"), "hybrid");
+    assert.equal(lib.normalizeAlignMode("auto"), "hybrid");
+    assert.equal(lib.normalizeAlignMode("streets"), "hybrid");
+    assert.equal(lib.normalizeAlignMode("on"), "hybrid");
+    assert.equal(lib.normalizeAlignMode("satellite"), "hybrid");
+    assert.equal(lib.normalizeAlignMode("SAT"), "hybrid");
+    assert.equal(lib.normalizeAlignMode(" Blend "), "hybrid");
+    assert.equal(lib.normalizeAlignMode(undefined), "hybrid");
+    assert.equal(lib.normalizeAlignMode("garbage"), "hybrid");
     assert.equal(lib.normalizeAlignMode("off"), "off");
     assert.equal(lib.normalizeAlignMode("native"), "off");
   });
 
-  it("satellite mode paints nothing on a view that has no photo to align", () => {
-    // A street map with a photo blended under it is not what Maps looks like
-    // anywhere else, and there is no satellite to line up with, so the mode must
-    // change nothing at all — same as outside China.
-    for (const href of [
-      FORBIDDEN_CITY.mapHref,
-      DUISHAN.mapHref,
-      WUZHANGYUAN.terrainHref,
-      "https://www.google.com/maps/@39.91,116.39,15z",
-      "https://www.google.com/maps/dir/A/B/@39.91,116.39,15z"
-    ]) {
-      const spec = lib.overlaySpec(href, "satellite");
-      assert.equal(spec.nativeOnly, true, href);
-      assert.deepEqual(spec.baseLyrs, [], href);
-      assert.equal(spec.blendNative, false, href);
-      assert.equal(spec.hideNative, false, href);
-    }
-  });
-
-  it("satellite mode waits on a satellite URL until the basemap switch", () => {
-    const hrefs = [FORBIDDEN_CITY.satHref, XIAMEN_XINGLIN.href, DUISHAN.satHref];
-    for (const href of hrefs) {
-      const spec = lib.overlaySpec(href, "satellite");
-      assert.equal(spec.nativeOnly, true, href);
-      assert.equal(spec.blendNative, false, href);
-      const armed = lib.overlaySpec(href, "satellite", { imageryTakeover: true });
-      assert.equal(armed.nativeOnly, true, href);
-      assert.equal(armed.blendNative, false, href);
-    }
-  });
-
-  it("satellite mode paints aligned imagery on a street map after takeover", () => {
-    const spec = lib.overlaySpec(DUISHAN.mapHref, "satellite", { imageryTakeover: true });
-    assert.equal(spec.label, "imagery");
-    assert.deepEqual(spec.baseLyrs, ["s"]);
-    assert.equal(spec.roadLyrs, "");
-    assert.deepEqual(spec.shadeLyrs, []);
-    assert.deepEqual(spec.extraLyrs, []);
-    assert.equal(spec.blendNative, true);
-    assert.equal(spec.hideNative, false);
-    assert.equal(spec.nativeOnly, false);
-  });
-
-  it("keeps painting imagery only after the takeover drops satellite from the URL", () => {
-    // Blended mode supplies the photo itself, so it switches Maps onto the Map
-    // basemap and the URL stops saying satellite one frame later. Without the
-    // remembered intent the mode would erase itself the moment it engaged.
-    assert.equal(lib.blendWantsImagery(XIAMEN_XINGLIN.href, false), false);
-    assert.equal(lib.blendWantsImagery(XIAMEN_XINGLIN.href, true), false);
-    assert.equal(lib.blendWantsImagery(DUISHAN.mapHref, false), false);
-    assert.equal(lib.blendWantsImagery(DUISHAN.mapHref, true), true);
-    assert.equal(lib.blendWantsImagery(WUZHANGYUAN.terrainHref, false), false);
-    const taken = lib.overlaySpec(DUISHAN.mapHref, "satellite", { imageryTakeover: true });
-    assert.equal(taken.label, "imagery");
-    assert.deepEqual(taken.baseLyrs, ["s"]);
-    assert.equal(taken.blendNative, true);
-    const stillSat = lib.overlaySpec(XIAMEN_XINGLIN.href, "satellite", { imageryTakeover: true });
-    assert.equal(stillSat.nativeOnly, true);
-    assert.equal(stillSat.blendNative, false);
-    // Streets mode ignores the flag entirely.
-    assert.deepEqual(
-      lib.overlaySpec(DUISHAN.mapHref, "streets", { imageryTakeover: true }),
-      lib.overlaySpec(DUISHAN.mapHref, "streets")
+  it("hybrid knows when extra map layers need the vector basemap", () => {
+    assert.equal(lib.hybridNeedsNativeLayers(WUZHANGYUAN.terrainHref, false), true);
+    const dir =
+      "https://www.google.com/maps/dir/%E6%95%85%E5%AE%AE%E5%8D%88%E9%96%80/%E5%A4%A9%E5%AE%89%E9%96%80/@39.9112947,116.3947854,1180m/data=!3m2!1e3!4b1!4m14!4m13!1m5!1m1!1s0x35f052c194aa1469:0x82c6fcd5085ca28d!2m2!1d116.39721!2d39.9138664!1m5!1m1!1s0x36637698dc4374d9:0x6928cb83a148399a!2m2!1d116.3974799!2d39.9087202!3e2";
+    assert.equal(lib.hybridNeedsNativeLayers(dir, false), true);
+    assert.equal(
+      lib.hybridNeedsNativeLayers("https://www.google.com/maps/@39.91,116.39,15z", false),
+      false
+    );
+    assert.equal(
+      lib.hybridNeedsNativeLayers("https://www.google.com/maps/@39.91,116.39,15z", true),
+      true
+    );
+    assert.equal(lib.hybridNeedsNativeLayers(WUZHANGYUAN.satHref, false), true);
+    assert.equal(lib.hybridNeedsNativeLayers(DUISHAN.satHref, false), false);
+    assert.equal(lib.hybridNeedsNativeLayers(FORBIDDEN_CITY.satHref, false), true);
+    assert.equal(
+      lib.hybridNeedsNativeLayers(
+        "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167135,116.3868853,15z/data=!4m2!2m1!6e1",
+        false
+      ),
+      true
+    );
+    assert.equal(
+      lib.hybridNeedsNativeLayers(
+        "https://www.google.com/maps/place/%E5%A4%A9%E5%AE%89%E9%96%80/@39.9087243,116.394905,17z/data=!4m6!3m5!1s0x36637698dc4374d9:0x6928cb83a148399a!8m2!3d39.9087202!4d116.3974799!16zL20vMDF5ZG4w",
+        false
+      ),
+      false
+    );
+    assert.equal(
+      lib.hybridNeedsNativeLayers(
+        "https://www.google.com/maps/@39.9097061,116.3989484,15.79z/data=!5m1!1e2",
+        false
+      ),
+      true
+    );
+    assert.equal(
+      lib.hybridNeedsNativeLayers(
+        "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e1",
+        false
+      ),
+      true
     );
   });
 
-  it("keeps streets mode exactly as it was, and still hides native there", () => {
-    const sat = lib.overlaySpec(XIAMEN_XINGLIN.href, "streets");
+  it("placeNeedsAlignedPin XORs WGS place paths with the basemap", () => {
+    const taihe = "https://www.google.com/maps/place/%E5%A4%AA%E5%92%8C%E6%AE%BF/@39.917273,116.3970962,17z";
+    const t = FORBIDDEN_CITY.taihedianWgs;
+    assert.equal(lib.placeNeedsAlignedPin(taihe, false), false);
+    assert.equal(lib.placeNeedsAlignedPin(taihe, true), true);
+    assert.equal(lib.placeNeedsAlignedPin(t.href, false), true);
+    assert.equal(lib.placeNeedsAlignedPin(t.href, true), false);
+  });
+
+  it("hybrid overlay spec paints crisp satellite only on a clean photo view", () => {
+    const sat = lib.overlaySpec(XIAMEN_XINGLIN.href);
+    assert.equal(sat.nativeOnly, false);
     assert.equal(sat.label, "satellite");
     assert.deepEqual(sat.baseLyrs, ["s"]);
     assert.equal(sat.roadLyrs, "h");
     assert.equal(sat.hideNative, true);
     assert.equal(sat.blendNative, false);
-    // No mode argument must behave as streets (every existing caller/test).
-    assert.deepEqual(lib.overlaySpec(XIAMEN_XINGLIN.href), sat);
-    const terrain = lib.overlaySpec(WUZHANGYUAN.terrainHref, "streets");
-    assert.equal(terrain.label, "terrain");
-    assert.deepEqual(terrain.shadeLyrs, ["t"]);
-    assert.equal(terrain.hideNative, true);
   });
 
-  it("leaves 3D / Street View views native in both modes", () => {
+  it("detects directions route tokens on place URLs", () => {
+    const placeWithDir =
+      "https://www.google.com/maps/place/%E6%B8%85%E6%B0%B8%E9%99%B5/@41.7088729,124.7898743,2316m/data=!3m1!1e3!4m6!3m5!1s0x5e2e238c032cbc93:0xfcc3e337e7f95939!8m2!3d41.710262!4d124.802589!16s%2Fg%2F155q2694!4m8!1m0!1m5!1m1!1s0x5e2e238c032cbc93:0xfcc3e337e7f95939!2m2!1d124.802589!2d41.710262!3e0";
+    assert.equal(lib.isDirectionsView(placeWithDir), false);
+    assert.equal(lib.hasDirectionsRouteData(placeWithDir), true);
+    assert.equal(lib.hybridNeedsNativeLayers(placeWithDir, false), true);
+    assert.equal(lib.overlaySpec(placeWithDir).nativeOnly, true);
+  });
+
+  it("hybrid overlay spec yields native for directions, search, terrain and traffic", () => {
+    const dir =
+      "https://www.google.com/maps/dir/A/B/@39.91,116.39,15z";
+    assert.equal(lib.overlaySpec(dir).nativeOnly, true);
+    const search =
+      "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167135,116.3868853,15z";
+    assert.equal(lib.overlaySpec(search).nativeOnly, true);
+    assert.equal(lib.overlaySpec(WUZHANGYUAN.terrainHref).nativeOnly, true);
+    const traffic = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e1";
+    assert.equal(lib.overlaySpec(traffic).nativeOnly, true);
+    const map = "https://www.google.com/maps/@39.9167135,116.3868853,15z";
+    assert.equal(lib.overlaySpec(map).nativeOnly, true);
+  });
+
+  it("leaves 3D / Street View views native", () => {
     const globe = "https://www.google.com/maps/@39.91,116.39,1000a,35y,15z";
-    for (const mode of ["streets", "satellite"]) {
-      const spec = lib.overlaySpec(globe, mode);
-      assert.equal(spec.nativeOnly, true, mode);
-      assert.equal(spec.blendNative, false, mode);
-      assert.equal(spec.hideNative, false, mode);
-    }
-  });
-
-  it("never forces svv coverage tiles in satellite mode (Maps paints its own)", () => {
-    const blend = lib.overlaySpec(FORBIDDEN_CITY.mapHref, "satellite");
-    assert.deepEqual(lib.withStreetViewCoverage(blend, true).extraLyrs, []);
-    const streets = lib.overlaySpec(FORBIDDEN_CITY.mapHref, "streets");
-    assert.deepEqual(lib.withStreetViewCoverage(streets, true).extraLyrs, ["svv"]);
-  });
-
-  it("CORE: the shifted photo lands where Maps draws the GCJ twin", () => {
-    // Blended mode is correct exactly when a WGS-84 feature on our imagery layer
-    // shares a screen pixel with the GCJ-02 feature Maps paints for the same
-    // physical thing. Sample the whole viewport, not just the centre.
-    let checked = 0;
-    let worst = 0;
-    for (const L of LANDMARKS) {
-      for (const zoom of [12, 14, 16, 18, 20]) {
-        for (const sx of [0, W / 4, W / 2, (3 * W) / 4, W]) {
-          for (const sy of [0, H / 2, H]) {
-            const gcj = lib.gcjScreenPxToLatLon(sx, sy, L.lat, L.lon, zoom, W, H);
-            // The region model makes gcjToWgs the identity outside China
-            // (Kinmen/Matsu boxes sit inside a Xiamen viewport at low zoom), so
-            // those pixels carry the camera vector by design, not by mistake.
-            if (lib.outOfChina(gcj.lat, gcj.lon)) continue;
-            const wgs = lib.gcjToWgs(gcj.lat, gcj.lon);
-            const ours = lib.imageryScreenPx(wgs.lat, wgs.lon, L.lat, L.lon, zoom, W, H);
-            const off = Math.hypot(ours.x - sx, ours.y - sy);
-            worst = Math.max(worst, off);
-            assert.ok(
-              off < 3,
-              `${L.id} z${zoom} (${sx},${sy}) off by ${off.toFixed(2)}px`
-            );
-            checked += 1;
-          }
-        }
-      }
-    }
-    assert.ok(checked >= 200, `only ${checked} viewport samples checked`);
-    // Rigid one-vector placement, same as the street tiles: the residual is the
-    // GCJ gradient across the viewport, not a datum error.
-    assert.ok(worst > 0, "sampling produced no residual at all — check the model");
-  });
-
-  it("CORE: an unshifted photo is off by the whole GCJ offset", () => {
-    // Control for the test above: drawing WGS imagery on the raw `@` camera is
-    // the bug this mode exists to fix. Hundreds of pixels at street zooms.
-    for (const L of LANDMARKS) {
-      const gcj = lib.gcjScreenPxToLatLon(W / 2, H / 2, L.lat, L.lon, 16, W, H);
-      const wgs = lib.gcjToWgs(gcj.lat, gcj.lon);
-      const unshifted = lib.gcjLatLonToScreenPx(wgs.lat, wgs.lon, L.lat, L.lon, 16, W, H);
-      const off = Math.hypot(unshifted.x - W / 2, unshifted.y - H / 2);
-      assert.ok(off > 150, `${L.id}: unshifted photo only off by ${off.toFixed(1)}px at z16`);
-    }
-  });
-
-  it("imagery camera is gcjToWgs(@) on every URL shape, WGS place queries too", () => {
-    const cam = lib.imageryCamera(FORBIDDEN_CITY.lat, FORBIDDEN_CITY.lon);
-    assert.deepEqual(cam, lib.gcjToWgs(FORBIDDEN_CITY.lat, FORBIDDEN_CITY.lon));
-    // Streets mode leaves a `/maps/place/<lat,lon>/` camera in WGS; blended mode
-    // must not — Maps renders `@` in its own GCJ frame regardless of URL shape.
-    const t = FORBIDDEN_CITY.taihedianWgs;
-    assert.equal(lib.urlCoordsAreWgs84(t.href), true);
-    const streetsCam = lib.overlayCamera(t.lat, t.lon, { wgs84: true });
-    const blendCam = lib.imageryCamera(t.lat, t.lon);
-    assert.equal(streetsCam.lat, t.lat);
-    assert.ok(
-      Math.abs(blendCam.lon - t.lon) > 1e-4,
-      "blended camera must still take the gcjToWgs step"
-    );
-  });
-
-  it("finds Maps' basemap toggle by geometry, not by class or locale", () => {
-    // Maps keeps the basemap as a stored preference and re-adds `data=!3m1!1e3`
-    // on the next navigation, so rewriting the URL and reloading loses the race
-    // and leaves the blend over Google's own unshifted photo. Blended mode has
-    // to click Maps' corner toggle, which is only identifiable by geometry:
-    // obfuscated class names, localized aria-label.
-    const canvas = { left: 72, top: 0, bottom: 800, right: 1280 };
-    // The map canvas often starts at x=0, *under* the page's own left rail.
-    const fullWidthCanvas = { left: 0, top: 0, bottom: 900, right: 1440 };
-    // The real widget, measured on live Maps at a 1100x800 viewport.
-    assert.equal(
-      lib.isBasemapToggleBox({ left: 94, bottom: 778, width: 75, height: 75 }, canvas),
-      true
-    );
-    assert.equal(
-      lib.isBasemapToggleBox({ left: 94, bottom: 878, width: 75, height: 75 }, fullWidthCanvas),
-      true
-    );
-    // The page's own left rail sits at the same height and, with a full-width
-    // canvas, at the same left edge — that is what made a naive search click
-    // "Get app" instead of the basemap toggle.
-    assert.equal(
-      lib.isBasemapToggleBox({ left: 0, bottom: 784, width: 72, height: 56 }, canvas),
-      false
-    );
-    assert.equal(
-      lib.isBasemapToggleBox({ left: 0, bottom: 884, width: 72, height: 60 }, fullWidthCanvas),
-      false
-    );
-    // Wrong place, wrong size.
-    assert.equal(
-      lib.isBasemapToggleBox({ left: 94, bottom: 400, width: 75, height: 75 }, canvas),
-      false
-    );
-    assert.equal(
-      lib.isBasemapToggleBox({ left: 94, bottom: 778, width: 24, height: 24 }, canvas),
-      false
-    );
-    assert.equal(
-      lib.isBasemapToggleBox({ left: 600, bottom: 778, width: 75, height: 75 }, canvas),
-      false
-    );
-    assert.equal(lib.isBasemapToggleBox(null, canvas), false);
-    assert.ok(lib.BASEMAP_TOGGLE_MIN_PX < lib.BASEMAP_TOGGLE_MAX_PX);
-    // The reload path is gone: it could not win against the stored preference.
-    assert.equal(lib.satelliteAlignBasemapHref, undefined);
-    assert.doesNotMatch(contentJs, /location\.replace/);
-    assert.doesNotMatch(contentJs, /gcj02BasemapRewriteAt/);
-  });
-
-  it("stands down to streets rendering if the basemap will not switch", () => {
-    // Alignment is the one rule that cannot be dropped, so an unreachable toggle
-    // must not leave the user on Maps' unshifted photo: render the view the
-    // streets way instead.
-    assert.match(contentJs, /function clickNativeBasemapToggle\(el\)/);
-    assert.match(contentJs, /function nativeBasemapToggle\(\)/);
-    // Hover puts a <label> over the button, earlier in document order, and a
-    // synthetic click on that label does nothing.
-    assert.match(contentJs, /hits\.find\(\(el\) => el\.tagName === "BUTTON"\)/);
-    // A click flips the toggle, so re-clicking too soon flips back to satellite:
-    // gate on both the label flip and a settle delay.
-    assert.match(contentJs, /basemapToggleSig && sig && sig !== basemapToggleSig/);
-    assert.match(contentJs, /BASEMAP_SWITCH_SETTLE_MS/);
-    assert.match(contentJs, /isBasemapToggleBox/);
-    assert.match(contentJs, /BASEMAP_SWITCH_MAX_TRIES/);
-    assert.match(contentJs, /blendFallbackStreets = true/);
-    assert.match(
-      contentJs,
-      /const mode = blendAlign\(\) && blendFallbackStreets \? "streets" : alignMode/
-    );
-    // Never blend while Maps is still painting its own photo.
-    assert.match(contentJs, /\/\/ Never blend over Maps' own photo while the switch is pending\.\n    hideOverlay\(\);/);
-    // Hover before click: Maps binds the switch via jsaction on the expanded widget.
-    assert.match(contentJs, /"pointerover", "mouseover", "mouseenter", "mousemove"/);
-    assert.match(contentJs, /"pointerdown", "mousedown", "pointerup", "mouseup", "click"/);
-    // Panning rewrites `@` constantly; only a display-type change re-arms.
-    assert.match(contentJs, /if \(displayType !== lastDisplayType\)/);
+    const spec = lib.overlaySpec(globe);
+    assert.equal(spec.nativeOnly, true);
+    assert.equal(spec.blendNative, false);
+    assert.equal(spec.hideNative, false);
   });
 
   it("re-shows a hidden overlay: measure the layer laid out, not display:none", () => {
-    // hideOverlay() sets display:none (out of China, native-only view, pending
-    // basemap switch). redraw() then measured root before restoring display, so
-    // it read 0x0, hit its own size guard and returned — the overlay could never
-    // come back in that document. The blended-mode basemap switch made that
-    // latent trap reachable on every satellite URL.
     const redraw = contentJs.slice(contentJs.indexOf("  function redraw() {"));
     const guard = redraw.indexOf('if (!(w >= 32) || !(h >= 32)) return;');
     const show = redraw.indexOf('if (root.style.display === "none") root.style.display = "";');
@@ -1492,7 +1322,7 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     assert.ok(measure < guard, "measurement must precede the size guard");
   });
 
-  it("wires both modes through storage, the popup, and the blend CSS", () => {
+  it("wires Hybrid/Off through storage, popup, and content script", () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, "manifest.json"), "utf8"));
     assert.equal(manifest.action.default_popup, "popup.html");
     assert.ok((manifest.permissions || []).includes("storage"));
@@ -1501,43 +1331,25 @@ describe("ALIGN MODES: shift the streets, or shift the satellite", () => {
     }
     const popupHtml = fs.readFileSync(path.join(rootDir, "popup.html"), "utf8");
     const popupJs = fs.readFileSync(path.join(rootDir, "popup.js"), "utf8");
-    for (const v of ["streets", "satellite", "off"]) {
+    for (const v of ["hybrid", "off"]) {
       assert.match(popupHtml, new RegExp(`value="${v}"`), `popup missing ${v}`);
     }
-    // MV3 blocks inline script: the popup must load its own file.
+    assert.doesNotMatch(popupHtml, /value="streets"/);
+    assert.doesNotMatch(popupHtml, /value="satellite"/);
     assert.match(popupHtml, /<script src="popup\.js">/);
-    assert.doesNotMatch(popupHtml, /<script>[^<]/);
     assert.match(popupJs, /chrome\.storage\.sync\.set/);
-    assert.match(popupJs, /chrome\.storage\.sync\.get/);
-
-    // Content script: storage-driven mode, blend branch, no native hiding there.
-    assert.match(contentJs, /overlaySpec\(location\.href, mode, \{/);
-    assert.match(contentJs, /const blend = !!spec\.blendNative/);
-    assert.match(contentJs, /function setNativeBlend\(on\)/);
-    assert.match(contentJs, /gcj02-blend-native/);
-    assert.match(contentJs, /root\.dataset\.alignMode = alignMode/);
-    assert.match(contentJs, /imageryCamera\(st\.lat, st\.lon\)/);
-    assert.match(contentJs, /nativeBasemapToggle\(\)/);
-    assert.match(contentJs, /imageryTakeover: wantImagery/);
-    // Standing down must leave no tiles of ours behind.
-    assert.match(contentJs, /Hidden must mean nothing painted/);
-    assert.match(contentJs, /WANT_IMAGERY_KEY/);
-    assert.match(contentJs, /function onBasemapTogglePointer\(ev\)/);
-    assert.match(contentJs, /ev\.isTrusted/);
-    assert.match(contentJs, /setWantImagery\(!wantImagery\)/);
-    // Blended mode must not repaint or hide anything native.
-    assert.match(contentJs, /if \(blend\) \{\n      \/\/[\s\S]{0,200}setNativeMapHidden\(false\);\n      setNativeBlend\(true\);/);
-    assert.match(contentJs, /if \(!blend\) \{\n      syncPois\(st, w, h\);\n      syncRoute\(st, w, h\);/);
-    assert.match(contentJs, /if \(!streetsAlign\(\)\) return;/);
-
-    // CSS: killing the canvas background is what makes multiply show the photo.
-    const blendBlock = contentCss.match(/\.gcj02-blend-native\s*\{([^}]+)\}/);
-    assert.ok(blendBlock, "content.css has no .gcj02-blend-native rule");
-    assert.match(blendBlock[1], /mix-blend-mode:\s*multiply\s*!important/);
-    assert.match(blendBlock[1], /background-color:\s*transparent\s*!important/);
-    assert.match(
-      contentCss,
-      /#gcj02-aligner-root\[data-align-mode="satellite"\][\s\S]{0,120}filter:\s*brightness/
-    );
+    assert.match(contentJs, /function maybeHybridRewindToMap/);
+    assert.match(contentJs, /function hybridNeedsNativeLayers/);
+    assert.match(contentJs, /function hybridYieldsNativeCanvas/);
+    assert.match(contentJs, /function placeAlignedPinActive/);
+    assert.match(contentJs, /function primaryPlacePoi/);
+    assert.match(contentJs, /is-place-pin/);
+    assert.match(contentJs, /function syncSatelliteBasemapGate/);
+    assert.match(contentJs, /data-mode="hybrid"/);
+    assert.match(contentJs, /function persistAlignMode/);
+    assert.match(contentJs, /gcj02-aligner-modebar/);
+    assert.doesNotMatch(contentJs, /blendAlign\(/);
+    assert.doesNotMatch(contentJs, /function setNativeBlend/);
+    assert.doesNotMatch(contentJs, /function syncRoute/);
   });
 });

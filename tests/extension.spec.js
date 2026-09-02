@@ -277,28 +277,6 @@ test.describe("GCJ-02 Google Maps extension", () => {
     expect(chromeOk.zoomPaint.topInOverlay, JSON.stringify(chromeOk.zoomPaint)).toBe(false);
     expect(chromeOk.menuPaint.topInOverlay, JSON.stringify(chromeOk.menuPaint)).toBe(false);
 
-    await page.goto(MAP_URL, { waitUntil: "domcontentloaded", timeout: 120000 });
-    await waitForOverlay(page);
-    await page.waitForTimeout(2000);
-    const mapStats = await page.evaluate(() => {
-      const root = document.getElementById("gcj02-aligner-root");
-      const tiles = [...root.querySelectorAll(".gcj02-tile")];
-      return {
-        mode: root.dataset.mode,
-        layer: root.dataset.layer,
-        zoom: Number(root.dataset.zoom),
-        loaded: tiles.filter((img) => img.naturalWidth >= 256).length,
-        nativeHidden: [...document.querySelectorAll("canvas")].some((c) => c.classList.contains("gcj02-hide-native"))
-      };
-    });
-    expect(mapStats.mode, JSON.stringify(mapStats)).toBe("on");
-    expect(mapStats.layer).toBe("map");
-    expect(mapStats.zoom).toBeGreaterThan(15.8);
-    expect(mapStats.zoom).toBeLessThan(17.5);
-    expect(mapStats.loaded).toBeGreaterThan(4);
-    expect(mapStats.nativeHidden).toBe(true);
-    await assertStreetsShiftedOntoSatellite(page);
-
     await page.screenshot({
       path: path.join(__dirname, "..", "test-results", "xiamen-alignment.png"),
       fullPage: false

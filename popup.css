@@ -2,6 +2,7 @@ body {
   margin: 0;
   padding: 12px 14px 10px;
   width: 300px;
+  box-sizing: border-box;
   font: 13px/1.4 system-ui, -apple-system, "Noto Sans TC", sans-serif;
   color: #202124;
   background: #fff;
@@ -12,9 +13,23 @@ h1 {
   font-weight: 600;
 }
 .sub {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   color: #5f6368;
   font-size: 11.5px;
+}
+.current {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  color: #3c4043;
+}
+.current #version {
+  color: #5f6368;
+  font-weight: 400;
+}
+.error {
+  margin: 0 0 8px;
+  color: #c5221f;
+  font-size: 11px;
 }
 #modes {
   display: flex;

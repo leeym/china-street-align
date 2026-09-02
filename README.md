@@ -4,7 +4,7 @@
 
 Download the latest Load-unpacked zip → see [Install](#install) below. (Chrome Web Store listing coming later; until then this is the install path.)
 
-A Chrome extension that, **inside China**, shifts Google Maps **street tiles onto satellite imagery** so roads sit on the physical features you see in photos.
+A Chrome extension that, **inside China**, aligns Google Maps **WGS-84 satellite imagery** with **GCJ-02 street labels** so the photo and the roads sit on the same ground.
 
 The Chrome Web Store / toolbar name is **Google Maps China Street Align**. This repository is `china-street-align`.
 
@@ -19,22 +19,24 @@ That split is not a Google bug. Public maps of China must use an approved nation
 
 In practice, civilian internet maps implement that system as **GCJ-02** (often called “Mars coordinates”), a confidential offset from WGS-84 historically associated with the State Bureau of Surveying and Mapping (国测局). Satellite / aerial imagery is often still published in WGS-84. Plotting GCJ-02 streets on WGS-84 photos produces a consistent shift (on the order of hundreds of metres). Xinglin Bay Bridge in Xiamen is a clear example: the yellow highway and the physical bridge run as two parallel lines.
 
-This project does **not** change the satellite layer. When enabled, it overlays street tiles and **translates them GCJ-02 → WGS-84** so they match the satellite.
+This project does **not** change Google’s servers. When enabled, it paints aligned satellite and label tiles where Hybrid mode can do so without breaking native Google features.
 
-**Datum rules (in China, "shift the streets" mode):**
+Outside China the extension stays off.
 
-1. **Satellite and terrain relief are WGS-84** — never shift `lyrs=s` or shade `lyrs=t`. Do **not** CSS-shift Google’s combined terrain tile (`lyrs=p`): it bakes GCJ roads onto WGS hillshade, so shifting whole `p` drags cliffs with the roads (at 五丈原, X235 climbs the west plateau face instead of the valley). Terrain mode matches the outside-China look as closely as the tiles allow: **shifted street `m` under unshifted `t` shade** (`invert` + brightness/contrast so weak `t` ridges actually multiply-darken, opacity 0.5) — not grayscale `t`+labels alone, and not a fake green basemap tint.
-2. **The URL camera `@lat,lon` is usually GCJ-02** — the same datum as the sidebar `!3d/!4d` for named places, which is why the Off pin sits on the Off street map. The overlay draws a WGS-84 world, so it centers on `gcjToWgs(@)`. **Exception:** `/maps/place/<DMS or decimal lat,lon>/` queries are already WGS-84 (Off satellite pins them on the real feature — e.g. 太和殿 at `39°54′57″N 116°23′26″E`); do not run `gcjToWgs` on those or the pin slides west of the palace. Centering a GCJ `@` on the raw numbers slid the whole view by one GCJ offset that doubled per zoom level (107px at z15, 428px at z17).
-3. **Streets, traffic/transit/bike overlays are GCJ-02** — CSS-shift them onto the WGS-84 camera with **one camera vector** (same WGS tile `x,y` as satellite/terrain for hybrid roads). Search pins are canvas-painted by Maps, so On redraws icon+label; GCJ pins use the street shift, WGS lat/lon place pins plot in WGS directly. Place-page titles like「結果」are ignored; names come from `/maps/place/NAME/` and visited-link aria suffixes are stripped.
-4. **A tile's anchor is its centre, on both axes** — `tileCenterLatLon` feeds a `- tileSize/2` corner calculation, so a west-edge longitude there shifts every tile half a tile (128px at scale 1) west, at every zoom. That leaves markers on the right pixel and the roads under them on the wrong one, which reads as a POI that drifts further off the map the further you zoom out.
+## Design principles
 
-On a street-only view these rules cancel: the overlay re-centres on `gcjToWgs(@)` and shifts the GCJ tiles back by the same vector, so it must reproduce Maps pixel for pixel. There is no satellite to align to, so any residual offset is a bug — `tests/tile-align.spec.js` measures it by correlating On and Off screenshots.
+Hybrid mode follows three rules:
 
-**Datum rule ("shift the satellite" mode):** the mode only engages where Maps would paint a photo — on a street map or terrain view there is no satellite to line up with, so it paints nothing and hides nothing, exactly as outside China. On a satellite view the native canvas *is* the GCJ-02 world and is never touched, so only one thing moves. A WGS-84 feature must land on the pixel where Maps paints its GCJ-02 twin, which puts the imagery camera at `gcjToWgs(@)` — the same step as rule 2, but with **no** WGS lat/lon place exception, because Maps renders `@` in its own GCJ frame on every URL shape. Rule 4 still applies (tiles anchor on their centre) and the shift is still one camera vector, so the residual is the GCJ gradient across the viewport (~0.5px at z16, sub-3px on screen at every zoom) rather than a datum error; `tests/unit/aligner-lib.test.js` asserts that bound and that an unshifted photo is off by hundreds of pixels. Maps' own Satellite basemap has to be swapped for Map first: the canvas would otherwise multiply our shifted photo under its own unshifted one, which reads as the misalignment this extension exists to remove. **Rewriting `data=` and reloading does not work** — Maps keeps the basemap as a stored user preference and re-adds `!3m1!1e3` on the next navigation, so the reload just loses the race. The mode clicks Maps' own basemap toggle instead (the square in the bottom-left corner of the canvas, found by geometry because its class names are obfuscated and its aria-label is localized): no reload, and the preference sticks. A toggle click flips the basemap, so re-clicking is gated on both a settle delay and the toggle's own aria-label flipping — otherwise a retry would flip straight back to Satellite. If the toggle cannot be reached at all, alignment still wins: the view falls back to **shift the streets** rendering rather than showing a misaligned photo.
+1. **Satellite and streets must coincide whenever both are visible.** On a clean satellite view the extension hides Google’s skewed photo and paints aligned WGS-84 `s` imagery with CSS-shifted hybrid `h` labels on top, so the roads sit on the features in the photo.
+2. **Do not repaint Google’s layers — except one Place teardrop when needed.** Search pins, directions routes, terrain, traffic, transit, bicycling, Street View coverage, and similar features stay on Google’s native canvas. The only overlay glyph is a single aligned teardrop on Place pages when the URL pin datum does not match the current basemap (e.g. named「太和殿」on satellite, or a WGS DMS query on the street map).
+3. **If rules 1 and 2 cannot both hold, turn off satellite and use the map basemap.** Hybrid detects views that need native layers (search, directions, terrain, traffic, pegman drag, etc.), tears down the aligned overlay, and switches Google Maps to the **Map** basemap. Rewriting the URL alone is not enough — Maps can keep painting satellite tiles until the Layers / minimap control is clicked; the extension does that for you when you open **Directions** (規劃路線) from satellite.
 
-Because the takeover drops `!3m1!1e3` from the URL, "the user asked for a photo" is remembered per tab (`sessionStorage`) — without it the mode would erase itself one frame after engaging. Maps' corner toggle still reads *Satellite* during a takeover, so a real (trusted) click on it is read as "show me the other thing" and returns the plain street map; the next click takes the photo back.
+**Datum rules (still apply to the aligned tile stack):**
 
-Outside China the overlay stays off.
+1. **Satellite base `lyrs=s` and terrain shade `lyrs=t` are WGS-84** — never CSS-shift them.
+2. **The URL camera `@lat,lon` is usually GCJ-02** — the overlay centres on `gcjToWgs(@)`. **Exception:** `/maps/place/<DMS or decimal lat,lon>/` paths are WGS-84; do not run `gcjToWgs` on those coordinates or the pin slides west of the feature.
+3. **Street / label tiles are GCJ-02** — CSS-shift them with one camera vector onto the WGS-84 stack.
+4. **Tile anchors are tile centres** — corner math must subtract half a tile on both axes or roads and markers drift apart when zooming.
 
 ## Install
 
@@ -51,28 +53,34 @@ Until then, install from a GitHub Release zip (no `git` required) — same file 
 
 Developers packaging a release locally: `npm run pack` writes `dist/china-street-align-<version>.zip` and `dist/china-street-align.zip`.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.7.2**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.8.0**).
+
+### v0.8.0
+
+- **Hybrid / Off only** — removed “Shift the streets” and “Shift the satellite”; one Hybrid mode aligns satellite + labels when safe, otherwise yields to Google’s map.
+- **Directions from satellite** — opening route planning tears down the overlay and switches the basemap to Map (not just a URL token change).
+- **Place pin** — single aligned teardrop when the URL pin datum does not match the basemap.
+- E2E coverage for the 清永陵 satellite → 規劃路線 flow (`tests/directions-native.spec.js`).
 
 ## Usage
 
-Inside China the extension aligns the two datums; outside China it stays off. Which side moves is a choice — click the toolbar icon for the popup:
+Inside China the extension aligns the two datums; outside China it stays off. Click the toolbar icon for the popup:
 
-| Mode | What it does | Cost |
-| --- | --- | --- |
-| **Shift the streets** (default) | Hides the native map canvas and repaints streets, POIs, routes, labels and overlays on WGS-84 satellite tiles. | Everything drawn over the map has to be re-implemented, so POIs, directions routes, terrain shade and Street View coverage are ours, not Google's. |
-| **Shift the satellite** | Leaves the native canvas alone — POIs, labels, routes, terrain, traffic, Street View and hit-testing stay exactly as Maps draws them — and slides the WGS-84 photo underneath it (`mix-blend-mode: multiply` over an aligned satellite layer). Only on a **satellite** view: a street map has no photo to align with, so the extension changes nothing there. | Supplies the imagery itself, so it takes Maps' basemap over (one click on Maps' own corner toggle, no reload) and that toggle becomes the way in and out of the photo; multiply darkens Google's labels, so the photo is lifted with a CSS filter to keep them readable. |
-| **Off** | Native Google Maps. | — |
+| Mode | What it does |
+| --- | --- |
+| **Hybrid** (default) | Crisp aligned satellite + shifted labels on a clean photo view. Search, directions, terrain, traffic, Street View coverage and similar layers force Google’s **Map** basemap so nothing is repainted. Opening **Directions** from satellite switches the basemap to Map automatically (overlay off, native routes visible). Place pages may show one aligned teardrop when the native pin would be wrong for the basemap. |
+| **Off** | Native Google Maps. |
 
-Both modes satisfy the one rule that matters: WGS-84 satellite lines up with every GCJ-02 layer. They exist side by side so the two looks can be compared on the same view; the mode is stored in `chrome.storage.sync` and applies live to open Maps tabs.
+The mode is stored in `chrome.storage.sync` and applies live to open Maps tabs. The Maps tab also has a compact **Align** bar (top-right) with Hybrid and Off.
 
-The toolbar icon is a status lamp as well as the popup button:
+The toolbar icon is a status lamp:
 
-- **Red** — the current Maps view is inside China (shifting)
+- **Red** — the current Maps view is inside China (aligning)
 - **Green** — outside China / idle
 
-A small status line on the map shows layer (`satellite` / `terrain` / `map`, or `imagery` in satellite mode), which side was shifted, version, and zoom when aligning.
+A small status line on the map shows layer, alignment state, version, and zoom when Hybrid is painting tiles.
 
-In satellite mode none of that redrawing happens: Google keeps painting its own canvas, so this section describes **shift the streets** mode. Map zoom, search, layers, and other Google chrome stay clickable (overlay is `pointer-events: none` under them); aligned tiles paint under those corner controls so the map edge matches outside China. Terrain, traffic, transit, bicycling, and Street View coverage use matching Google tiles (streets still shifted). Search result pins are redrawn on the overlay from the sidebar place links; hovering a result shows the same classic red teardrop and name tooltip as native Maps (title plus the sidebar description blurb when Maps provides one). Full Street View and 3D Earth stay on Google’s native view.
+Map zoom, search, layers, and other Google chrome stay clickable (overlay is `pointer-events: none` under them). Full Street View and 3D Earth stay on Google’s native view.
 
 ## Development
 
@@ -84,9 +92,9 @@ npx playwright install chromium
 npm test
 ```
 
-- `npm run test:unit` — Node test runner (`tests/unit`), including 紫禁城 / 五丈原 / 兑山村 URLs
-- `npm run test:e2e` — Playwright: Xiamen chrome checks, a parameterized 4-step flow per search landmark, POI placement across z14–z19 measured against a plain-mercator oracle, an On-vs-Off image compare of the street tiles, and sidebar-hover teardrop/tooltip parity
-- `npm run pack` — build `dist/china-street-align-<version>.zip` (and `china-street-align.zip`) for GitHub Releases
+- `npm run test:unit` — Node test runner (`tests/unit`)
+- `npm run test:e2e` — Playwright: extension chrome, Hybrid/Off popup, place pins, directions basemap handoff, pan/zoom smoke tests
+- `npm run pack` — build `dist/china-street-align-<version>.zip` for GitHub Releases
 - CI runs `npm run test:unit` on every push and pull request
 
 ## Limits

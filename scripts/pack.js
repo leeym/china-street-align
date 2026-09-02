@@ -31,7 +31,9 @@ const latestZipPath = path.join(dist, `${name}.zip`);
 const FILES = [
   "manifest.json",
   "aligner-lib.js",
+  "aligner-lib.js",
   "content.js",
+  "page-basemap.js",
   "content.css",
   "service-worker.js",
   "popup.html",

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.7.2",
-  "description": "Inside China, aligns WGS-84 satellite imagery with the GCJ-02 map layers — shift the streets onto the photo, or the photo under the streets.",
+  "version": "0.8.0",
+  "description": "Inside China, Hybrid mode aligns WGS-84 satellite with GCJ-02 map layers when possible, and falls back to Google's map when native layers are needed.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://www.google.com/*",
@@ -26,6 +26,18 @@
     "default_popup": "popup.html"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/maps*",
+        "https://www.google.com/maps/*",
+        "https://www.google.com.hk/maps*",
+        "https://www.google.com.hk/maps/*",
+        "https://maps.google.com/*"
+      ],
+      "js": ["page-basemap.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "https://www.google.com/maps*",

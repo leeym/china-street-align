@@ -45,6 +45,270 @@ async function setAlignerMode(context, page, mode) {
   await page.waitForTimeout(500);
 }
 
+/** Top-right Align bar → Hybrid / Off. */
+async function setModeViaAlignBar(page, mode) {
+  await page.waitForSelector("#gcj02-aligner-modebar", { timeout: 120000 });
+  await page.locator(`#gcj02-aligner-modebar .gcj02-mode-btn[data-mode="${mode}"]`).click();
+  await page.waitForFunction((m) => {
+    const bar = document.getElementById("gcj02-aligner-modebar");
+    return bar && bar.dataset.alignMode === m;
+  }, mode, { timeout: 30000 });
+  await page.waitForTimeout(400);
+}
+
+async function extensionId(context) {
+  let [sw] = context.serviceWorkers();
+  if (!sw) sw = await context.waitForEvent("serviceworker", { timeout: 30000 });
+  return new URL(sw.url()).host;
+}
+
+async function openPopup(context, extId) {
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extId}/popup.html`, { waitUntil: "domcontentloaded" });
+  await popup.waitForSelector("#modes");
+  return popup;
+}
+
+async function readAlignModeStorage(popup) {
+  return popup.evaluate(() => new Promise((resolve) => {
+    const key = "alignMode";
+    const finish = (v) => resolve(v);
+    const readLocal = () => {
+      chrome.storage.local.get({ [key]: "hybrid" }, (local) => {
+        finish(local?.[key] || "hybrid");
+      });
+    };
+    chrome.storage.sync.get({ [key]: "hybrid" }, (sync) => {
+      if (chrome.runtime.lastError) {
+        readLocal();
+        return;
+      }
+      finish(sync?.[key] || "hybrid");
+    });
+  }));
+}
+
+async function setModeViaPopup(context, extId, mode) {
+  const popup = await openPopup(context, extId);
+  await popup.locator(`input[value="${mode}"]`).check();
+  await popup.waitForFunction((m) => {
+    const input = document.querySelector(`input[value="${m}"]`);
+    return input && input.checked;
+  }, mode, { timeout: 5000 });
+  await popup.waitForFunction((m) => {
+    const el = document.getElementById("current");
+    const labels = {
+      hybrid: "Hybrid",
+      off: "Off"
+    };
+    return el && el.textContent === labels[m];
+  }, mode, { timeout: 5000 });
+  await popup.waitForFunction(async (m) => {
+    const key = "alignMode";
+    const read = (area) => new Promise((resolve) => {
+      chrome.storage[area].get({ [key]: "" }, (got) => resolve(got?.[key] || ""));
+    });
+    const sync = await read("sync");
+    const local = await read("local");
+    return sync === m || local === m;
+  }, mode, { timeout: 5000 });
+  await popup.close();
+}
+
+async function waitForModeBar(page, mode) {
+  await page.waitForFunction((m) => {
+    const bar = document.getElementById("gcj02-aligner-modebar");
+    return bar && bar.dataset.alignMode === m;
+  }, mode, { timeout: 30000 });
+}
+
+/** Box of Maps' own basemap toggle, for a real (trusted) user click. */
+async function basemapToggleBox(page) {
+  const fromContent = await page.evaluate(() => new Promise((resolve) => {
+    const finish = (box) => {
+      window.removeEventListener("message", onMsg);
+      clearTimeout(timer);
+      resolve(box);
+    };
+    const onMsg = (ev) => {
+      if (ev.data?.source !== "gcj02-aligner" || ev.data?.type !== "basemapToggleBox") return;
+      finish(ev.data.box || null);
+    };
+    window.addEventListener("message", onMsg);
+    const timer = setTimeout(() => finish(null), 8000);
+    window.postMessage({ source: "gcj02-aligner", type: "getBasemapToggleBox" }, "*");
+  }));
+  if (fromContent) return fromContent;
+  return page.evaluate(() => {
+    const G = globalThis.Gcj02Aligner;
+    const canvas = [...document.querySelectorAll("canvas")]
+      .filter((c) => c.getBoundingClientRect().width > 400)
+      .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (!canvas) return null;
+    const cr = canvas.getBoundingClientRect();
+    const isToggle = G?.isBasemapToggleBox
+      || ((r, mapRect) => r.width >= 55 && r.width <= 110 && r.height >= 55 && r.height <= 110
+        && r.left >= mapRect.left + 16 && r.left <= mapRect.left + 140
+        && r.bottom <= mapRect.bottom + 8 && r.bottom >= mapRect.bottom - 180);
+    const sig = (el) => {
+      const near = [el, ...(el.parentElement ? [...el.parentElement.children] : [])];
+      const parts = [];
+      for (const n of near) {
+        const aria = n.getAttribute?.("aria-label") || "";
+        if (aria.length > 2) parts.push(aria);
+      }
+      return parts.join("|").slice(0, 120);
+    };
+    const onSatUrl = G?.mapDisplayType(G?.dataParam(location.href)) === 3;
+    const wantSat = !onSatUrl;
+    const labelOk = (s) => {
+      if (wantSat) return /satellite|衛星|卫星|互動式地圖|互动地图|interactive map/i.test(s);
+      return /(map|地圖|地图|街道|road|預設|预设|default|roadmap)/i.test(s)
+        && !/satellite|衛星|卫星/i.test(s);
+    };
+    const pick = (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    };
+    if (/\/maps\/(dir|place|search)\//.test(location.pathname)) {
+      const strip = [];
+      for (const el of document.querySelectorAll("button, [role='button'], label")) {
+        if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+        if (el.closest('a[href*="/maps/place/"], a[href*="/maps/search/"]')) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
+        if (r.bottom > cr.bottom + 8 || r.bottom < cr.bottom - 180) continue;
+        const s = sig(el);
+        if (!s || (!labelOk(s) && !/(interactive map|互動式地圖|互动地图)/i.test(s))) continue;
+        strip.push(el);
+      }
+      for (const el of strip) {
+        const s = sig(el);
+        if (labelOk(s)) return pick(el);
+      }
+    }
+    for (const el of document.querySelectorAll("button, [role='button'], label")) {
+      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest('a[href*="/maps/place/"], a[href*="/maps/search/"]')) continue;
+      const r = el.getBoundingClientRect();
+      if (!isToggle(r, cr)) continue;
+      const s = sig(el);
+      if (s.length < 3 || !labelOk(s)) continue;
+      return pick(el);
+    }
+    return null;
+  });
+}
+
+async function sampleAlignHandoff(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    const bar = document.getElementById("gcj02-aligner-modebar");
+    const status = document.getElementById("gcj02-aligner-status");
+    const mainCanvas = [...document.querySelectorAll("canvas")]
+      .filter((c) => c.getBoundingClientRect().width > 400)
+      .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    const nativeHidden = !!(mainCanvas && mainCanvas.classList.contains("gcj02-hide-native"));
+    const overlayHidden = !root || root.style.display === "none";
+    return {
+      blackHandoff: nativeHidden && overlayHidden,
+      nativeHidden,
+      overlayHidden,
+      alignMode: bar?.dataset.alignMode || "",
+      wantImagery: bar?.dataset.wantImagery || "",
+      layer: root?.dataset.layer || "",
+      overlayRoads: root?.querySelectorAll(".gcj02-road").length || 0,
+      satTiles: root?.querySelectorAll('.gcj02-tile[data-lyrs="s"]').length || 0,
+      overlayRoutes: root?.querySelectorAll(".gcj02-route").length || 0,
+      blended: document.querySelectorAll("canvas.gcj02-blend-native").length,
+      hiddenNative: document.querySelectorAll(".gcj02-hide-native").length,
+      status: (status?.textContent || "").slice(0, 280),
+      blendBlocked: root?.dataset.blendBlocked || "",
+      blendSwitch: root?.dataset.blendSwitch || "",
+      displayType: (location.href.match(/!3m\d+!1e(\d+)/) || [])[1] || "",
+      pathname: location.pathname
+    };
+  });
+}
+
+async function pollAlignHandoff(page, { polls = 14, intervalMs = 500 } = {}) {
+  const samples = [];
+  for (let i = 0; i < polls; i++) {
+    samples.push(await sampleAlignHandoff(page));
+    if (i + 1 < polls) await page.waitForTimeout(intervalMs);
+  }
+  return samples;
+}
+
+async function waitForBlendImagery(page) {
+  await page.waitForFunction(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    if (!root || root.style.display === "none") return false;
+    if (root.dataset.alignMode !== "satellite") return false;
+    const tiles = [...root.querySelectorAll('.gcj02-tile[data-lyrs="s"]')];
+    return tiles.length > 0 && tiles.some((img) => img.complete && img.naturalWidth >= 256);
+  }, null, { timeout: 120000 });
+}
+
+async function waitForDirectionsMultiplyBlend(page, timeout = 180000) {
+  await page.waitForFunction(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    const bar = document.getElementById("gcj02-aligner-modebar");
+    if (!root || root.style.display === "none") return false;
+    if (bar?.dataset.alignMode !== "satellite" || bar?.dataset.wantImagery !== "1") return false;
+    if (root.dataset.layer !== "imagery") return false;
+    const loaded = [...root.querySelectorAll('.gcj02-tile[data-lyrs="s"]')]
+      .some((img) => img.complete && img.naturalWidth >= 256);
+    if (!loaded) return false;
+    if (root.querySelectorAll(".gcj02-route").length > 0) return false;
+    if (document.querySelectorAll("canvas.gcj02-blend-native").length === 0) return false;
+    if (/!3m\d+!1e3/i.test(location.href)) return false;
+    const status = document.getElementById("gcj02-aligner-status")?.textContent || "";
+    if (/streets shifted GCJ/i.test(status)) return false;
+    return true;
+  }, null, { timeout });
+}
+
+async function blendStats(page) {
+  const raw = await page.evaluate(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    const blended = [...document.querySelectorAll("canvas.gcj02-blend-native")];
+    return {
+      href: location.href,
+      alignMode: root?.dataset.alignMode || "",
+      layer: root?.dataset.layer || "",
+      mode: root?.dataset.mode || "",
+      display: root ? root.style.display : "absent",
+      wantImagery: document.getElementById("gcj02-aligner-modebar")?.dataset.wantImagery || "",
+      camLat: Number(root?.dataset.camLat || NaN),
+      camLon: Number(root?.dataset.camLon || NaN),
+      offsetPx: Number(root?.dataset.offsetPx || 0),
+      satTiles: root ? root.querySelectorAll('.gcj02-tile[data-lyrs="s"]').length : 0,
+      loadedSatTiles: root
+        ? [...root.querySelectorAll('.gcj02-tile[data-lyrs="s"]')]
+          .filter((i) => i.complete && i.naturalWidth >= 256).length
+        : 0,
+      overlayRoads: root ? root.querySelectorAll(".gcj02-road").length : 0,
+      overlayRoutes: root ? root.querySelectorAll(".gcj02-route").length : 0,
+      status: document.getElementById("gcj02-aligner-status")?.textContent || "",
+      blendedCanvases: blended.length,
+      blendModes: blended.map((c) => getComputedStyle(c).mixBlendMode),
+      hiddenNative: document.querySelectorAll(".gcj02-hide-native").length,
+      nativeCanvasesVisible: [...document.querySelectorAll("canvas")].filter((c) => {
+        const r = c.getBoundingClientRect();
+        const cs = getComputedStyle(c);
+        return r.width * r.height > 80000 && cs.visibility !== "hidden" && cs.opacity !== "0";
+      }).length
+    };
+  });
+  const st = lib.parseMapHref(raw.href);
+  const cam = st ? lib.imageryCamera(st.lat, st.lon) : null;
+  return Object.assign(raw, {
+    expectCamLat: cam ? cam.lat : NaN,
+    expectCamLon: cam ? cam.lon : NaN
+  });
+}
+
 async function setPegmanCover(page, on) {
   await page.evaluate((v) => {
     window.postMessage({ source: "gcj02-aligner", type: "setPegmanCover", on: v }, "*");
@@ -272,6 +536,78 @@ async function clearSearchHover(page) {
   await page.waitForTimeout(300);
 }
 
+async function waitForBasemapToggleBox(page, timeout = 90000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const box = await basemapToggleBox(page);
+    if (box) return box;
+    await page.waitForTimeout(500);
+  }
+  return null;
+}
+
+async function switchBasemapViaLayers(page, target) {
+  const wantSat = target === "satellite";
+  const names = wantSat
+    ? ["Satellite", "卫星", "衛星", "卫星图", "衛星圖"]
+    : ["Default", "Map", "Road map", "Roadmap", "地图", "地圖", "街道", "預設", "预设"];
+  const btn = page.getByRole("button", { name: /^(layers|圖層|图层|map type)$/i }).first();
+  const layers = (await btn.isVisible({ timeout: 2000 }).catch(() => false))
+    ? btn
+    : page.locator('[aria-label="Layers"], [aria-label="Map type"], [aria-label="圖層"], [aria-label="图层"]').first();
+  await layers.click({ timeout: 8000 });
+  await page.waitForTimeout(500);
+  for (const name of names) {
+    const item = page.getByRole("button", { name }).or(page.getByText(name, { exact: true }));
+    if (await item.first().isVisible({ timeout: 1200 }).catch(() => false)) {
+      await item.first().click();
+      break;
+    }
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(1500);
+}
+
+function nativeMapShowsSatelliteImageryExpr() {
+  return `(() => {
+    const blob = document.body?.innerText || "";
+    if (/Imagery\\s*©[^©\\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    if (/©\\d{4}\\s*(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    return false;
+  })()`;
+}
+
+async function pageShowsSatelliteImagery(page) {
+  return page.evaluate(() => {
+    const blob = document.body?.innerText || "";
+    if (/Imagery\s*©[^©\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    if (/©\d{4}\s*(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    return false;
+  });
+}
+
+async function switchToSatelliteBasemap(page) {
+  const box = await waitForBasemapToggleBox(page);
+  if (box) {
+    await page.mouse.move(box.x, box.y);
+    await page.waitForTimeout(700);
+    await page.mouse.click(box.x, box.y);
+    return;
+  }
+  await switchBasemapViaLayers(page, "satellite");
+}
+
+async function switchToMapBasemap(page) {
+  const box = await waitForBasemapToggleBox(page);
+  if (box) {
+    await page.mouse.move(box.x, box.y);
+    await page.waitForTimeout(700);
+    await page.mouse.click(box.x, box.y);
+    return;
+  }
+  await switchBasemapViaLayers(page, "map");
+}
+
 async function ensureStreetLayer(page) {
   const sat = await page.evaluate(() => {
     const href = location.href;
@@ -455,7 +791,6 @@ async function assertStreetsShiftedOntoSatellite(page) {
     let road = root?.querySelector(".gcj02-road") || root?.querySelector(".gcj02-tile");
     let paired = null;
     if (layer === "terrain" && root) {
-      // Colored street `m` under unshifted shade `t`.
       const shade = root.querySelector(".gcj02-shade[data-lyrs='t'], img[data-lyrs='t']");
       const mapTile =
         root.querySelector(".gcj02-tile[data-lyrs='m'], .gcj02-road[data-lyrs='m']")
@@ -504,7 +839,6 @@ async function assertStreetsShiftedOntoSatellite(page) {
     expect(roadVt.z).toBe(satVt.z);
   }
   if (s.layer === "terrain") {
-    // Street `m` CSS-shifts; WGS shade `t` stays put (not combined shifted `p`).
     expect(s.sat.hypot, "terrain shade must stay unshifted").toBeLessThan(3);
     expect(s.paired, JSON.stringify(s)).toBeTruthy();
     expect(s.paired.sat.left, JSON.stringify(s.paired)).toBe(s.paired.road.left);
@@ -522,11 +856,138 @@ async function assertStreetsShiftedOntoSatellite(page) {
   }
 }
 
+async function readHybridDirectionsState(page) {
+  return page.evaluate(() => {
+    const G = globalThis.Gcj02Aligner;
+    const root = document.getElementById("gcj02-aligner-root");
+    const m = location.href.match(/[?&/]data=([^&#]*)/);
+    const data = m ? decodeURIComponent(m[1]) : "";
+    const tiles = root ? [...root.querySelectorAll(".gcj02-tile")] : [];
+    const roads = root ? [...root.querySelectorAll(".gcj02-road")] : [];
+    const hidden = [...document.querySelectorAll("canvas.gcj02-hide-native")];
+    const travelTab = [...document.querySelectorAll("button, [role='tab']")].some((el) => {
+      const t = (el.textContent || el.getAttribute("aria-label") || "").trim();
+      if (!/^(driving|transit|walking|bicycling|開車|开车|驾车|大眾運輸|公共交通|步行|騎車|骑车)$/i.test(t)) {
+        return false;
+      }
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.left < window.innerWidth * 0.45;
+    });
+    const routeInput = [...document.querySelectorAll("input")].some((el) => {
+      const meta = [el.getAttribute("aria-label"), el.getAttribute("placeholder")].filter(Boolean).join(" ");
+      if (!/(origin|destination|starting point|choose starting|起點|起点|目的地|your location|location)/i.test(meta)) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 48 && r.left < window.innerWidth * 0.45;
+    });
+    return {
+      href: location.href,
+      path: location.pathname,
+      displayType: G?.mapDisplayType?.(data),
+      satelliteInUrl: /!3m\d+!1e3/i.test(data),
+      needsNativeLib: !!G?.hybridNeedsNativeLayers?.(location.href, false),
+      directionsPath: /\/maps\/dir(?:\/|$|[?#])/i.test(location.pathname),
+      routeData: !!G?.hasDirectionsRouteData?.(location.href),
+      travelTab,
+      routeInput,
+      overlayOn: document.documentElement.classList.contains("gcj02-overlay-on"),
+      rootDisplay: root?.style.display || "absent",
+      overlayTileCount: tiles.length,
+      loadedOverlayTiles: tiles.filter((t) => t.complete && t.naturalWidth >= 256).length,
+      overlayRoadCount: roads.length,
+      nativeHiddenCount: hidden.length,
+      status: document.getElementById("gcj02-aligner-status")?.textContent || "",
+      hybridLayer: root?.dataset.hybridLayer || "",
+      mode: root?.dataset.mode || ""
+    };
+  });
+}
+
+async function waitForHybridDirectionsMapMode(page, timeout = 60000) {
+  await page.waitForFunction(() => {
+    const m = location.href.match(/[?&/]data=([^&#]*)/);
+    const data = m ? decodeURIComponent(m[1]) : "";
+    const pathDir = /\/maps\/dir(?:\/|$|[?#])/i.test(location.pathname);
+    const travelTab = [...document.querySelectorAll("button, [role='tab']")].some((el) => {
+      const t = (el.textContent || el.getAttribute("aria-label") || "").trim();
+      if (!/^(driving|transit|walking|bicycling|開車|开车|驾车|大眾運輸|公共交通|步行|騎車|骑车)$/i.test(t)) {
+        return false;
+      }
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.left < window.innerWidth * 0.45;
+    });
+    const routeInput = [...document.querySelectorAll("input")].some((el) => {
+      const meta = [el.getAttribute("aria-label"), el.getAttribute("placeholder")].filter(Boolean).join(" ");
+      if (!/(origin|destination|starting point|choose starting|起點|起点|目的地|your location|location)/i.test(meta)) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 48 && r.left < window.innerWidth * 0.45;
+    });
+    const routeData = /!1m0!1m5!1m1!1s/i.test(data) || /!4m1[4-9]!4m1[0-9]/i.test(data);
+    if (!(pathDir || routeData || travelTab || routeInput)) return false;
+    if (/!3m\d+!1e3/i.test(data)) return false;
+    const root = document.getElementById("gcj02-aligner-root");
+    if (document.documentElement.classList.contains("gcj02-overlay-on")) return false;
+    const tiles = root ? root.querySelectorAll(".gcj02-tile").length : 0;
+    const roads = root ? root.querySelectorAll(".gcj02-road").length : 0;
+    if (tiles > 0 || roads > 0) return false;
+    if (document.querySelectorAll("canvas.gcj02-hide-native").length > 0) return false;
+    const status = document.getElementById("gcj02-aligner-status")?.textContent || "";
+    if (!/native layers/i.test(status)) return false;
+    const blob = document.body?.innerText || "";
+    if (/Imagery\s*©[^©\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return false;
+    if (/©\d{4}\s*(CNES|Airbus|Maxar)/i.test(blob)) return false;
+    return true;
+  }, { timeout });
+}
+
+function assertHybridDirectionsMapMode(state) {
+  const { expect } = require("@playwright/test");
+  expect(
+    state.directionsPath || state.routeData || state.travelTab || state.routeInput,
+    `directions UI not open: ${JSON.stringify(state)}`
+  ).toBeTruthy();
+  expect(state.satelliteInUrl, JSON.stringify(state)).toBe(false);
+  if (state.displayType != null) {
+    expect(state.displayType, JSON.stringify(state)).not.toBe(3);
+  }
+  expect(state.overlayOn, JSON.stringify(state)).toBe(false);
+  expect(state.loadedOverlayTiles, JSON.stringify(state)).toBe(0);
+  expect(state.overlayRoadCount, JSON.stringify(state)).toBe(0);
+  expect(state.nativeHiddenCount, JSON.stringify(state)).toBe(0);
+  expect(state.status, JSON.stringify(state)).toMatch(/native layers/i);
+  expect(state.status, JSON.stringify(state)).not.toMatch(/Aligning.*satellite/i);
+  expect(state.status, JSON.stringify(state)).not.toMatch(/place pin/i);
+}
+
+async function assertDirectionsVectorMapVisual(page, timeout = 45000) {
+  await page.waitForFunction(() => {
+    const blob = document.body?.innerText || "";
+    if (/Imagery\s*©[^©\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return false;
+    if (/©\d{4}\s*(CNES|Airbus|Maxar)/i.test(blob)) return false;
+    return true;
+  }, { timeout });
+}
+
 module.exports = {
   EXT_PATH,
   launchExtensionContext,
+  extensionId,
+  openPopup,
+  readAlignModeStorage,
+  setModeViaPopup,
+  waitForModeBar,
   dismissConsent,
   setAlignerMode,
+  setModeViaAlignBar,
+  basemapToggleBox,
+  waitForBasemapToggleBox,
+  switchBasemapViaLayers,
+  switchToSatelliteBasemap,
+  switchToMapBasemap,
+  sampleAlignHandoff,
+  pollAlignHandoff,
+  waitForBlendImagery,
+  waitForDirectionsMultiplyBlend,
+  blendStats,
   setPegmanCover,
   overlaySvvCyanPixels,
   waitForOverlaySvvPb,
@@ -548,5 +1009,10 @@ module.exports = {
   hoverSearchResult,
   clearSearchHover,
   ensureStreetLayer,
-  ensureSatelliteLayer
+  ensureSatelliteLayer,
+  readHybridDirectionsState,
+  waitForHybridDirectionsMapMode,
+  assertHybridDirectionsMapMode,
+  pageShowsSatelliteImagery,
+  assertDirectionsVectorMapVisual
 };

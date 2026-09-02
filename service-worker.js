@@ -4,10 +4,12 @@ const TILE_HOST = /^https:\/\/(mt[0-3]\.google\.com|mt[0-3]\.googleapis\.com|khm
 const ICON_CACHE = new Map();
 
 function statusIconImageData(color, size) {
+  if (typeof OffscreenCanvas === "undefined") return null;
   const key = `${color}:${size}`;
   if (ICON_CACHE.has(key)) return ICON_CACHE.get(key);
   const canvas = new OffscreenCanvas(size, size);
   const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
   ctx.clearRect(0, 0, size, size);
   ctx.beginPath();
   ctx.arc(size / 2, size / 2, size * 0.38, 0, Math.PI * 2);
@@ -27,12 +29,16 @@ function setActionLamp(inChina) {
     ? "China Street Align · shifting"
     : "China Street Align · idle";
   try {
-    chrome.action.setIcon({
-      imageData: {
-        16: statusIconImageData(color, 16),
-        32: statusIconImageData(color, 32)
-      }
-    });
+    const image16 = statusIconImageData(color, 16);
+    const image32 = statusIconImageData(color, 32);
+    if (image16 && image32) {
+      chrome.action.setIcon({
+        imageData: {
+          16: image16,
+          32: image32
+        }
+      });
+    }
     chrome.action.setTitle({ title });
   } catch (_e) {}
 }

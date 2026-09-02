@@ -33,23 +33,28 @@ test.describe("WGS lat/lon place pins stay on 太和殿", () => {
     await context?.close();
   });
 
-  for (const [label, href] of [
-    ["street", T.href],
-    ["satellite", T.satHref]
+  for (const [label, href, expectOverlayPin] of [
+    ["street", T.href, true],
+    ["satellite", T.satHref, false]
   ]) {
-    test(`${label}: pin WGS stays on palace axis (not gcjToWgs west)`, async () => {
+    test(`${label}: pin stays on palace axis`, async () => {
       await page.goto(href, { waitUntil: "domcontentloaded", timeout: 120000 });
       await dismissConsent(page);
-      await waitForOverlay(page);
+      if (expectOverlayPin) {
+        await waitForOverlay(page);
+      } else {
+        await page.waitForTimeout(2500);
+      }
       await page.waitForTimeout(1500);
 
       const info = await page.evaluate(() => {
         const root = document.getElementById("gcj02-aligner-root");
-        const poi = root?.querySelector(".gcj02-poi");
+        const poi = root?.querySelector(".gcj02-poi.is-place-pin");
         const box = root?.getBoundingClientRect();
         const pr = poi?.getBoundingClientRect();
         return {
           layer: root?.dataset.layer || "",
+          display: root ? root.style.display : "absent",
           poiCount: Number(root?.dataset.poiCount || 0),
           wgsLat: poi ? Number(poi.dataset.wgsLat) : null,
           wgsLon: poi ? Number(poi.dataset.wgsLon) : null,
@@ -62,17 +67,20 @@ test.describe("WGS lat/lon place pins stay on 太和殿", () => {
 
       await page.screenshot({ path: path.join(OUT, `${label}-on.png`), fullPage: false });
 
-      expect(info.poiCount, JSON.stringify(info)).toBeGreaterThan(0);
-      expect(info.wgsLat, JSON.stringify(info)).toBeCloseTo(T.lat, 4);
-      expect(info.wgsLon, JSON.stringify(info)).toBeCloseTo(T.lon, 4);
-      expect(info.wgsLon, "must not slide west of palace").toBeGreaterThan(T.palaceAxisLon);
-      // Wrong gcjToWgs(WGS) longitude is ~0.006° west of 太和殿.
-      const wrong = lib.gcjToWgs(T.lat, T.lon);
-      expect(info.wgsLon, JSON.stringify({ info, wrong })).toBeGreaterThan(wrong.lon + 0.002);
-      expect(Math.abs(info.poiCx - info.midX), JSON.stringify(info)).toBeLessThan(80);
-      expect(Math.abs(info.poiCy - info.midY), JSON.stringify(info)).toBeLessThan(120);
+      if (expectOverlayPin) {
+        expect(info.poiCount, JSON.stringify(info)).toBe(1);
+        expect(info.wgsLat, JSON.stringify(info)).toBeCloseTo(T.lat, 4);
+        expect(info.wgsLon, JSON.stringify(info)).toBeCloseTo(T.lon, 4);
+        expect(info.wgsLon, "must not slide west of palace").toBeGreaterThan(T.palaceAxisLon);
+        const wrong = lib.gcjToWgs(T.lat, T.lon);
+        expect(info.wgsLon, JSON.stringify({ info, wrong })).toBeGreaterThan(wrong.lon + 0.002);
+        expect(Math.abs(info.poiCx - info.midX), JSON.stringify(info)).toBeLessThan(80);
+        expect(Math.abs(info.poiCy - info.midY), JSON.stringify(info)).toBeLessThan(120);
+      } else {
+        expect(info.poiCount, JSON.stringify(info)).toBe(0);
+      }
 
-      if (label === "satellite") {
+      if (label === "satellite" && expectOverlayPin) {
         await assertStreetsShiftedOntoSatellite(page);
       }
     });

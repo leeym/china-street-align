@@ -9,7 +9,7 @@ const {
 
 const OUT = path.join(__dirname, "..", "test-results", "zoom-smooth");
 const MAP_URL =
-  "https://www.google.com/maps/@34.252884,107.6162031,15z/data=!5m1!1e4";
+  "https://www.google.com/maps/@34.252884,107.6162031,15z/data=!3m1!1e3";
 
 test.describe("overlay scales smoothly while zooming in China", () => {
   /** @type {import('@playwright/test').BrowserContext} */

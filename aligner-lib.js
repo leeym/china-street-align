@@ -157,33 +157,69 @@
 
   // Two ways to satisfy the one rule that matters (WGS-84 satellite must line up
   // with every GCJ-02 layer):
-  //   "streets"   — hide the native canvas and repaint the GCJ world (streets,
-  //                 POIs, routes, overlays) shifted onto WGS satellite tiles.
-  //   "satellite" — leave the native canvas alone as the GCJ world and slide the
-  //                 WGS satellite raster under it instead, so POIs, routes,
-  //                 terrain, Street View and hit-testing stay exactly native.
-  // "off" is native Maps. The legacy test hook posts "on" for "streets".
-  const ALIGN_MODES = ["streets", "satellite", "off"];
+  // "hybrid" — crisp aligned satellite when possible; force native map when extra
+  // layers are needed. "off" is native Maps. Legacy streets/satellite/on map to hybrid.
+  const ALIGN_MODES = ["hybrid", "off"];
 
   function normalizeAlignMode(v) {
     const s = String(v == null ? "" : v).trim().toLowerCase();
     if (s === "off" || s === "native") return "off";
-    if (s === "satellite" || s === "sat" || s === "imagery" || s === "blend") return "satellite";
-    return "streets";
+    if (s === "hybrid" || s === "auto" || s === "smart") return "hybrid";
+    if (
+      s === "satellite" || s === "sat" || s === "imagery" || s === "blend"
+      || s === "on" || s === "streets" || s === "street"
+    ) {
+      return "hybrid";
+    }
+    return "hybrid";
+  }
+
+  function isDirectionsView(href) {
+    const url = String(href || "");
+    return /\/maps\/dir(?:\/|$|[?#])/i.test(url);
+  }
+
+  // Directions opened from a Place page can keep `/maps/place/` while the `data=`
+  // blob picks up route legs (`!1m0!1m5…`, `!4m14!4m13…`, …).
+  function hasDirectionsRouteData(href) {
+    const data = dataParam(href);
+    if (!data) return false;
+    if (/!1m0!1m5!1m1!1s/i.test(data)) return true;
+    if (/!4m1[4-9]!4m1[0-9]/i.test(data)) return true;
+    const legs = data.match(/!1m5!1m1!1s0x[a-f0-9]+:0x[a-f0-9]+/gi);
+    return !!(legs && legs.length >= 2);
+  }
+
+  function isSearchView(href) {
+    return /\/maps\/search\//i.test(String(href || ""));
+  }
+
+  function isPlaceView(href) {
+    return /\/maps\/place\//i.test(String(href || ""));
+  }
+
+  // Hybrid mode: crisp satellite only on a clean map. Block satellite for views
+  // where we must keep Google's native canvas (search pins, directions, terrain,
+  // traffic, pegman). Place pages on the map basemap use native pins; on
+  // satellite they use aligned WGS imagery under the native canvas (no repaint).
+  function hybridNeedsNativeLayers(href, pegmanCover) {
+    if (isTerrainView(href)) return true;
+    if (isDirectionsView(href)) return true;
+    if (hasDirectionsRouteData(href)) return true;
+    if (isSearchView(href)) return true;
+    if (pegmanCover) return true;
+    const ids = mapLayerIds(dataParam(href));
+    return ids.some((id) => id === 1 || id === 2 || id === 3 || id === 5);
   }
 
   // Blended mode camera. The native canvas keeps drawing the GCJ-02 world around
-  // the URL `@`, so the WGS-84 imagery layer must be centred on the camera whose
-  // GCJ image is that `@` — i.e. gcjToWgs(@), the same step overlayCamera makes.
-  // No wgs84 opt here: Maps renders `@` in its own GCJ frame on every URL shape,
-  // including `/maps/place/<lat,lon>/` queries.
+  // the URL `@`, so the WGS-84 imagery layer must be centred on gcjToWgs(@).
+  // That includes `/maps/place/<lat,lon>/` queries: Maps still frames `@` in GCJ.
   function imageryCamera(camLat, camLon) {
     return gcjToWgs(Number(camLat), Number(camLon));
   }
 
-  // Screen pixel of a WGS-84 feature on the blended imagery layer. Must equal
-  // gcjLatLonToScreenPx(wgsToGcj(feature), @) — the pixel Maps paints the GCJ
-  // twin of that feature on. That equality IS the alignment.
+  // Screen pixel of a WGS-84 feature on the blended imagery layer.
   function imageryScreenPx(wgsLat, wgsLon, camLat, camLon, zoom, width, height) {
     const cam = imageryCamera(camLat, camLon);
     return gcjLatLonToScreenPx(
@@ -213,6 +249,13 @@
 
   function urlCoordsAreWgs84(href) {
     return isLatLonPlaceName(placeNameFromHref(href));
+  }
+
+  // Named GCJ place pins match Off on the map; WGS lat/lon paths match Off on
+  // satellite. The other basemap needs one aligned teardrop from the overlay.
+  function placeNeedsAlignedPin(href, satelliteBasemap) {
+    if (!isPlaceView(href)) return false;
+    return urlCoordsAreWgs84(href) !== !!satelliteBasemap;
   }
 
   function placeNameFromHref(href) {
@@ -607,15 +650,33 @@
     return ids;
   }
 
+  function isTerrainView(href) {
+    const data = dataParam(href);
+    return mapDisplayType(data) !== 3 && mapLayerIds(data).includes(4);
+  }
+
+  function terrainOverlaySpec(extraLyrs) {
+    // Alignment first: shifted street `m`, unshifted WGS shade `t`, shifted hybrid `h`
+    // on top for vivid roads. Never CSS-shift combined `p` — cliffs move with roads
+    // (X235 climbs the west 五丈原 face). Native `p` looks brighter but breaks align.
+    return {
+      nativeOnly: false,
+      label: "terrain",
+      baseLyrs: [],
+      roadLyrs: "m",
+      topLyrs: "h",
+      shadeLyrs: ["t"],
+      extraLyrs,
+      hideNative: true,
+      blendNative: false
+    };
+  }
+
   function isNativeOnlyView(href) {
     const url = String(href || "");
     if (/@-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?,[\d.]+a,/.test(url)) return true;
     const type = mapDisplayType(dataParam(url));
     return type === 1 || type === 2;
-  }
-
-  function isDirectionsView(href) {
-    return /\/maps\/dir\//i.test(String(href || ""));
   }
 
   // Blended mode needs Maps' own basemap to be the vector map: in Maps' satellite
@@ -1000,7 +1061,7 @@
   function overlaySpec(href, alignMode, opts) {
     const url = String(href || "");
     const mode = normalizeAlignMode(alignMode);
-    if (isNativeOnlyView(url)) {
+    if (mode === "off" || isNativeOnlyView(url)) {
       return {
         nativeOnly: true,
         label: "native",
@@ -1012,35 +1073,6 @@
         blendNative: false
       };
     }
-    // Blended mode paints one thing: WGS-84 satellite raster under an untouched
-    // native canvas. Streets, POIs, routes, terrain shade, traffic/transit/bike
-    // and Street View coverage all stay native (that is the whole point), so
-    // there is nothing else to request and nothing to hide.
-    if (mode === "satellite") {
-      if (!blendWantsImagery(url, opts && opts.imageryTakeover)) {
-        // Street map / terrain: nothing to align, so change nothing at all.
-        return {
-          nativeOnly: true,
-          label: "native",
-          baseLyrs: [],
-          roadLyrs: "",
-          shadeLyrs: [],
-          extraLyrs: [],
-          hideNative: false,
-          blendNative: false
-        };
-      }
-      return {
-        nativeOnly: false,
-        label: "imagery",
-        baseLyrs: ["s"],
-        roadLyrs: "",
-        shadeLyrs: [],
-        extraLyrs: [],
-        hideNative: false,
-        blendNative: true
-      };
-    }
     const data = dataParam(url);
     const layers = mapLayerIds(data);
     const extras = layers.filter((id) => id !== 4);
@@ -1049,55 +1081,49 @@
     if (extras.includes(2)) extraLyrs.push("m,transit");
     if (extras.includes(3)) extraLyrs.push("h,bike");
     if (extras.includes(5)) extraLyrs.push("svv");
-    // Directions paint routes on the native canvas together with the basemap.
-    // Hide native and redraw on overlay; force aligned street tiles so we never
-    // flash misaligned GCJ satellite/street imagery during navigation.
-    if (isDirectionsView(url)) {
+    const type = mapDisplayType(data);
+    const satelliteBasemap = type === 3;
+    const terrain = !satelliteBasemap && layers.includes(4);
+
+    // Hybrid: never repaint Google layers except crisp satellite + shifted labels.
+    if (
+      isDirectionsView(url)
+      || isSearchView(url)
+      || terrain
+      || hybridNeedsNativeLayers(url, !!(opts && opts.pegmanCover))
+    ) {
       return {
-        nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs,
-        hideNative: true, blendNative: false
+        nativeOnly: true,
+        label: "native",
+        baseLyrs: [],
+        roadLyrs: "",
+        shadeLyrs: [],
+        extraLyrs: [],
+        hideNative: false,
+        blendNative: false
       };
     }
-    const type = mapDisplayType(data);
-    const satellite = type === 3;
-    const terrain = !satellite && layers.includes(4);
-    if (satellite) {
+    if (satelliteBasemap) {
       return {
         nativeOnly: false, label: "satellite", baseLyrs: ["s"], roadLyrs: "h", shadeLyrs: [], extraLyrs,
         hideNative: true, blendNative: false
       };
     }
-    if (terrain) {
-      // Outside China, terrain reads as colored streets + hillshade. Combined
-      // `lyrs=p` bakes GCJ roads onto WGS relief — CSS-shifting whole `p` makes
-      // X235 climb the west 五丈原 face. Match the outside look with shifted
-      // street `m` under unshifted WGS shade `t` (multiply), never shifted `p`.
-      return {
-        nativeOnly: false,
-        label: "terrain",
-        baseLyrs: [],
-        roadLyrs: "m",
-        shadeLyrs: ["t"],
-        extraLyrs,
-        hideNative: true,
-        blendNative: false
-      };
-    }
     return {
-      nativeOnly: false, label: "map", baseLyrs: [], roadLyrs: "m", shadeLyrs: [], extraLyrs,
-      hideNative: true, blendNative: false
+      nativeOnly: true,
+      label: "native",
+      baseLyrs: [],
+      roadLyrs: "",
+      shadeLyrs: [],
+      extraLyrs: [],
+      hideNative: false,
+      blendNative: false
     };
   }
 
-  // Blended mode only paints after Maps' own satellite basemap is gone. While the
-  // URL still says satellite (`!1e3`), Google's unshifted photo is opaque inside
-  // the native canvas — multiplying our shifted photo under it double-exposes and
-  // misaligns by hundreds of pixels. `takeover` remembers that the user asked for
-  // a photo across the one-frame basemap switch onto Map; it must not keep a photo
-  // on a plain street-map view the user navigated to on their own.
+  // Legacy helper kept for tests that still reference takeover semantics.
   function blendWantsImagery(href, takeover) {
-    if (!takeover) return false;
-    return mapDisplayType(dataParam(href)) !== 3;
+    return false;
   }
 
   // Pegman drag shows Street View coverage on the native canvas without putting
@@ -1185,6 +1211,7 @@
     overlayPoiScreenPx,
     ALIGN_MODES,
     normalizeAlignMode,
+    hybridNeedsNativeLayers,
     imageryCamera,
     imageryScreenPx,
     blendWantsImagery,
@@ -1194,6 +1221,7 @@
     BASEMAP_TOGGLE_EDGE_PX,
     isLatLonPlaceName,
     urlCoordsAreWgs84,
+    placeNeedsAlignedPin,
     cleanPoiName,
     labelHasVisitedSuffix,
     isAddressLikePlaceTitle,
@@ -1216,8 +1244,12 @@
     dataParam,
     mapDisplayType,
     mapLayerIds,
+    isTerrainView,
     isNativeOnlyView,
     isDirectionsView,
+    hasDirectionsRouteData,
+    isSearchView,
+    isPlaceView,
     decodeGooglePolyline,
     parseDirectionsWaypoints,
     extractDirectionsPolylines,

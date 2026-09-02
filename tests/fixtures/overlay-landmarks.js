@@ -136,7 +136,13 @@ const WUZHANGYUAN = {
   // Terrain place URL: west plateau edge where shifted `p` sends X235 up the
   // cliff face instead of through the valley (regression lock for e2e).
   terrainHref:
-    "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826157,107.5979685,14z/data=!4m6!3m5!1s0x36613e2da81fc14b:0xeee51cceea4d3465!8m2!3d34.282582!4d107.618568!16zL20vMDZkOGxk!5m1!1e4"
+    "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2826157,107.5979685,14z/data=!4m6!3m5!1s0x36613e2da81fc14b:0xeee51cceea4d3465!8m2!3d34.282582!4d107.618568!16zL20vMDZkOGxk!5m1!1e4",
+  // User-reported scenic-area place page at z=15 (search → terrain layer).
+  scenicTerrainHref:
+    "https://www.google.com/maps/place/%E4%BA%94%E4%B8%88%E5%8E%9F%E9%A2%A8%E6%99%AF%E5%8D%80/@34.2637152,107.6049873,15z/data=!4m6!3m5!1s0x36611579bf64492f:0x25b1ce261b14a4b4!8m2!3d34.263477!4d107.625732!16s%2Fg%2F1tdncggm!5m1!1e4",
+  // Search URL with terrain layer (user-reported z=14 flow).
+  searchTerrainHref:
+    "https://www.google.com/maps/search/%E4%BA%94%E4%B8%88%E5%8E%9F/@34.2472781,107.6245088,14z/data=!4m2!2m1!6e1!5m1!1e4"
 };
 
 const DUISHAN = {
