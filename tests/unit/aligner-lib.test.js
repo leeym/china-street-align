@@ -316,22 +316,19 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /effectiveMode/);
   });
 
-  it("ships a popup + storage switch for Hybrid and Off", () => {
+  it("shows GCJ-02 datum status inside China and no popup UI", () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, "manifest.json"), "utf8"));
-    assert.equal(manifest.action?.default_popup, "popup.html");
-    assert.ok((manifest.permissions || []).includes("storage"));
-    assert.equal(fs.existsSync(path.join(rootDir, "popup.html")), true);
-    assert.equal(fs.existsSync(path.join(rootDir, "popup.js")), true);
-    assert.match(contentJs, /setActionStatus/);
+    assert.equal(manifest.action?.default_popup, undefined);
+    assert.ok(!(manifest.permissions || []).includes("storage"));
+    assert.equal(fs.existsSync(path.join(rootDir, "popup.html")), false);
+    assert.match(contentJs, /datumStatusLabel/);
+    assert.match(contentJs, /GCJ-02/);
     assert.match(contentJs, /Aligning ·/);
-    assert.match(contentJs, /chrome\.storage\.sync\.get/);
-    assert.match(contentJs, /chrome\.storage\.onChanged/);
-    assert.match(contentJs, /type === "setMode"/);
-    assert.match(contentJs, /data-mode="hybrid"/);
+    assert.doesNotMatch(contentJs, /setActionStatus/);
+    assert.doesNotMatch(contentJs, /gcj02-aligner-modebar/);
     const sw = fs.readFileSync(path.join(rootDir, "service-worker.js"), "utf8");
-    assert.match(sw, /setActionStatus/);
-    assert.match(sw, /OffscreenCanvas/);
-    assert.match(sw, /shifting/);
+    assert.doesNotMatch(sw, /setActionStatus/);
+    assert.doesNotMatch(sw, /OffscreenCanvas/);
   });
 
   it("translates the overlay with the pointer while dragging in China", () => {
@@ -1322,22 +1319,7 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.ok(measure < guard, "measurement must precede the size guard");
   });
 
-  it("wires Hybrid/Off through storage, popup, and content script", () => {
-    const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, "manifest.json"), "utf8"));
-    assert.equal(manifest.action.default_popup, "popup.html");
-    assert.ok((manifest.permissions || []).includes("storage"));
-    for (const f of ["popup.html", "popup.css", "popup.js"]) {
-      assert.ok(fs.existsSync(path.join(rootDir, f)), `missing ${f}`);
-    }
-    const popupHtml = fs.readFileSync(path.join(rootDir, "popup.html"), "utf8");
-    const popupJs = fs.readFileSync(path.join(rootDir, "popup.js"), "utf8");
-    for (const v of ["hybrid", "off"]) {
-      assert.match(popupHtml, new RegExp(`value="${v}"`), `popup missing ${v}`);
-    }
-    assert.doesNotMatch(popupHtml, /value="streets"/);
-    assert.doesNotMatch(popupHtml, /value="satellite"/);
-    assert.match(popupHtml, /<script src="popup\.js">/);
-    assert.match(popupJs, /chrome\.storage\.sync\.set/);
+  it("wires always-on alignment through content script", () => {
     assert.match(contentJs, /function maybeHybridRewindToMap/);
     assert.match(contentJs, /function hybridNeedsNativeLayers/);
     assert.match(contentJs, /function hybridYieldsNativeCanvas/);
@@ -1345,11 +1327,10 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.match(contentJs, /function primaryPlacePoi/);
     assert.match(contentJs, /is-place-pin/);
     assert.match(contentJs, /function syncSatelliteBasemapGate/);
-    assert.match(contentJs, /data-mode="hybrid"/);
-    assert.match(contentJs, /function persistAlignMode/);
-    assert.match(contentJs, /gcj02-aligner-modebar/);
+    assert.match(contentJs, /function datumStatusLabel/);
     assert.doesNotMatch(contentJs, /blendAlign\(/);
     assert.doesNotMatch(contentJs, /function setNativeBlend/);
     assert.doesNotMatch(contentJs, /function syncRoute/);
+    assert.doesNotMatch(contentJs, /persistAlignMode/);
   });
 });

@@ -14,7 +14,7 @@ jobs:
           node-version: "22"
       - run: npm run test:unit
 
-  popup-e2e:
+  directions-e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,4 +24,4 @@ jobs:
       - run: npm ci
       - run: npx playwright install chromium --with-deps
       # Extension tests launch headed Chromium; Linux runners need a virtual display.
-      - run: xvfb-run --auto-servernum npm run test:popup
+      - run: xvfb-run --auto-servernum npm run test:directions

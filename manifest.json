@@ -1,9 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.8.0",
-  "description": "Inside China, Hybrid mode aligns WGS-84 satellite with GCJ-02 map layers when possible, and falls back to Google's map when native layers are needed.",
-  "permissions": ["storage"],
+  "version": "0.8.1",
+  "description": "Inside China, aligns GCJ-02 street labels with WGS-84 satellite imagery on Google Maps.",
   "host_permissions": [
     "https://www.google.com/*",
     "https://www.google.com.hk/*",
@@ -22,8 +21,7 @@
   ],
   "background": { "service_worker": "service-worker.js" },
   "action": {
-    "default_title": "China Street Align · idle",
-    "default_popup": "popup.html"
+    "default_title": "Google Maps China Street Align"
   },
   "content_scripts": [
     {

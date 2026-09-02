@@ -30,7 +30,7 @@ const PLACE_SAT_SEARCH_URL =
 const DIRECTIONS_SAT_URL =
   "https://www.google.com/maps/dir//%E6%B8%85%E6%B0%B8%E9%99%B5/@41.7088729,124.7898743,2316m/data=!3m1!1e3!4m8!1m0!1m5!1m1!1s0x5e2e238c032cbc93:0xfcc3e337e7f95939!2m2!1d124.802589!2d41.710262!3e0";
 
-test.describe.serial("directions forces native map in Hybrid", () => {
+test.describe.serial("directions forces native map in China", () => {
   let context;
   let page;
 

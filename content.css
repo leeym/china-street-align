@@ -87,45 +87,6 @@
   pointer-events: none;
   max-width: 520px;
 }
-#gcj02-aligner-modebar {
-  position: fixed;
-  right: 12px;
-  top: 10px;
-  z-index: 1000011;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #dadce0;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
-  font: 11px/1.2 system-ui, -apple-system, "Noto Sans TC", sans-serif;
-  pointer-events: auto !important;
-}
-.gcj02-modebar-title {
-  color: #5f6368;
-  font-weight: 600;
-  padding: 0 4px 0 2px;
-}
-.gcj02-mode-btn {
-  border: 1px solid #dadce0;
-  background: #fff;
-  color: #202124;
-  border-radius: 6px;
-  padding: 4px 7px;
-  cursor: pointer;
-  font: inherit;
-}
-.gcj02-mode-btn:hover {
-  background: #f8f9fa;
-}
-.gcj02-mode-btn.is-active {
-  border-color: #1a73e8;
-  background: #e8f0fe;
-  color: #174ea6;
-  font-weight: 600;
-}
 .gcj02-route {
   position: absolute !important;
   left: 0;

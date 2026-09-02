@@ -18,14 +18,6 @@
   const GESTURE_SETTLE_MAX_MS = 1500;
   const PAN_MOVE_PX = 3;
 
-  const ALIGN_MODE_KEY = "alignMode";
-  const DEFAULT_ALIGN_MODE = "hybrid";
-  // Alignment mode: "hybrid" paints crisp WGS satellite + shifted labels when
-  // possible; "off" is native Maps. Legacy streets/satellite values normalize
-  // to hybrid via aligner-lib.
-  let alignMode = DEFAULT_ALIGN_MODE;
-  let alignModeLoaded = false;
-  let alignModeReadId = 0;
   const BASEMAP_SWITCH_MAX_TRIES = 6;
   let hybridRewindTries = 0;
   let directionsLatchUntil = 0;
@@ -33,7 +25,6 @@
   let root = null;
   let panEl = null;
   let statusEl = null;
-  let modeBar = null;
   let timer = null;
   let pollTimer = null;
   let lastKey = "";
@@ -41,7 +32,6 @@
   let lastHref = "";
   let lastPoiKey = "";
   let lastHost = null;
-  let lastActionInChina = null;
   let hoveredPoiKey = "";
   let alive = true;
   // While the user drags, Maps updates the camera only on release (URL `@`).
@@ -98,7 +88,7 @@
   }
 
   function isDirectionsActivator(el) {
-    if (!el || el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) return false;
+    if (!el || el.closest("#gcj02-aligner-root")) return false;
     if (el.getAttribute?.("data-item-id") === "directions") return true;
     const blob = [
       el.getAttribute?.("aria-label"),
@@ -201,8 +191,6 @@
     lastHost = null;
     setNativeMapHidden(false);
     clearSatelliteBasemapGate();
-    try { modeBar?.remove(); } catch (_e) {}
-    modeBar = null;
     root = null;
     panEl = null;
     statusEl = null;
@@ -210,20 +198,6 @@
 
   function outOfChina(lat, lon) {
     return globalThis.Gcj02Aligner.outOfChina(lat, lon);
-  }
-
-  function reportActionStatus(st) {
-    if (!alive) return;
-    const inChina = !!(st && !outOfChina(st.lat, st.lon));
-    if (lastActionInChina === inChina) return;
-    lastActionInChina = inChina;
-    try {
-      chrome.runtime.sendMessage({ type: "setActionStatus", inChina }, () => {
-        try {
-          void chrome.runtime.lastError;
-        } catch (_e) {}
-      });
-    } catch (_e) {}
   }
 
   function satellitePhotoBasemap() {
@@ -295,12 +269,8 @@
     return `https://mt${s}.google.com/vt/lyrs=${lyrs}&x=${x}&y=${y}&z=${z}`;
   }
 
-  function normalizeMode(v) {
-    return globalThis.Gcj02Aligner.normalizeAlignMode(v);
-  }
-
   function hybridAlign() {
-    return alignMode === "hybrid";
+    return true;
   }
 
   function hybridNeedsNativeLayers() {
@@ -442,7 +412,7 @@
     for (const el of document.querySelectorAll(
       '[role="menuitemradio"], [role="menuitem"], [role="radio"], button, [role="button"], label'
     )) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       if (!isBasemapLayerPicker(el)) continue;
       if (!basemapLabelIsSat(basemapControlLabel(el))) continue;
       markSatelliteBasemapGated(el);
@@ -456,7 +426,7 @@
     const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
     const stripPath = /\/maps\/(dir|place|search)\//.test(location.pathname);
     for (const el of document.querySelectorAll("button, [role='button'], label")) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
       const sig = basemapToggleSignature(el);
@@ -484,7 +454,7 @@
   function flashSatelliteGateNotice() {
     satGateNoticeUntil = Date.now() + 2800;
     if (statusEl) {
-      statusEl.textContent = `${alignModeLabel()} · v${VERSION}`;
+      statusEl.textContent = `${datumStatusLabel()} · v${VERSION}`;
       statusEl.style.display = "";
     }
     clearTimeout(satGateNoticeTimer);
@@ -565,18 +535,14 @@
     hybridRewindTries += 1;
   }
 
-  function alignModeLabel() {
+  function datumStatusLabel() {
     if (satGateNoticeUntil > Date.now()) {
-      return "Hybrid · satellite blocked while layers active";
+      return "GCJ-02 → WGS-84 · satellite blocked while layers active";
     }
-    if (alignMode === "hybrid") {
-      if (hybridPlaceAlignedOverlay()) return "Hybrid · place pin";
-      if (hybridYieldsNativeCanvas()) return "Hybrid · native layers";
-      return hybridNeedsNativeLayers()
-        ? "Hybrid · map layers"
-        : "Hybrid · crisp satellite";
-    }
-    return "Off";
+    if (hybridPlaceAlignedOverlay()) return "GCJ-02 → WGS-84 · place pin";
+    if (hybridYieldsNativeCanvas()) return "GCJ-02 labels · native map layers";
+    if (hybridNeedsNativeLayers()) return "GCJ-02 · native map layers";
+    return "GCJ-02 streets → WGS-84 satellite";
   }
 
   function updateIdleStatus() {
@@ -587,60 +553,19 @@
       return;
     }
     if (overlayIsVisible()) return;
-    statusEl.textContent = `${alignModeLabel()} · v${VERSION}`;
+    statusEl.textContent = `${datumStatusLabel()} · v${VERSION}`;
     statusEl.style.display = "";
-    updateModeBar();
-  }
-
-  function ensureModeBar() {
-    if (modeBar) return modeBar;
-    modeBar = document.createElement("div");
-    modeBar.id = "gcj02-aligner-modebar";
-    modeBar.innerHTML = [
-      '<span class="gcj02-modebar-title">Align</span>',
-      '<button type="button" class="gcj02-mode-btn" data-mode="hybrid">Hybrid</button>',
-      '<button type="button" class="gcj02-mode-btn" data-mode="off">Off</button>'
-    ].join("");
-    modeBar.addEventListener("click", (ev) => {
-      const btn = ev.target instanceof Element ? ev.target.closest("[data-mode]") : null;
-      if (!btn || !alive) return;
-      const mode = normalizeMode(btn.getAttribute("data-mode"));
-      try {
-        persistAlignMode(mode);
-      } catch (_e) {}
-      setMode(mode);
-    });
-    document.body.appendChild(modeBar);
-    return modeBar;
-  }
-
-  function updateModeBar() {
-    const st = parseMapState();
-    const inChina = !!(st && !outOfChina(st.lat, st.lon));
-    if (!inChina) {
-      if (modeBar) modeBar.style.display = "none";
-      return;
-    }
-    const bar = ensureModeBar();
-    bar.style.display = "";
-    bar.dataset.alignMode = alignMode;
-    bar.querySelectorAll(".gcj02-mode-btn").forEach((btn) => {
-      const on = normalizeMode(btn.getAttribute("data-mode")) === alignMode;
-      btn.classList.toggle("is-active", on);
-    });
   }
 
   function syncNativeLayersChrome() {
-    ensureModeBar();
     if (!statusEl) {
       statusEl = document.createElement("div");
       statusEl.id = "gcj02-aligner-status";
       statusEl.style.zIndex = String(CHROME_Z);
       document.body.appendChild(statusEl);
     }
-    statusEl.textContent = `${alignModeLabel()} · v${VERSION}`;
+    statusEl.textContent = `${datumStatusLabel()} · v${VERSION}`;
     statusEl.style.display = "";
-    updateModeBar();
   }
 
   function isBasemapLayerPicker(el) {
@@ -693,7 +618,7 @@
 
   function basemapLayersButton() {
     for (const el of document.querySelectorAll("button, [role='button']")) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       const aria = String(el.getAttribute("aria-label") || "").trim();
       if (/^(layers|map type|圖層|图层|地圖類型|地图类型)/i.test(aria)) return el;
       const labelled = el.getAttribute("aria-labelledby");
@@ -712,7 +637,7 @@
     for (const el of document.querySelectorAll(
       '[role="menuitemradio"], [role="menuitem"], [role="radio"], button, [role="button"], label'
     )) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       const label = String(
         el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || ""
       ).replace(/\s+/g, " ").trim();
@@ -746,7 +671,7 @@
     if (y < cr.bottom - 180 || y > cr.bottom + 8) return null;
     const isToggle = globalThis.Gcj02Aligner.isBasemapToggleBox;
     for (const el of document.querySelectorAll("button, [role='button'], label")) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       const r = el.getBoundingClientRect();
       if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
       if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
@@ -776,7 +701,6 @@
   }
 
   function effectiveMode(st) {
-    if (alignMode === "off") return "off";
     return st && !outOfChina(st.lat, st.lon) ? "on" : "off";
   }
 
@@ -891,7 +815,7 @@
     for (const el of document.querySelectorAll(
       "button[jsaction*='minimap'], [aria-label], [title], button, [role='button'], label"
     )) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       const sig = basemapToggleSignature(el)
         || String(el.getAttribute("title") || "").trim();
       if (!sig) continue;
@@ -913,7 +837,7 @@
     for (const el of document.querySelectorAll(
       "button, [role='button'], label, [aria-label]"
     )) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       const r = el.getBoundingClientRect();
       if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
       if (r.bottom > cr.bottom + 8 || r.bottom < cr.bottom - 180) continue;
@@ -1112,15 +1036,15 @@
   }
 
   function alignStatusHow(spec) {
-    if (hybridAlign() && hybridCrispSatellite()) return "crisp WGS satellite + shifted labels";
+    if (hybridCrispSatellite()) return "GCJ-02 streets on WGS-84 satellite";
     if (placeAlignedPinActive()) {
       return satellitePhotoBasemap()
-        ? "aligned satellite + place teardrop"
-        : "aligned streets + place teardrop";
+        ? "GCJ-02 place pin on WGS-84 satellite"
+        : "GCJ-02 place pin on vector map";
     }
-    if (hybridYieldsNativeCanvas()) return "native Google layers";
-    if (hybridAlign() && hybridNeedsNativeLayers()) return "map basemap · aligned overlay";
-    return "native Google layers";
+    if (hybridYieldsNativeCanvas()) return "GCJ-02 labels on native map";
+    if (hybridNeedsNativeLayers()) return "GCJ-02 overlay on vector map";
+    return "GCJ-02 labels on native map";
   }
 
   function setStatus(text, extra) {
@@ -1446,7 +1370,6 @@
       try { lastHost.style.clipPath = ""; lastHost.style.maskImage = ""; lastHost.style.webkitMaskImage = ""; } catch (_e) {}
     }
     setNativeMapHidden(false);
-    reportActionStatus(parseMapState());
     updateIdleStatus();
   }
 
@@ -1645,7 +1568,6 @@
     }
     const spec = overlaySpec();
     const st = parseMapState();
-    reportActionStatus(st);
     const active = effectiveMode(st);
     if (spec.nativeOnly || active === "off" || !st || st.zoom < 5 || st.zoom > 21) {
       if (hybridYieldsNativeCanvas()) setNativeMapHidden(false);
@@ -1661,18 +1583,12 @@
     if (!(w >= 32) || !(h >= 32)) return;
 
     setNativeMapHidden(true);
-    root.dataset.alignMode = alignMode;
-    if (hybridAlign()) {
-      root.dataset.hybridLayer = placeAlignedPinActive()
-        ? (satellitePhotoBasemap() ? "place-satellite" : "place-map")
-        : hybridNeedsNativeLayers()
-          ? "map"
-          : "photo";
-      root.dataset.satGate = satelliteBasemapGateActive() ? "1" : "0";
-    } else {
-      delete root.dataset.hybridLayer;
-      delete root.dataset.satGate;
-    }
+    root.dataset.hybridLayer = placeAlignedPinActive()
+      ? (satellitePhotoBasemap() ? "place-satellite" : "place-map")
+      : hybridNeedsNativeLayers()
+        ? "map"
+        : "photo";
+    root.dataset.satGate = satelliteBasemapGateActive() ? "1" : "0";
     syncSatelliteBasemapGate();
     root.style.display = "";
     if (statusEl) statusEl.style.display = "";
@@ -1690,7 +1606,7 @@
     const y1 = Math.floor((tl.y + h) / tileSize) + pad;
     const max = 2 ** zTile;
     const key = [
-      active, alignMode, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), (spec.shadeLyrs || []).join("+"),
+      active, spec.label, spec.roadLyrs, spec.baseLyrs.join("+"), (spec.shadeLyrs || []).join("+"),
       spec.extraLyrs.join("+"), urlCoordOpts()?.wgs84 ? "wgs" : "gcj",
       "overlay",
       zTile, scale.toFixed(4), x0, y0, x1, y1, Math.round(center.x), Math.round(center.y),
@@ -1705,7 +1621,6 @@
       lastStatusSig = statusSig;
       setStatus(`Aligning · ${spec.label}${extras} · ${how} · v${VERSION} · z=${st.zoom.toFixed(2)}`, {
         mode: "on",
-        alignMode,
         layer: spec.label,
         version: VERSION,
         zoom: st.zoom.toFixed(3),
@@ -1765,108 +1680,11 @@
       }
     }
     syncPois(st, w, h);
-    updateModeBar();
   }
 
-  function setMode(v) {
-    if (!alive) return;
-    const next = normalizeMode(v);
-    if (next === alignMode) return;
-    alignMode = next;
-    setNativeMapHidden(false);
-    setHoveredPoi("");
-    if (panEl) {
-      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
-        .forEach((e) => e.remove());
-    }
-    lastKey = "";
-    lastPoiKey = "";
-    hybridRewindTries = 0;
-    if (root) root.dataset.alignMode = alignMode;
-    updateModeBar();
-    redraw();
-  }
-
-  // Boot order matters: the first redraw waits for the stored mode.
-  function applyStoredAlignMode(v) {
-    alignModeLoaded = true;
-    if (normalizeMode(v) === alignMode) {
-      lastKey = "";
-      redraw();
-      return;
-    }
-    setMode(v);
-  }
-
-  function persistAlignMode(mode) {
-    const payload = { [ALIGN_MODE_KEY]: normalizeMode(mode) };
-    try {
-      chrome.storage.sync.set(payload, () => {
-        try { void chrome.runtime.lastError; } catch (_e) {}
-      });
-    } catch (_e) {}
-    try {
-      chrome.storage.local.set(payload, () => {
-        try { void chrome.runtime.lastError; } catch (_e) {}
-      });
-    } catch (_e) {}
-  }
-
-  function readStoredAlignMode(cb) {
-    const readId = ++alignModeReadId;
-    const finish = (v) => {
-      if (readId !== alignModeReadId) return;
-      try { cb(v); } catch (_e) {}
-    };
-    const keys = { [ALIGN_MODE_KEY]: DEFAULT_ALIGN_MODE };
-    const readSync = (localMode) => {
-      try {
-        chrome.storage.sync.get(keys, (sync) => {
-          try { void chrome.runtime.lastError; } catch (_e) {}
-          const syncMode = sync?.[ALIGN_MODE_KEY];
-          if (localMode != null && syncMode != null && localMode !== syncMode) finish(localMode);
-          else finish(syncMode ?? localMode ?? DEFAULT_ALIGN_MODE);
-        });
-      } catch (_e) {
-        finish(localMode ?? DEFAULT_ALIGN_MODE);
-      }
-    };
-    try {
-      chrome.storage.local.get(keys, (local) => {
-        try { void chrome.runtime.lastError; } catch (_e) {}
-        readSync(local?.[ALIGN_MODE_KEY]);
-      });
-    } catch (_e) {
-      readSync(null);
-    }
-  }
-
-  function onStoredAlignModeChanged(mode) {
-    alignModeReadId += 1;
-    applyStoredAlignMode(mode);
-  }
-
-  function loadAlignMode() {
-    try {
-      readStoredAlignMode((v) => {
-        if (alignModeLoaded) return;
-        applyStoredAlignMode(v);
-      });
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== "sync" && area !== "local") return;
-        if (!changes[ALIGN_MODE_KEY]) return;
-        onStoredAlignModeChanged(changes[ALIGN_MODE_KEY].newValue);
-      });
-    } catch (_e) {
-      applyStoredAlignMode(alignMode);
-    }
-  }
-
-  // Test-only: Playwright posts setMode to force native Maps for On-vs-Off checks.
   addEventListener("message", (ev) => {
     if (!alive || ev.source !== window) return;
     if (ev.data?.source !== "gcj02-aligner") return;
-    if (ev.data?.type === "setMode") setMode(ev.data.mode);
     if (ev.data?.type === "getBasemapToggleBox") {
       const toggle = nativeBasemapToggle();
       const box = toggle
@@ -1981,9 +1799,5 @@
     }
   }, 400);
 
-  loadAlignMode();
-  // If storage never answers (no permission, disabled profile), still draw.
-  setTimeout(() => {
-    if (!alignModeLoaded) applyStoredAlignMode(alignMode);
-  }, 300);
+  redraw();
 })();

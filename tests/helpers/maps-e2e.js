@@ -36,90 +36,10 @@ async function dismissConsent(page) {
   }
 }
 
-async function setAlignerMode(context, page, mode) {
-  // Test-only hook: product builds are always-on (no popup / storage toggle).
-  void context;
-  await page.evaluate((m) => {
-    window.postMessage({ source: "gcj02-aligner", type: "setMode", mode: m }, "*");
-  }, mode).catch(() => {});
-  await page.waitForTimeout(500);
-}
-
-/** Top-right Align bar → Hybrid / Off. */
-async function setModeViaAlignBar(page, mode) {
-  await page.waitForSelector("#gcj02-aligner-modebar", { timeout: 120000 });
-  await page.locator(`#gcj02-aligner-modebar .gcj02-mode-btn[data-mode="${mode}"]`).click();
-  await page.waitForFunction((m) => {
-    const bar = document.getElementById("gcj02-aligner-modebar");
-    return bar && bar.dataset.alignMode === m;
-  }, mode, { timeout: 30000 });
-  await page.waitForTimeout(400);
-}
-
 async function extensionId(context) {
   let [sw] = context.serviceWorkers();
   if (!sw) sw = await context.waitForEvent("serviceworker", { timeout: 30000 });
   return new URL(sw.url()).host;
-}
-
-async function openPopup(context, extId) {
-  const popup = await context.newPage();
-  await popup.goto(`chrome-extension://${extId}/popup.html`, { waitUntil: "domcontentloaded" });
-  await popup.waitForSelector("#modes");
-  return popup;
-}
-
-async function readAlignModeStorage(popup) {
-  return popup.evaluate(() => new Promise((resolve) => {
-    const key = "alignMode";
-    const finish = (v) => resolve(v);
-    const readLocal = () => {
-      chrome.storage.local.get({ [key]: "hybrid" }, (local) => {
-        finish(local?.[key] || "hybrid");
-      });
-    };
-    chrome.storage.sync.get({ [key]: "hybrid" }, (sync) => {
-      if (chrome.runtime.lastError) {
-        readLocal();
-        return;
-      }
-      finish(sync?.[key] || "hybrid");
-    });
-  }));
-}
-
-async function setModeViaPopup(context, extId, mode) {
-  const popup = await openPopup(context, extId);
-  await popup.locator(`input[value="${mode}"]`).check();
-  await popup.waitForFunction((m) => {
-    const input = document.querySelector(`input[value="${m}"]`);
-    return input && input.checked;
-  }, mode, { timeout: 5000 });
-  await popup.waitForFunction((m) => {
-    const el = document.getElementById("current");
-    const labels = {
-      hybrid: "Hybrid",
-      off: "Off"
-    };
-    return el && el.textContent === labels[m];
-  }, mode, { timeout: 5000 });
-  await popup.waitForFunction(async (m) => {
-    const key = "alignMode";
-    const read = (area) => new Promise((resolve) => {
-      chrome.storage[area].get({ [key]: "" }, (got) => resolve(got?.[key] || ""));
-    });
-    const sync = await read("sync");
-    const local = await read("local");
-    return sync === m || local === m;
-  }, mode, { timeout: 5000 });
-  await popup.close();
-}
-
-async function waitForModeBar(page, mode) {
-  await page.waitForFunction((m) => {
-    const bar = document.getElementById("gcj02-aligner-modebar");
-    return bar && bar.dataset.alignMode === m;
-  }, mode, { timeout: 30000 });
 }
 
 /** Box of Maps' own basemap toggle, for a real (trusted) user click. */
@@ -173,7 +93,7 @@ async function basemapToggleBox(page) {
     if (/\/maps\/(dir|place|search)\//.test(location.pathname)) {
       const strip = [];
       for (const el of document.querySelectorAll("button, [role='button'], label")) {
-        if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+        if (el.closest("#gcj02-aligner-root")) continue;
         if (el.closest('a[href*="/maps/place/"], a[href*="/maps/search/"]')) continue;
         const r = el.getBoundingClientRect();
         if (r.width < 55 || r.width > 110 || r.height < 55 || r.height > 110) continue;
@@ -188,7 +108,7 @@ async function basemapToggleBox(page) {
       }
     }
     for (const el of document.querySelectorAll("button, [role='button'], label")) {
-      if (el.closest("#gcj02-aligner-root, #gcj02-aligner-modebar")) continue;
+      if (el.closest("#gcj02-aligner-root")) continue;
       if (el.closest('a[href*="/maps/place/"], a[href*="/maps/search/"]')) continue;
       const r = el.getBoundingClientRect();
       if (!isToggle(r, cr)) continue;
@@ -197,115 +117,6 @@ async function basemapToggleBox(page) {
       return pick(el);
     }
     return null;
-  });
-}
-
-async function sampleAlignHandoff(page) {
-  return page.evaluate(() => {
-    const root = document.getElementById("gcj02-aligner-root");
-    const bar = document.getElementById("gcj02-aligner-modebar");
-    const status = document.getElementById("gcj02-aligner-status");
-    const mainCanvas = [...document.querySelectorAll("canvas")]
-      .filter((c) => c.getBoundingClientRect().width > 400)
-      .sort((a, b) => b.width * b.height - a.width * a.height)[0];
-    const nativeHidden = !!(mainCanvas && mainCanvas.classList.contains("gcj02-hide-native"));
-    const overlayHidden = !root || root.style.display === "none";
-    return {
-      blackHandoff: nativeHidden && overlayHidden,
-      nativeHidden,
-      overlayHidden,
-      alignMode: bar?.dataset.alignMode || "",
-      wantImagery: bar?.dataset.wantImagery || "",
-      layer: root?.dataset.layer || "",
-      overlayRoads: root?.querySelectorAll(".gcj02-road").length || 0,
-      satTiles: root?.querySelectorAll('.gcj02-tile[data-lyrs="s"]').length || 0,
-      overlayRoutes: root?.querySelectorAll(".gcj02-route").length || 0,
-      blended: document.querySelectorAll("canvas.gcj02-blend-native").length,
-      hiddenNative: document.querySelectorAll(".gcj02-hide-native").length,
-      status: (status?.textContent || "").slice(0, 280),
-      blendBlocked: root?.dataset.blendBlocked || "",
-      blendSwitch: root?.dataset.blendSwitch || "",
-      displayType: (location.href.match(/!3m\d+!1e(\d+)/) || [])[1] || "",
-      pathname: location.pathname
-    };
-  });
-}
-
-async function pollAlignHandoff(page, { polls = 14, intervalMs = 500 } = {}) {
-  const samples = [];
-  for (let i = 0; i < polls; i++) {
-    samples.push(await sampleAlignHandoff(page));
-    if (i + 1 < polls) await page.waitForTimeout(intervalMs);
-  }
-  return samples;
-}
-
-async function waitForBlendImagery(page) {
-  await page.waitForFunction(() => {
-    const root = document.getElementById("gcj02-aligner-root");
-    if (!root || root.style.display === "none") return false;
-    if (root.dataset.alignMode !== "satellite") return false;
-    const tiles = [...root.querySelectorAll('.gcj02-tile[data-lyrs="s"]')];
-    return tiles.length > 0 && tiles.some((img) => img.complete && img.naturalWidth >= 256);
-  }, null, { timeout: 120000 });
-}
-
-async function waitForDirectionsMultiplyBlend(page, timeout = 180000) {
-  await page.waitForFunction(() => {
-    const root = document.getElementById("gcj02-aligner-root");
-    const bar = document.getElementById("gcj02-aligner-modebar");
-    if (!root || root.style.display === "none") return false;
-    if (bar?.dataset.alignMode !== "satellite" || bar?.dataset.wantImagery !== "1") return false;
-    if (root.dataset.layer !== "imagery") return false;
-    const loaded = [...root.querySelectorAll('.gcj02-tile[data-lyrs="s"]')]
-      .some((img) => img.complete && img.naturalWidth >= 256);
-    if (!loaded) return false;
-    if (root.querySelectorAll(".gcj02-route").length > 0) return false;
-    if (document.querySelectorAll("canvas.gcj02-blend-native").length === 0) return false;
-    if (/!3m\d+!1e3/i.test(location.href)) return false;
-    const status = document.getElementById("gcj02-aligner-status")?.textContent || "";
-    if (/streets shifted GCJ/i.test(status)) return false;
-    return true;
-  }, null, { timeout });
-}
-
-async function blendStats(page) {
-  const raw = await page.evaluate(() => {
-    const root = document.getElementById("gcj02-aligner-root");
-    const blended = [...document.querySelectorAll("canvas.gcj02-blend-native")];
-    return {
-      href: location.href,
-      alignMode: root?.dataset.alignMode || "",
-      layer: root?.dataset.layer || "",
-      mode: root?.dataset.mode || "",
-      display: root ? root.style.display : "absent",
-      wantImagery: document.getElementById("gcj02-aligner-modebar")?.dataset.wantImagery || "",
-      camLat: Number(root?.dataset.camLat || NaN),
-      camLon: Number(root?.dataset.camLon || NaN),
-      offsetPx: Number(root?.dataset.offsetPx || 0),
-      satTiles: root ? root.querySelectorAll('.gcj02-tile[data-lyrs="s"]').length : 0,
-      loadedSatTiles: root
-        ? [...root.querySelectorAll('.gcj02-tile[data-lyrs="s"]')]
-          .filter((i) => i.complete && i.naturalWidth >= 256).length
-        : 0,
-      overlayRoads: root ? root.querySelectorAll(".gcj02-road").length : 0,
-      overlayRoutes: root ? root.querySelectorAll(".gcj02-route").length : 0,
-      status: document.getElementById("gcj02-aligner-status")?.textContent || "",
-      blendedCanvases: blended.length,
-      blendModes: blended.map((c) => getComputedStyle(c).mixBlendMode),
-      hiddenNative: document.querySelectorAll(".gcj02-hide-native").length,
-      nativeCanvasesVisible: [...document.querySelectorAll("canvas")].filter((c) => {
-        const r = c.getBoundingClientRect();
-        const cs = getComputedStyle(c);
-        return r.width * r.height > 80000 && cs.visibility !== "hidden" && cs.opacity !== "0";
-      }).length
-    };
-  });
-  const st = lib.parseMapHref(raw.href);
-  const cam = st ? lib.imageryCamera(st.lat, st.lon) : null;
-  return Object.assign(raw, {
-    expectCamLat: cam ? cam.lat : NaN,
-    expectCamLon: cam ? cam.lon : NaN
   });
 }
 
@@ -364,13 +175,6 @@ async function waitForOverlay(page) {
     const tiles = [...root.querySelectorAll(".gcj02-tile")];
     return tiles.length > 0 && tiles.some((img) => img.complete && img.naturalWidth >= 256);
   }, { timeout: 120000 });
-}
-
-async function waitForOverlayOff(page) {
-  await page.waitForFunction(() => {
-    const root = document.getElementById("gcj02-aligner-root");
-    return !root || root.style.display === "none" || root.dataset.mode === "off";
-  }, { timeout: 30000 });
 }
 
 async function waitForNativePois(page, needles) {
@@ -931,7 +735,7 @@ async function waitForHybridDirectionsMapMode(page, timeout = 60000) {
     if (tiles > 0 || roads > 0) return false;
     if (document.querySelectorAll("canvas.gcj02-hide-native").length > 0) return false;
     const status = document.getElementById("gcj02-aligner-status")?.textContent || "";
-    if (!/native layers/i.test(status)) return false;
+    if (!/GCJ-02/i.test(status)) return false;
     const blob = document.body?.innerText || "";
     if (/Imagery\s*©[^©\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return false;
     if (/©\d{4}\s*(CNES|Airbus|Maxar)/i.test(blob)) return false;
@@ -953,8 +757,8 @@ function assertHybridDirectionsMapMode(state) {
   expect(state.loadedOverlayTiles, JSON.stringify(state)).toBe(0);
   expect(state.overlayRoadCount, JSON.stringify(state)).toBe(0);
   expect(state.nativeHiddenCount, JSON.stringify(state)).toBe(0);
-  expect(state.status, JSON.stringify(state)).toMatch(/native layers/i);
-  expect(state.status, JSON.stringify(state)).not.toMatch(/Aligning.*satellite/i);
+  expect(state.status, JSON.stringify(state)).toMatch(/GCJ-02.*native map/i);
+  expect(state.status, JSON.stringify(state)).not.toMatch(/WGS-84 satellite/i);
   expect(state.status, JSON.stringify(state)).not.toMatch(/place pin/i);
 }
 
@@ -971,28 +775,16 @@ module.exports = {
   EXT_PATH,
   launchExtensionContext,
   extensionId,
-  openPopup,
-  readAlignModeStorage,
-  setModeViaPopup,
-  waitForModeBar,
   dismissConsent,
-  setAlignerMode,
-  setModeViaAlignBar,
   basemapToggleBox,
   waitForBasemapToggleBox,
   switchBasemapViaLayers,
   switchToSatelliteBasemap,
   switchToMapBasemap,
-  sampleAlignHandoff,
-  pollAlignHandoff,
-  waitForBlendImagery,
-  waitForDirectionsMultiplyBlend,
-  blendStats,
   setPegmanCover,
   overlaySvvCyanPixels,
   waitForOverlaySvvPb,
   waitForOverlay,
-  waitForOverlayOff,
   waitForNativePois,
   overlayAlignmentStats,
   overlayPoiScreen,
