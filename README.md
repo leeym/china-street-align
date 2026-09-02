@@ -51,23 +51,7 @@ Until then, install from a GitHub Release zip (no `git` required) — same file 
 
 Developers packaging a release locally: `npm run pack` writes `dist/china-street-align-<version>.zip` and `dist/china-street-align.zip`.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.8.2**).
-
-### v0.8.2
-
-- **China-only scope** — basemap rewind, satellite gate, overlay, and status bar run only when the map camera is inside China; views outside China (including search/directions URLs) are left untouched.
-- **Per-tab isolation** — each Maps tab decides independently from its own URL; one China tab does not affect a US tab.
-
-### v0.8.1
-
-- **Always on inside China** — removed popup, mode switch, and toolbar red/green lamp; alignment starts automatically when the map view is in China.
-- **Status bar** — shows GCJ-02 / WGS-84 conversion state (e.g. `GCJ-02 streets → WGS-84 satellite`) instead of mode names.
-
-### v0.8.0
-
-- **Directions from satellite** — opening route planning tears down the overlay and switches the basemap to Map (not just a URL token change).
-- **Place pin** — single aligned teardrop when the URL pin datum does not match the basemap.
-- E2E coverage for the 清永陵 satellite → 規劃路線 flow (`tests/directions-native.spec.js`).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json`. Release notes are on the [Releases](https://github.com/leeym/china-street-align/releases) page.
 
 ## Usage
 
