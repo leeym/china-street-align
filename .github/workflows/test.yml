@@ -23,4 +23,5 @@ jobs:
           node-version: "22"
       - run: npm ci
       - run: npx playwright install chromium --with-deps
-      - run: npm run test:popup
+      # Extension tests launch headed Chromium; Linux runners need a virtual display.
+      - run: xvfb-run --auto-servernum npm run test:popup
