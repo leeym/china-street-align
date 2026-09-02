@@ -30,9 +30,57 @@ Open these four views of Hall of Supreme Harmony (太和殿) **without** the ext
 
 With the extension, the satellite place and the WGS lat/lon place views keep the pin on the hall.
 
+![Before: GCJ pin offset on WGS satellite](docs/before-align.svg)
+
+![After: aligned satellite and labels](docs/after-align.svg)
+
 This project does **not** change Google’s servers. Inside China it paints aligned satellite and label tiles where it can do so without breaking native Google features.
 
 Outside China the extension stays off.
+
+## How it works
+
+1. **Detect region** — reads the map camera `@lat,lon` from the URL (not device GPS). If the point is outside the overlay region (mainland PRC bounding area minus Taiwan and neighboring countries), the extension does nothing.
+2. **Fetch tiles** — the service worker proxies Google map tile URLs and caches them in memory (~20 MB LRU).
+3. **Repaint stack** — hides Google’s skewed satellite canvas and paints WGS-84 `s` imagery plus CSS-shifted GCJ-02 hybrid `h` labels so roads sit on the photo.
+4. **Yield to native** — search, directions, terrain, traffic, pegman, and similar views tear down the overlay and switch to Google’s Map basemap when needed.
+
+No data is sent to any server other than Google’s existing tile hosts.
+
+## Supported views
+
+| View | Extension behavior |
+| --- | --- |
+| Satellite / hybrid (clean photo) | Aligned WGS photo + shifted GCJ labels |
+| Place page (named POI) | Aligned stack; one teardrop if pin datum ≠ basemap |
+| Place page (WGS lat/lon in URL) | Same; pin stays on feature |
+| Search / directions / terrain / traffic | Native Map basemap; overlay off |
+| Street View / 3D Earth | Native Google view; overlay off |
+| Outside overlay region | Extension off (per tab) |
+
+## FAQ
+
+**Why does Taiwan stay native?** Google Maps Taiwan uses WGS-84 on both layers; shifting would misalign. Taiwan island and ROC offshore islands (Penghu, Kinmen, Matsu) are excluded.
+
+**What about Hong Kong and Macau?** They fall inside the GCJ literature box; the extension **does** activate there (same GCJ/WGS split as mainland).
+
+**What about Mongolia or Vietnam near the border?** v0.8.3 adds conservative exclusion rectangles for countries inside the GCJ box but outside PRC map territory. Border areas can still be ambiguous — reload if a view looks wrong.
+
+**Desktop Chrome only?** Yes. Manifest V3 Chrome extension; other browsers are unsupported.
+
+**Analytics or telemetry?** None. Tile fetches go only to Google; nothing is logged or uploaded by this extension.
+
+## Browser support
+
+- **Chrome** (desktop) — supported via Load unpacked or future Web Store listing
+- **Chromium forks** — may work but untested
+- **Firefox / Safari / mobile** — not supported (different extension platforms)
+
+## Privacy
+
+- No accounts, analytics, or third-party servers
+- Tile URLs are fetched by the extension service worker from Google hosts already used by Maps
+- No browsing history or location is stored; settings are not persisted (always-on inside the overlay region)
 
 ## Design principles
 
@@ -84,7 +132,7 @@ npm test
 - `npm run test:e2e` — Playwright: extension chrome, place pins, directions basemap handoff, pan/zoom smoke tests
 - `npm run test:directions` — directions basemap handoff only (used in CI)
 - `npm run pack` — build `dist/china-street-align-<version>.zip` for GitHub Releases
-- CI runs unit tests and directions e2e on every push and pull request
+- CI runs unit tests and a **stable subset** of directions e2e on every push and pull request. Run `npm run test:e2e` locally for the full Playwright suite (place pins, pan/zoom, satellite handoff).
 
 ## Limits
 

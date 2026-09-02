@@ -656,6 +656,41 @@ describe("GCJ overlay region excludes Taiwan island", () => {
   });
 });
 
+describe("GCJ box excludes neighboring countries inside the literature bounds", () => {
+  it("treats Mongolia, central Asia, and Far East Russia as outside", () => {
+    const outside = [
+      [47.8864, 106.9057], // Ulaanbaatar
+      [43.238, 76.945], // Almaty
+      [43.115, 131.885], // Vladivostok
+      [27.717, 85.324], // Kathmandu
+      [21.028, 105.854], // Hanoi
+      [37.566, 126.978], // Seoul
+      [33.59, 130.401], // Fukuoka (inside GCJ literature box)
+      [14.599, 120.984] // Manila
+    ];
+    for (const [lat, lon] of outside) {
+      assert.equal(lib.inChinaGcjBox(lat, lon), true, `${lat},${lon} in GCJ box`);
+      assert.equal(lib.inExcludedNeighborRegion(lat, lon), true, `${lat},${lon}`);
+      assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
+    }
+  });
+
+  it("still treats mainland China, Hong Kong, and Macau as inside", () => {
+    const inside = [
+      [39.9167, 116.3869], // Beijing
+      [31.2304, 121.4737], // Shanghai
+      [22.3193, 114.1694], // Hong Kong
+      [22.1987, 113.5439], // Macau
+      [40.8175, 111.7656], // Hohhot
+      [49.212, 119.765] // Hulunbuir
+    ];
+    for (const [lat, lon] of inside) {
+      assert.equal(lib.outOfChina(lat, lon), false, `${lat},${lon}`);
+      assert.equal(lib.inExcludedNeighborRegion(lat, lon), false, `${lat},${lon}`);
+    }
+  });
+});
+
 describe("Google Maps layer overlay spec", () => {
   const { WUZHANGYUAN } = require("../fixtures/overlay-landmarks");
   const MAP = "https://www.google.com/maps/@39.9167135,116.3868853,15z";

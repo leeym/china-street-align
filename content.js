@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  let VERSION = "0.7.2";
+  let VERSION = "dev";
   try {
     VERSION = chrome.runtime.getManifest().version;
   } catch (_e) {}
@@ -44,24 +44,30 @@
   // After pointer-up / zoom settle, keep the preview transform until Maps commits
   // a new `@` and redraw paints matching tiles — clearing earlier snaps back.
   let gestureHold = null;
+  let syncTimer = null;
   const obs = new MutationObserver(() => {
     if (!alive || gestureBusy()) return;
     if (noteDirectionsStateChange()) {
       lastKey = "";
       clearTimeout(timer);
+      clearTimeout(syncTimer);
       timer = setTimeout(redraw, 80);
       return;
     }
     if (location.href === lastHref) {
-      syncPoisIfVisible();
-      if (hybridAlign() && inChina(parseMapState()) && directionsPanelOpen() && hybridStillOnSatelliteBasemap()) {
-        maybeHybridRewindToMap();
-      }
+      clearTimeout(syncTimer);
+      syncTimer = setTimeout(() => {
+        syncPoisIfVisible();
+        if (hybridAlign() && inChina(parseMapState()) && directionsPanelOpen() && hybridStillOnSatelliteBasemap()) {
+          maybeHybridRewindToMap();
+        }
+      }, 80);
       return;
     }
     lastHref = location.href;
     lastKey = "";
     lastPoiKey = "";
+    clearTimeout(syncTimer);
     clearTimeout(timer);
     timer = setTimeout(redraw, 120);
   });
@@ -217,7 +223,7 @@
   }
 
   function requestPageWorldMapSwitch() {
-    window.postMessage({ source: "gcj02-aligner", type: "switchToMapBasemap" }, "*");
+    window.postMessage({ source: "gcj02-aligner", type: "switchToMapBasemap" }, location.origin);
   }
 
   const NATIVE_ONLY_SPEC = {
@@ -1711,7 +1717,7 @@
           return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
         })()
         : null;
-      window.postMessage({ source: "gcj02-aligner", type: "basemapToggleBox", box }, "*");
+      window.postMessage({ source: "gcj02-aligner", type: "basemapToggleBox", box }, location.origin);
     }
   });
 

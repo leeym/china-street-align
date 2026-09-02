@@ -518,11 +518,42 @@
     );
   }
 
+  // Inside the literature GCJ box but outside PRC / HK / Macau map territory.
+  // Conservative lat/lon rectangles — not a political border.
+  const GCJ_BOX_EXCLUSIONS = [
+    [46.0, 52.5, 87.0, 107.0], // Mongolia (west / central, incl. Ulaanbaatar)
+    [49.0, 52.5, 107.0, 116.5], // Mongolia (east; stops west of Hulunbuir ~119.8°E)
+    [39.0, 55.0, 72.0, 82.5], // Kazakhstan / central Asia
+    [35.0, 43.0, 72.0, 75.5], // Kyrgyzstan / Tajikistan / Afghanistan (far west)
+    [26.3, 30.5, 80.0, 88.5], // Nepal
+    [26.5, 28.5, 88.5, 92.0], // Bhutan
+    [6.5, 35.5, 68.0, 78.5], // India (north / west of Himalayas)
+    [9.0, 28.5, 92.0, 100.5], // Myanmar
+    [13.5, 22.3, 100.0, 107.0], // Laos
+    [8.0, 20.5, 102.0, 106.5], // Vietnam (south)
+    [20.5, 22.5, 104.0, 106.8], // Vietnam (north, west of Guangxi / Yunnan)
+    [37.5, 43.5, 124.0, 130.8], // North Korea
+    [33.0, 39.5, 124.5, 132.0], // South Korea
+    [24.0, 46.0, 128.0, 137.8], // Japan
+    [0.8, 21.0, 117.0, 127.0], // Philippines
+    [42.0, 55.0, 131.0, 137.8] // Russia (Far East, east of Heilongjiang)
+  ];
+
+  function inExcludedNeighborRegion(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    return GCJ_BOX_EXCLUSIONS.some(([south, north, west, east]) =>
+      inLatLonBox(la, lo, south, north, west, east)
+    );
+  }
+
   function outOfChina(lat, lon) {
     if (inXiamenMainland(lat, lon)) return false;
     if (inTaiwanIsland(lat, lon)) return true;
     if (inPenghuKinmenMatsu(lat, lon)) return true;
-    return !inChinaGcjBox(lat, lon);
+    if (!inChinaGcjBox(lat, lon)) return true;
+    if (inExcludedNeighborRegion(lat, lon)) return true;
+    return false;
   }
 
   const A = 6378245.0;
@@ -1233,6 +1264,7 @@
     inTaiwanIsland,
     inXiamenMainland,
     inPenghuKinmenMatsu,
+    inExcludedNeighborRegion,
     outOfChina,
     wgsToGcj,
     gcjToWgs,

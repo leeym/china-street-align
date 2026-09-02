@@ -74,6 +74,7 @@
   }
 
   window.addEventListener("message", (ev) => {
+    if (ev.origin !== location.origin) return;
     if (ev.data?.source !== "gcj02-aligner" || ev.data?.type !== "switchToMapBasemap") return;
     switchToMap();
   });

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="Before: GCJ place pin on WGS satellite  pin offset from building">
+  <rect width="640" height="360" fill="#1a1a2e"/>
+  <rect x="40" y="40" width="560" height="280" rx="8" fill="#2d4a3e"/>
+  <path d="M120 200 L520 180 L500 240 L140 260 Z" fill="#3a5a40" opacity="0.9"/>
+  <rect x="280" y="120" width="80" height="100" fill="#8b7355" stroke="#c4a574" stroke-width="2"/>
+  <rect x="300" y="140" width="40" height="60" fill="#5c4033"/>
+  <text x="320" y="115" text-anchor="middle" fill="#e8e8e8" font-family="system-ui,sans-serif" font-size="14">Hall (satellite, WGS-84)</text>
+  <path d="M380 230 L380 190 L395 190 L387.5 175 L380 190 L365 190 Z" fill="#ea4335" stroke="#fff" stroke-width="1.5"/>
+  <text x="380" y="255" text-anchor="middle" fill="#ea4335" font-family="system-ui,sans-serif" font-size="12">GCJ pin</text>
+  <line x1="380" y1="210" x2="320" y2="170" stroke="#ea4335" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.8"/>
+  <text x="320" y="340" text-anchor="middle" fill="#aaa" font-family="system-ui,sans-serif" font-size="13">Without extension  pin ~300 m off the hall</text>
+</svg>
