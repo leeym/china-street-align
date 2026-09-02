@@ -30,9 +30,11 @@ Open these four views of Hall of Supreme Harmony (太和殿) **without** the ext
 
 With the extension, the satellite place and the WGS lat/lon place views keep the pin on the hall.
 
-![Before: GCJ pin offset on WGS satellite](docs/before-align.png)
+![Before: 太和殿 satellite without the extension — GCJ roads offset from WGS photo](docs/before-align.png)
 
-![After: aligned satellite and labels](docs/after-align.png)
+![After: same view with the extension — streets aligned on satellite (status bar shows v0.8.3)](docs/after-align.png)
+
+Screenshots are captured from Google Maps with `npm run capture:readme` (Playwright, 太和殿 place · satellite URL).
 
 This project does **not** change Google’s servers. Inside China it paints aligned satellite and label tiles where it can do so without breaking native Google features.
 
