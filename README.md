@@ -30,9 +30,9 @@ Open these four views of Hall of Supreme Harmony (太和殿) **without** the ext
 
 With the extension, the satellite place and the WGS lat/lon place views keep the pin on the hall.
 
-![Before: GCJ pin offset on WGS satellite](docs/before-align.svg)
+![Before: GCJ pin offset on WGS satellite](docs/before-align.png)
 
-![After: aligned satellite and labels](docs/after-align.svg)
+![After: aligned satellite and labels](docs/after-align.png)
 
 This project does **not** change Google’s servers. Inside China it paints aligned satellite and label tiles where it can do so without breaking native Google features.
 

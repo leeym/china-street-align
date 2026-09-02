@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="After: aligned satellite and labels  pin on building">
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="After: aligned satellite and labels, pin on building">
+  <title>After: aligned satellite and labels</title>
   <rect width="640" height="360" fill="#1a1a2e"/>
   <rect x="40" y="40" width="560" height="280" rx="8" fill="#2d4a3e"/>
   <path d="M120 200 L520 180 L500 240 L140 260 Z" fill="#3a5a40" opacity="0.9"/>
@@ -7,5 +8,5 @@
   <text x="320" y="115" text-anchor="middle" fill="#e8e8e8" font-family="system-ui,sans-serif" font-size="14">Hall (aligned WGS photo + shifted labels)</text>
   <path d="M320 230 L320 190 L335 190 L327.5 175 L320 190 L305 190 Z" fill="#34a853" stroke="#fff" stroke-width="1.5"/>
   <text x="320" y="255" text-anchor="middle" fill="#34a853" font-family="system-ui,sans-serif" font-size="12">Pin on hall</text>
-  <text x="320" y="340" text-anchor="middle" fill="#aaa" font-family="system-ui,sans-serif" font-size="13">With extension  satellite and streets share the same ground</text>
+  <text x="320" y="340" text-anchor="middle" fill="#aaa" font-family="system-ui,sans-serif" font-size="13">With extension: satellite and streets share the same ground</text>
 </svg>
