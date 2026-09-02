@@ -28,13 +28,13 @@ Open these four views of Hall of Supreme Harmony (太和殿) **without** the ext
 | [`39°54′57.0″N 116°23′26.0″E` · Satellite](https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,1179m/data=!3m1!1e3!4m4!3m3!8m2!3d39.9158333!4d116.3905556) | Pin sits on the hall (WGS-84 query on WGS-84 photo) |
 | [`39°54′57.0″N 116°23′26.0″E` · Map](https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,17z/data=!4m4!3m3!8m2!3d39.9158333!4d116.3905556) | Pin slides off the hall (WGS-84 query on GCJ-02 map) |
 
-With the extension, the satellite place and the WGS lat/lon place views keep the pin on the hall.
+With the extension, the satellite place and the WGS lat/lon place views keep the pin on the hall:
 
-![Before: 太和殿 satellite without the extension — GCJ roads offset from WGS photo](docs/before-align.png)
+![太和殿 · satellite — GCJ place pin aligned on WGS photo (extension on)](docs/aligned-taihedian-satellite.png)
 
-![After: same view with the extension — streets aligned on satellite (status bar shows v0.8.3)](docs/after-align.png)
+![WGS lat/lon · map — WGS query pin aligned on GCJ street map (extension on)](docs/aligned-wgs-map.png)
 
-Screenshots are captured from Google Maps with `npm run capture:readme` (Playwright, 太和殿 place · satellite URL).
+Screenshots are captured from Google Maps with `npm run capture:readme` (Playwright, extension loaded).
 
 This project does **not** change Google’s servers. Inside China it paints aligned satellite and label tiles where it can do so without breaking native Google features.
 
