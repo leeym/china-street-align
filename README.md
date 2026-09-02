@@ -19,22 +19,33 @@ That split is not a Google bug. Public maps of China must use an approved nation
 
 In practice, civilian internet maps implement that system as **GCJ-02** (often called “Mars coordinates”), a confidential offset from WGS-84 historically associated with the State Bureau of Surveying and Mapping (国测局). Satellite / aerial imagery is often still published in WGS-84. Plotting GCJ-02 streets on WGS-84 photos produces a consistent shift (on the order of hundreds of metres).
 
-Open these four views of Hall of Supreme Harmony (太和殿) **without** the extension:
+Hall of Supreme Harmony (太和殿) at the Forbidden City — four combinations that **misalign** without the extension, and two that the extension fixes:
 
-| Link | Without extension |
-| --- | --- |
-| [太和殿 · Map](https://www.google.com/maps/place/%E5%A4%AA%E5%92%8C%E6%AE%BF/@39.917273,116.3970962,1179m/data=!3m2!1e0!4b1!4m6!3m5!1s0x35f052c28a42d347:0x4d686c72723159fa!8m2!3d39.917273!4d116.3970962!16zL20vMDQ4N3dn) | Pin sits on the hall (GCJ-02 place on GCJ-02 map) |
-| [太和殿 · Satellite](https://www.google.com/maps/place/%E5%A4%AA%E5%92%8C%E6%AE%BF/@39.917273,116.3970962,1179m/data=!3m2!1e3!4b1!4m6!3m5!1s0x35f052c28a42d347:0x4d686c72723159fa!8m2!3d39.917273!4d116.3970962!16zL20vMDQ4N3dn) | Pin slides off the hall (GCJ-02 place on WGS-84 photo) |
-| [`39°54′57.0″N 116°23′26.0″E` · Satellite](https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,1179m/data=!3m1!1e3!4m4!3m3!8m2!3d39.9158333!4d116.3905556) | Pin sits on the hall (WGS-84 query on WGS-84 photo) |
-| [`39°54′57.0″N 116°23′26.0″E` · Map](https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,17z/data=!4m4!3m3!8m2!3d39.9158333!4d116.3905556) | Pin slides off the hall (WGS-84 query on GCJ-02 map) |
+<table>
+  <thead>
+    <tr>
+      <th></th>
+      <th><a href="https://www.google.com/maps/place/%E5%A4%AA%E5%92%8C%E6%AE%BF/@39.917273,116.3970962,1179m/data=!3m2!1e3!4b1!4m6!3m5!1s0x35f052c28a42d347:0x4d686c72723159fa!8m2!3d39.917273!4d116.3970962!16zL20vMDQ4N3dn">太和殿 · Satellite</a></th>
+      <th><a href="https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,17z/data=!4m4!3m3!8m2!3d39.9158333!4d116.3905556"><code>39°54′57.0″N 116°23′26.0″E</code> · Map</a></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Without extension</th>
+      <td align="center"><img src="docs/taihedian-sat-without.png" alt="太和殿 satellite without extension — pin off the hall" width="426"/><br/>Pin slides off the hall</td>
+      <td align="center"><img src="docs/wgs-map-without.png" alt="WGS lat/lon map without extension — pin off the hall" width="426"/><br/>Pin slides off the hall</td>
+    </tr>
+    <tr>
+      <th>With extension</th>
+      <td align="center"><img src="docs/taihedian-sat-with.png" alt="太和殿 satellite with extension — pin on the hall" width="426"/><br/>Pin on the hall</td>
+      <td align="center"><img src="docs/wgs-map-with.png" alt="WGS lat/lon map with extension — pin on the hall" width="426"/><br/>Pin on the hall</td>
+    </tr>
+  </tbody>
+</table>
 
-With the extension, the satellite place and the WGS lat/lon place views keep the pin on the hall:
+The other two pairings already match without the extension: **太和殿 · Map** (GCJ place on GCJ map) and **`39°54′57.0″N 116°23′26.0″E` · Satellite** (WGS query on WGS photo).
 
-![太和殿 · satellite — GCJ place pin aligned on WGS photo (extension on)](docs/aligned-taihedian-satellite.png)
-
-![WGS lat/lon · map — WGS query pin aligned on GCJ street map (extension on)](docs/aligned-wgs-map.png)
-
-Screenshots are captured from Google Maps with `npm run capture:readme` (Playwright, extension loaded).
+Screenshots: `npm run capture:readme` (Playwright, half-size map crops).
 
 This project does **not** change Google’s servers. Inside China it paints aligned satellite and label tiles where it can do so without breaking native Google features.
 
