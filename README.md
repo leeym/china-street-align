@@ -19,6 +19,11 @@ That split is not a Google bug. Public maps of China must use an approved nation
 
 In practice, civilian internet maps implement that system as **GCJ-02** (often called “Mars coordinates”), a confidential offset from WGS-84 historically associated with the State Bureau of Surveying and Mapping (国测局). Satellite / aerial imagery is often still published in WGS-84. Plotting GCJ-02 streets on WGS-84 photos produces a consistent shift (on the order of hundreds of metres). Xinglin Bay Bridge in Xiamen is a clear example: the yellow highway and the physical bridge run as two parallel lines.
 
+Same camera over the Forbidden City (紫禁城) — open both without the extension to see the offset; with the extension, the satellite view should match the streets:
+
+- [Map (15z)](https://www.google.com/maps/@39.9167135,116.3868853,15z)
+- [Satellite (4718m)](https://www.google.com/maps/@39.9167135,116.3868853,4718m/data=!3m1!1e3)
+
 This project does **not** change Google’s servers. Inside China it paints aligned satellite and label tiles where it can do so without breaking native Google features.
 
 Outside China the extension stays off.
