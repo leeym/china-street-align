@@ -54,7 +54,7 @@ async function findRedPinOnMapCanvas(page, hint) {
       const data = ctx.getImageData(0, 0, tmp.width, tmp.height).data;
       const sx = canvas.width / cr.width;
       const sy = canvas.height / cr.height;
-      const x0 = Math.floor(tmp.width * 0.32);
+      const x0 = Math.floor(tmp.width * 0.08);
       for (let y = 48; y < tmp.height - 80; y += 2) {
         for (let x = x0; x < tmp.width - 14; x += 2) {
           let score = 0;
@@ -111,6 +111,49 @@ async function dismissConsent(page) {
       break;
     }
   }
+}
+
+async function getMapCanvasBounds(page) {
+  return page.evaluate(() => {
+    const canvas = [...document.querySelectorAll("canvas")]
+      .filter((c) => c.getBoundingClientRect().width > 400)
+      .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (!canvas) return null;
+    const r = canvas.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  });
+}
+
+async function collapseSidebar(page) {
+  const already = await page.evaluate(() => {
+    const sidebar = document.querySelector(".m6QErb.WNBkOb");
+    if (!sidebar) return true;
+    return sidebar.getBoundingClientRect().right <= 8;
+  });
+  if (already) return;
+
+  const collapseBtn = page.locator(
+    'button[aria-label*="收合側邊面板"], button[aria-label*="Collapse side panel"]'
+  ).first();
+  if (await collapseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await collapseBtn.click({ timeout: 5000 });
+  } else {
+    await page.evaluate(() => {
+      for (const el of document.querySelectorAll("button")) {
+        const label = el.getAttribute("aria-label") || "";
+        if (/收合側邊面板|Collapse side panel/i.test(label)) {
+          el.click();
+          return;
+        }
+      }
+    });
+  }
+  await page.waitForFunction(() => {
+    const sidebar = document.querySelector(".m6QErb.WNBkOb");
+    if (!sidebar) return true;
+    return sidebar.getBoundingClientRect().right <= 8;
+  }, { timeout: 10000 });
+  await page.waitForTimeout(500);
 }
 
 async function waitForMapCanvas(page) {
@@ -236,13 +279,13 @@ async function findPinTip(page, url) {
   return null;
 }
 
-function clipAroundPin(pin, vp) {
-  const sidebar = Math.round(Math.min(420, vp.width * 0.34));
+function clipAroundPin(pin, vp, mapBounds) {
+  const marginLeft = Math.max(0, Math.round(mapBounds?.left ?? 0));
   const marginTop = 48;
   const marginBottom = 48;
   let x = Math.round(pin.x - CROP_W / 2);
   let y = Math.round(pin.y - CROP_H / 2);
-  x = Math.max(sidebar, Math.min(x, vp.width - CROP_W - 4));
+  x = Math.max(marginLeft, Math.min(x, vp.width - CROP_W - 4));
   y = Math.max(marginTop, Math.min(y, vp.height - CROP_H - marginBottom));
   return { x, y, width: CROP_W, height: CROP_H };
 }
@@ -281,18 +324,24 @@ async function captureShot(page, shot) {
   } else {
     await page.waitForTimeout(2000);
   }
-  await page.addStyleTag({
-    content: "#gcj02-aligner-status{opacity:0.85!important}.dismissible-content,.Q6EWfb{display:none!important}"
-  }).catch(() => {});
   if (shot.basemap === "map" && await pageShowsSatellite(page)) {
     throw new Error(`${shot.label}: expected map basemap, still showing satellite`);
   }
   if (shot.basemap === "satellite" && !(await pageShowsSatellite(page))) {
     throw new Error(`${shot.label}: expected satellite basemap`);
   }
+  await collapseSidebar(page);
+  await page.addStyleTag({
+    content: [
+      "#gcj02-aligner-status{opacity:0.85!important}",
+      ".dismissible-content,.Q6EWfb{display:none!important}",
+      ".m6QErb.WNBkOb{display:none!important}"
+    ].join("")
+  }).catch(() => {});
+  const mapBounds = await getMapCanvasBounds(page);
   const pin = await findPinTip(page, shot.url);
   if (!pin) throw new Error(`pin not found: ${shot.label}`);
-  const clip = clipAroundPin(pin, page.viewportSize());
+  const clip = clipAroundPin(pin, page.viewportSize(), mapBounds);
   await page.screenshot({ path: outPath, clip });
   console.log(`${shot.label} → ${outPath} (${clip.width}x${clip.height}) pin@(${Math.round(pin.x)},${Math.round(pin.y)}) ${pin.source || ""}`);
 }
