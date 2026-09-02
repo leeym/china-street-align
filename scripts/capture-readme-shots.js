@@ -88,10 +88,12 @@ const WGS_MAP =
   "https://www.google.com/maps/place/39%C2%B054'57.0%22N+116%C2%B023'26.0%22E/@39.9158333,116.3905556,17z/data=!4m4!3m3!8m2!3d39.9158333!4d116.3905556";
 
 const SHOTS = [
-  { label: "without · 太和殿 · satellite", out: "taihedian-sat-without.png", url: TAIHEDIAN_SAT, kind: "native", extension: false },
-  { label: "without · WGS · map", out: "wgs-map-without.png", url: WGS_MAP, kind: "native", extension: false },
-  { label: "with · 太和殿 · satellite", out: "taihedian-sat-with.png", url: TAIHEDIAN_SAT, kind: "satellite", extension: true },
-  { label: "with · WGS · map", out: "wgs-map-with.png", url: WGS_MAP, kind: "wgs-map", extension: true }
+  // Capture map shots before satellite when possible — Maps remembers basemap
+  // preference across navigations in the same profile.
+  { label: "without · WGS · map", out: "wgs-map-without.png", url: WGS_MAP, kind: "native", extension: false, basemap: "map" },
+  { label: "without · 太和殿 · satellite", out: "taihedian-sat-without.png", url: TAIHEDIAN_SAT, kind: "native", extension: false, basemap: "satellite" },
+  { label: "with · WGS · map", out: "wgs-map-with.png", url: WGS_MAP, kind: "wgs-map", extension: true, basemap: "map" },
+  { label: "with · 太和殿 · satellite", out: "taihedian-sat-with.png", url: TAIHEDIAN_SAT, kind: "satellite", extension: true, basemap: "satellite" }
 ];
 
 async function dismissConsent(page) {
@@ -119,6 +121,70 @@ async function waitForMapCanvas(page) {
     return !!canvas && canvas.getBoundingClientRect().width > 500;
   }, { timeout: 120000 });
   await page.waitForTimeout(3000);
+}
+
+async function pageShowsSatellite(page) {
+  return page.evaluate(() => {
+    const href = location.href;
+    if (/!3m\d+!1e3/i.test(href) || /!1e3/.test(href)) return true;
+    const layer = document.getElementById("gcj02-aligner-root")?.dataset.layer || "";
+    if (layer === "satellite") return true;
+    const blob = document.body?.innerText || "";
+    if (/Imagery\s*©[^©\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    if (/©\d{4}\s*(CNES|Airbus|Maxar)/i.test(blob)) return true;
+    return false;
+  });
+}
+
+async function switchBasemapViaLayers(page, target) {
+  const wantSat = target === "satellite";
+  const names = wantSat
+    ? ["Satellite", "卫星", "衛星", "卫星图", "衛星圖"]
+    : ["Default", "Map", "Road map", "Roadmap", "地图", "地圖", "街道", "預設", "预设", "互動式地圖", "互动地图"];
+  const btn = page.getByRole("button", { name: /^(layers|圖層|图层|map type|地圖類型|地图类型)$/i }).first();
+  const layers = (await btn.isVisible({ timeout: 2000 }).catch(() => false))
+    ? btn
+    : page.locator(
+      '[aria-label="Layers"], [aria-label="Map type"], [aria-label="圖層"], [aria-label="图层"], [aria-label="地圖類型"], [aria-label="地图类型"]'
+    ).first();
+  if (!(await layers.isVisible({ timeout: 4000 }).catch(() => false))) {
+    throw new Error(`Layers control not found for basemap=${target}`);
+  }
+  await layers.click({ timeout: 8000 });
+  await page.waitForTimeout(500);
+  let clicked = false;
+  for (const name of names) {
+    const item = page.getByRole("menuitemradio", { name })
+      .or(page.getByRole("menuitem", { name }))
+      .or(page.getByRole("button", { name }))
+      .or(page.getByText(name, { exact: true }));
+    if (await item.first().isVisible({ timeout: 1200 }).catch(() => false)) {
+      await item.first().click();
+      clicked = true;
+      break;
+    }
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(1800);
+  if (!clicked) throw new Error(`Basemap menu item not found for ${target}`);
+}
+
+async function ensureBasemap(page, want) {
+  const sat = await pageShowsSatellite(page);
+  if (want === "satellite" && sat) return;
+  if (want === "map" && !sat) return;
+  await switchBasemapViaLayers(page, want);
+  const after = await pageShowsSatellite(page);
+  if (want === "map" && after) {
+    throw new Error("Still on satellite after switching to map basemap");
+  }
+  if (want === "satellite" && !after) {
+    // URL may lag; imagery copyright is the stronger signal.
+    const blob = await page.evaluate(() => document.body?.innerText || "");
+    if (!/CNES|Airbus|Maxar/i.test(blob) && !/!1e3/.test(page.url())) {
+      throw new Error("Still not on satellite after switching basemap");
+    }
+  }
 }
 
 async function waitForExtensionReady(page, kind) {
@@ -207,14 +273,23 @@ async function captureShot(page, shot) {
     await dismissConsent(page);
   }
   await waitForMapCanvas(page);
+  if (shot.basemap) await ensureBasemap(page, shot.basemap);
   if (shot.extension) {
     await waitForExtensionReady(page, shot.kind);
+    // Extension WGS-map mode must stay on vector map (not satellite overlay).
+    if (shot.basemap === "map") await ensureBasemap(page, "map");
   } else {
     await page.waitForTimeout(2000);
   }
   await page.addStyleTag({
     content: "#gcj02-aligner-status{opacity:0.85!important}.dismissible-content,.Q6EWfb{display:none!important}"
   }).catch(() => {});
+  if (shot.basemap === "map" && await pageShowsSatellite(page)) {
+    throw new Error(`${shot.label}: expected map basemap, still showing satellite`);
+  }
+  if (shot.basemap === "satellite" && !(await pageShowsSatellite(page))) {
+    throw new Error(`${shot.label}: expected satellite basemap`);
+  }
   const pin = await findPinTip(page, shot.url);
   if (!pin) throw new Error(`pin not found: ${shot.label}`);
   const clip = clipAroundPin(pin, page.viewportSize());
