@@ -54,7 +54,7 @@
     }
     if (location.href === lastHref) {
       syncPoisIfVisible();
-      if (hybridAlign() && directionsPanelOpen() && hybridStillOnSatelliteBasemap()) {
+      if (hybridAlign() && inChina(parseMapState()) && directionsPanelOpen() && hybridStillOnSatelliteBasemap()) {
         maybeHybridRewindToMap();
       }
       return;
@@ -107,6 +107,7 @@
       ? ev.target.closest("button, a, [role='button'], [role='tab'], [jsaction]")
       : null;
     if (!isDirectionsActivator(el)) return;
+    if (!inChina(parseMapState())) return;
     armDirectionsLatch();
   }
 
@@ -519,6 +520,7 @@
   // Switch satellite → map when Hybrid must keep Google's native canvas (directions,
   // search, terrain, traffic, …). Never skip overlay teardown while retrying.
   function maybeHybridRewindToMap() {
+    if (!inChina(parseMapState())) return;
     if (!hybridAlign() || !hybridNeedsNativeLayers()) {
       hybridRewindTries = 0;
       return;
@@ -702,6 +704,18 @@
 
   function effectiveMode(st) {
     return st && !outOfChina(st.lat, st.lon) ? "on" : "off";
+  }
+
+  function inChina(st) {
+    return effectiveMode(st) === "on";
+  }
+
+  // Tear down overlay, gates, and latches when the map view leaves China.
+  function standDownOutsideChina() {
+    hybridRewindTries = 0;
+    directionsLatchUntil = 0;
+    lastDirectionsOpen = false;
+    hideOverlay();
   }
 
   function overlayHost() {
@@ -1558,6 +1572,11 @@
 
   function redraw() {
     if (!alive || gestureBusy()) return;
+    const st = parseMapState();
+    if (!inChina(st)) {
+      standDownOutsideChina();
+      return;
+    }
     if (hybridAlign() && hybridNeedsNativeLayers()) {
       maybeHybridRewindToMap();
       setNativeMapHidden(false);
@@ -1567,7 +1586,6 @@
       return;
     }
     const spec = overlaySpec();
-    const st = parseMapState();
     const active = effectiveMode(st);
     if (spec.nativeOnly || active === "off" || !st || st.zoom < 5 || st.zoom > 21) {
       if (hybridYieldsNativeCanvas()) setNativeMapHidden(false);
@@ -1747,6 +1765,11 @@
   });
   pollTimer = setInterval(() => {
     if (!alive || gestureBusy()) return;
+    const st = parseMapState();
+    if (!inChina(st)) {
+      if (root && root.style.display !== "none") standDownOutsideChina();
+      return;
+    }
     if (noteDirectionsStateChange()) {
       lastKey = "";
       redraw();
@@ -1777,8 +1800,7 @@
       }
       return;
     }
-    const st = parseMapState();
-    if (effectiveMode(st) === "on" && (!root || root.style.display === "none" || !root.querySelector("img"))) {
+    if (!root || root.style.display === "none" || !root.querySelector("img")) {
       lastKey = "";
       redraw();
       return;

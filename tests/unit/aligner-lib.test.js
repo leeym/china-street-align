@@ -314,6 +314,10 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(lib.outOfChina(25.033, 121.565), true);
     assert.match(contentJs, /outOfChina\(/);
     assert.match(contentJs, /effectiveMode/);
+    assert.match(contentJs, /function standDownOutsideChina/);
+    assert.match(contentJs, /function inChina/);
+    assert.match(contentJs, /if \(!inChina\(st\)\)/);
+    assert.match(contentJs, /if \(!inChina\(parseMapState\(\)\)\) return;/);
   });
 
   it("shows GCJ-02 datum status inside China and no popup UI", () => {

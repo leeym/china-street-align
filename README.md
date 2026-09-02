@@ -51,7 +51,12 @@ Until then, install from a GitHub Release zip (no `git` required) — same file 
 
 Developers packaging a release locally: `npm run pack` writes `dist/china-street-align-<version>.zip` and `dist/china-street-align.zip`.
 
-Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.8.1**).
+Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (currently **0.8.2**).
+
+### v0.8.2
+
+- **China-only scope** — basemap rewind, satellite gate, overlay, and status bar run only when the map camera is inside China; views outside China (including search/directions URLs) are left untouched.
+- **Per-tab isolation** — each Maps tab decides independently from its own URL; one China tab does not affect a US tab.
 
 ### v0.8.1
 
@@ -66,7 +71,7 @@ Version follows [Semantic Versioning](https://semver.org/) in `manifest.json` (c
 
 ## Usage
 
-Inside China the extension aligns the two datums automatically; outside China it stays off. A small status line at the top of the map shows the current GCJ-02 / WGS-84 state, version, and zoom while tiles are painting.
+Inside China the extension aligns the two datums automatically; outside China it stays off. Each Maps tab is independent — a China view in one tab does not change another tab showing elsewhere. A small status line at the top of the map shows the current GCJ-02 / WGS-84 state, version, and zoom while tiles are painting.
 
 Map zoom, search, layers, and other Google chrome stay clickable (overlay is `pointer-events: none` under them). Full Street View and 3D Earth stay on Google’s native view.
 
