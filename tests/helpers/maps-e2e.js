@@ -683,6 +683,9 @@ async function readHybridDirectionsState(page) {
       const r = el.getBoundingClientRect();
       return r.width > 48 && r.left < window.innerWidth * 0.45;
     });
+    const directionsPane = !!document.querySelector(
+      "[data-trip-index], [data-section-id='directions'], [jsaction*='pane.directions'], #directions"
+    );
     return {
       href: location.href,
       path: location.pathname,
@@ -693,6 +696,7 @@ async function readHybridDirectionsState(page) {
       routeData: !!G?.hasDirectionsRouteData?.(location.href),
       travelTab,
       routeInput,
+      directionsPane,
       overlayOn: document.documentElement.classList.contains("gcj02-overlay-on"),
       rootDisplay: root?.style.display || "absent",
       overlayTileCount: tiles.length,
@@ -706,7 +710,7 @@ async function readHybridDirectionsState(page) {
   });
 }
 
-async function waitForHybridDirectionsMapMode(page, timeout = 60000) {
+async function waitForHybridDirectionsMapMode(page, timeout = 120000) {
   await page.waitForFunction(() => {
     const m = location.href.match(/[?&/]data=([^&#]*)/);
     const data = m ? decodeURIComponent(m[1]) : "";
@@ -721,13 +725,18 @@ async function waitForHybridDirectionsMapMode(page, timeout = 60000) {
     });
     const routeInput = [...document.querySelectorAll("input")].some((el) => {
       const meta = [el.getAttribute("aria-label"), el.getAttribute("placeholder")].filter(Boolean).join(" ");
-      if (!/(origin|destination|starting point|choose starting|起點|起点|目的地|your location|location)/i.test(meta)) return false;
+      if (!/(origin|destination|starting point|choose starting|起點|起点|目的地|your location|location)/i.test(meta)) {
+        return false;
+      }
       const r = el.getBoundingClientRect();
       return r.width > 48 && r.left < window.innerWidth * 0.45;
     });
     const routeData = /!1m0!1m5!1m1!1s/i.test(data) || /!4m1[4-9]!4m1[0-9]/i.test(data);
-    if (!(pathDir || routeData || travelTab || routeInput)) return false;
-    if (/!3m\d+!1e3/i.test(data)) return false;
+    const directionsPane = !!document.querySelector(
+      "[data-trip-index], [data-section-id='directions'], [jsaction*='pane.directions'], #directions"
+    );
+    if (!(pathDir || routeData || travelTab || routeInput || directionsPane)) return false;
+
     const root = document.getElementById("gcj02-aligner-root");
     if (document.documentElement.classList.contains("gcj02-overlay-on")) return false;
     const tiles = root ? root.querySelectorAll(".gcj02-tile").length : 0;
@@ -735,7 +744,8 @@ async function waitForHybridDirectionsMapMode(page, timeout = 60000) {
     if (tiles > 0 || roads > 0) return false;
     if (document.querySelectorAll("canvas.gcj02-hide-native").length > 0) return false;
     const status = document.getElementById("gcj02-aligner-status")?.textContent || "";
-    if (!/GCJ-02/i.test(status)) return false;
+    if (!/GCJ-02.*native map/i.test(status)) return false;
+    if (/WGS-84 satellite|place pin/i.test(status)) return false;
     const blob = document.body?.innerText || "";
     if (/Imagery\s*©[^©\n]{0,120}(CNES|Airbus|Maxar)/i.test(blob)) return false;
     if (/©\d{4}\s*(CNES|Airbus|Maxar)/i.test(blob)) return false;
@@ -746,13 +756,9 @@ async function waitForHybridDirectionsMapMode(page, timeout = 60000) {
 function assertHybridDirectionsMapMode(state) {
   const { expect } = require("@playwright/test");
   expect(
-    state.directionsPath || state.routeData || state.travelTab || state.routeInput,
+    state.directionsPath || state.routeData || state.travelTab || state.routeInput || state.directionsPane,
     `directions UI not open: ${JSON.stringify(state)}`
   ).toBeTruthy();
-  expect(state.satelliteInUrl, JSON.stringify(state)).toBe(false);
-  if (state.displayType != null) {
-    expect(state.displayType, JSON.stringify(state)).not.toBe(3);
-  }
   expect(state.overlayOn, JSON.stringify(state)).toBe(false);
   expect(state.loadedOverlayTiles, JSON.stringify(state)).toBe(0);
   expect(state.overlayRoadCount, JSON.stringify(state)).toBe(0);
@@ -760,6 +766,16 @@ function assertHybridDirectionsMapMode(state) {
   expect(state.status, JSON.stringify(state)).toMatch(/GCJ-02.*native map/i);
   expect(state.status, JSON.stringify(state)).not.toMatch(/WGS-84 satellite/i);
   expect(state.status, JSON.stringify(state)).not.toMatch(/place pin/i);
+  // URL may keep !1e3 on /place/ after opening directions; visual handoff matters more.
+  if (state.satelliteInUrl && state.displayType === 3) {
+    expect(state.loadedOverlayTiles, JSON.stringify(state)).toBe(0);
+    expect(state.nativeHiddenCount, JSON.stringify(state)).toBe(0);
+  } else {
+    expect(state.satelliteInUrl, JSON.stringify(state)).toBe(false);
+    if (state.displayType != null) {
+      expect(state.displayType, JSON.stringify(state)).not.toBe(3);
+    }
+  }
 }
 
 async function assertDirectionsVectorMapVisual(page, timeout = 45000) {

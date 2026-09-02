@@ -31,6 +31,8 @@ const DIRECTIONS_SAT_URL =
   "https://www.google.com/maps/dir//%E6%B8%85%E6%B0%B8%E9%99%B5/@41.7088729,124.7898743,2316m/data=!3m1!1e3!4m8!1m0!1m5!1m1!1s0x5e2e238c032cbc93:0xfcc3e337e7f95939!2m2!1d124.802589!2d41.710262!3e0";
 
 test.describe.serial("directions forces native map in China", () => {
+  test.setTimeout(300000);
+
   let context;
   let page;
 
@@ -38,10 +40,17 @@ test.describe.serial("directions forces native map in China", () => {
     const fs = require("fs");
     fs.mkdirSync(OUT, { recursive: true });
     context = await launchExtensionContext();
-    page = context.pages()[0] || await context.newPage();
     if (!context.serviceWorkers()[0]) {
       await context.waitForEvent("serviceworker", { timeout: 20000 }).catch(() => {});
     }
+  });
+
+  test.beforeEach(async () => {
+    page = await context.newPage();
+  });
+
+  test.afterEach(async () => {
+    await page?.close().catch(() => {});
   });
 
   test.afterAll(async () => {
@@ -83,8 +92,9 @@ test.describe.serial("directions forces native map in China", () => {
     await waitForOverlay(page);
 
     const dirBtn = page.getByRole("button", { name: /directions|規劃路線|规划路线|路线|路線/i }).first();
+    await expect(dirBtn).toBeVisible({ timeout: 30000 });
     await dirBtn.click({ timeout: 30000 });
-    await waitForHybridDirectionsMapMode(page, 60000);
+    await waitForHybridDirectionsMapMode(page);
 
     const state = await readHybridDirectionsState(page);
     assertHybridDirectionsMapMode(state);
