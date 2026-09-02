@@ -986,12 +986,16 @@ describe("search result POIs on the overlay", () => {
     assert.equal(pois[0].kind, "attraction");
     assert.match(contentJs, /appendPoiGlyph/);
     assert.match(contentJs, /poiMarkerSpec/);
-    assert.match(contentJs, /poiHoverTeardropSpec/);
+    assert.match(contentJs, /nativeSpotlightPinSpec/);
     assert.match(contentCss, /\.gcj02-poi-icon/);
     assert.match(contentCss, /\.gcj02-poi-teardrop/);
     assert.match(contentCss, /\.gcj02-poi\.is-hover/);
     assert.match(contentJs, /onSidebarPointerOver/);
     assert.doesNotMatch(contentJs, /gcj02-poi-pin/);
+    const pin = lib.nativeSpotlightPinSpec(2);
+    assert.match(pin.src, /spotlight-poi2_hdpi\.png/);
+    assert.equal(pin.width, 27);
+    assert.equal(pin.height, 43);
   });
 
   it("plots overlay POIs with the camera street shift, with clean labels", () => {

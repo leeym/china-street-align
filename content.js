@@ -1163,25 +1163,9 @@
 
   function appendPoiGlyph(el, kind, name, description) {
     const spec = globalThis.Gcj02Aligner.poiMarkerSpec(kind);
-    const hover = globalThis.Gcj02Aligner.poiHoverTeardropSpec();
     const mark = document.createElement("div");
     mark.className = "gcj02-poi-mark";
     const ns = "http://www.w3.org/2000/svg";
-
-    function makeSvg(className, fill, d, w, h, viewBox) {
-      const svg = document.createElementNS(ns, "svg");
-      svg.setAttribute("class", className);
-      svg.setAttribute("viewBox", viewBox);
-      svg.setAttribute("width", String(w));
-      svg.setAttribute("height", String(h));
-      svg.setAttribute("aria-hidden", "true");
-      const path = document.createElementNS(ns, "path");
-      path.setAttribute("d", d);
-      path.setAttribute("fill", fill);
-      path.setAttribute("fill-rule", "evenodd");
-      svg.appendChild(path);
-      return svg;
-    }
 
     const icon = document.createElementNS(ns, "svg");
     icon.setAttribute("class", "gcj02-poi-icon");
@@ -1200,13 +1184,22 @@
     icon.appendChild(bg);
     icon.appendChild(path);
     mark.appendChild(icon);
-    const tear = makeSvg("gcj02-poi-teardrop", hover.fill, hover.path, 28, 40, "0 0 24 24");
-    const hole = document.createElementNS(ns, "circle");
-    hole.setAttribute("cx", "12");
-    hole.setAttribute("cy", "9");
-    hole.setAttribute("r", "2.6");
-    hole.setAttribute("fill", "#fff");
-    tear.appendChild(hole);
+
+    // Place / hover teardrop: Google's pre-colored red spotlight POI artwork.
+    const pin = globalThis.Gcj02Aligner.nativeSpotlightPinSpec(2);
+    const tear = document.createElement("div");
+    tear.className = "gcj02-poi-teardrop";
+    tear.setAttribute("aria-hidden", "true");
+    tear.style.width = `${pin.width}px`;
+    tear.style.height = `${pin.height}px`;
+    const img = document.createElement("img");
+    img.className = "gcj02-poi-teardrop-img";
+    img.src = pin.src;
+    img.alt = "";
+    img.draggable = false;
+    img.width = pin.width;
+    img.height = pin.height;
+    tear.appendChild(img);
     mark.appendChild(tear);
     el.appendChild(mark);
     const labelText = String(name || "").trim();
@@ -1333,7 +1326,7 @@
       );
       el.style.left = `${screen.x}px`;
       el.style.top = `${screen.y}px`;
-      el.style.transform = "translate(-13px, -100%)";
+      el.style.transform = "translate(-50%, -100%)";
       if (hoveredPoiKey && el.dataset.key === hoveredPoiKey) el.classList.add("is-hover");
       appendPoiGlyph(el, poi.kind, poi.name, poi.description);
       panEl.appendChild(el);

@@ -97,7 +97,7 @@
 }
 .gcj02-poi {
   position: absolute !important;
-  transform: translate(-13px, -100%);
+  transform: translate(-50%, -100%);
   z-index: 2;
   display: flex;
   flex-direction: row;
@@ -113,9 +113,12 @@
 .gcj02-poi.is-place-pin .gcj02-poi-teardrop {
   display: block !important;
 }
+.gcj02-poi.is-place-pin {
+  /* Google's spotlight artwork already includes outline/shadow. */
+  filter: none;
+}
 .gcj02-poi.is-hover {
   z-index: 6;
-  transform: translate(-14px, -100%);
 }
 .gcj02-poi-mark {
   flex: 0 0 auto;
@@ -130,9 +133,16 @@
 }
 .gcj02-poi-teardrop {
   display: none;
-  width: 28px;
-  height: 40px;
+  position: relative;
+  width: 27px;
+  height: 43px;
   overflow: visible;
+}
+.gcj02-poi-teardrop img {
+  display: block;
+  width: 27px;
+  height: 43px;
+  pointer-events: none !important;
 }
 .gcj02-poi-label {
   flex: 0 0 auto;

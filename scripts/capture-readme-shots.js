@@ -338,6 +338,13 @@ async function captureShot(page, shot) {
       ".m6QErb.WNBkOb{display:none!important}"
     ].join("")
   }).catch(() => {});
+  // Wait for Google spotlight_pin artwork on overlay place pins.
+  if (shot.extension) {
+    await page.waitForFunction(() => {
+      const imgs = [...document.querySelectorAll(".gcj02-poi.is-place-pin .gcj02-poi-teardrop img")];
+      return imgs.length >= 1 && imgs.every((img) => img.complete && img.naturalWidth > 0);
+    }, { timeout: 15000 }).catch(() => {});
+  }
   const mapBounds = await getMapCanvasBounds(page);
   const pin = await findPinTip(page, shot.url);
   if (!pin) throw new Error(`pin not found: ${shot.label}`);
