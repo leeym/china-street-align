@@ -294,6 +294,10 @@
       "[data-trip-index], [data-section-id='directions'], [jsaction*='pane.directions'], #directions"
     )) return true;
     for (const el of document.querySelectorAll("button, [role='tab']")) {
+      // Layers panel quick toggles (traffic/transit/bike) use the same labels as
+      // directions travel modes — do not treat layerswitcher chips as directions.
+      if (el.getAttribute("role") === "menuitemcheckbox") continue;
+      if (/layerswitcher/i.test(el.getAttribute("jsaction") || "")) continue;
       const label = basemapControlLabel(el).trim();
       if (!/^(driving|transit|walking|bicycling|開車|开车|驾车|大眾運輸|公共交通|步行|騎車|骑车|摩托車|摩托车)$/i.test(label)) {
         continue;

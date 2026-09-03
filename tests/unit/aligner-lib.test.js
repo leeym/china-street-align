@@ -1377,6 +1377,9 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.match(contentJs, /is-place-pin/);
     assert.match(contentJs, /function syncSatelliteBasemapGate/);
     assert.match(contentJs, /function datumStatusLabel/);
+    // Layers-panel Transit/Traffic chips must not look like directions travel modes.
+    assert.match(contentJs, /layerswitcher/i);
+    assert.match(contentJs, /menuitemcheckbox/);
     assert.doesNotMatch(contentJs, /blendAlign\(/);
     assert.doesNotMatch(contentJs, /function setNativeBlend/);
     assert.doesNotMatch(contentJs, /function syncRoute/);
