@@ -75,9 +75,9 @@ No data is sent to any server other than Google’s existing tile hosts.
 
 ## FAQ
 
-**Why does Taiwan stay native?** Google Maps Taiwan uses WGS-84 on both layers; shifting would misalign. Taiwan island and ROC offshore islands (Penghu, Kinmen, Matsu) are excluded.
+**Why does Taiwan stay native?** Taiwan and China are two separate countries, and laws and regulations of the People’s Republic of China do not apply to Taiwan. Since GCJ-02 is mandated by Chinese regulations for online mapping within China, Taiwan is outside the scope of those requirements. Taiwan island and the offshore islands of Penghu, Kinmen, and Matsu are all excluded.
 
-**What about Hong Kong and Macau?** They fall inside the GCJ literature box; the extension **does** activate there (same GCJ/WGS split as mainland).
+**What about Hong Kong and Macau?** Hong Kong and Macau are Special Administrative Regions of China, and Chinese laws and regulations apply to both. Since GCJ-02 is mandated by Chinese regulations for online mapping within China, they fall within the scope of those requirements.
 
 **What about Mongolia or Vietnam near the border?** v0.8.3 adds conservative exclusion rectangles for countries inside the GCJ box but outside PRC map territory. Border areas can still be ambiguous — reload if a view looks wrong.
 
