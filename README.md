@@ -21,7 +21,7 @@ That split is not a Google bug. Public maps of China must use an approved nation
 
 In practice, civilian internet maps implement that system as **GCJ-02** (often called “Mars coordinates”), a confidential offset from WGS-84 historically associated with the State Bureau of Surveying and Mapping (国测局). Satellite / aerial imagery is often still published in WGS-84. Plotting GCJ-02 streets on WGS-84 photos produces a consistent shift (on the order of hundreds of metres).
 
-Hall of Supreme Harmony (太和殿) at the Forbidden City — four combinations that **misalign** without the extension, and two that the extension fixes:
+Hall of Supreme Harmony (太和殿) at the Forbidden City — two combinations **misalign** without the extension; the extension aligns both:
 
 <table>
   <thead>
