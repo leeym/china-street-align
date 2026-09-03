@@ -35,10 +35,16 @@ const FILES = [
   "page-basemap.js",
   "content.css",
   "service-worker.js",
+  "popup.html",
+  "popup.css",
+  "popup.js",
   "LICENSE",
   "THIRD_PARTY_NOTICES",
   "assets/place-pin.png",
-  "assets/place-pin-hdpi.png"
+  "assets/place-pin-hdpi.png",
+  "assets/icons/icon16.png",
+  "assets/icons/icon48.png",
+  "assets/icons/icon128.png"
 ];
 
 fs.rmSync(dist, { recursive: true, force: true });

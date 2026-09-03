@@ -42,6 +42,56 @@ async function extensionId(context) {
   return new URL(sw.url()).host;
 }
 
+async function openPopup(context, extId) {
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extId}/popup.html`, { waitUntil: "domcontentloaded" });
+  await popup.waitForSelector("#modes");
+  return popup;
+}
+
+async function readAlignModeStorage(popup) {
+  return popup.evaluate(() => new Promise((resolve) => {
+    chrome.storage.local.get({ alignMode: "hybrid" }, (got) => {
+      resolve(got?.alignMode || "hybrid");
+    });
+  }));
+}
+
+async function setModeViaPopup(context, extId, mode) {
+  const popup = await openPopup(context, extId);
+  await popup.locator(`input[value="${mode}"]`).check();
+  await popup.waitForFunction((m) => {
+    const input = document.querySelector(`input[value="${m}"]`);
+    return input && input.checked;
+  }, mode, { timeout: 5000 });
+  const labels = { hybrid: "On", off: "Off" };
+  await popup.waitForFunction((m) => {
+    const el = document.getElementById("current");
+    return el && el.textContent === m;
+  }, labels[mode], { timeout: 5000 });
+  await popup.waitForFunction(async (m) => {
+    const got = await new Promise((resolve) => {
+      chrome.storage.local.get({ alignMode: "" }, (v) => resolve(v?.alignMode || ""));
+    });
+    return got === m;
+  }, mode, { timeout: 5000 });
+  await popup.close();
+}
+
+async function waitForAlignMode(page, mode) {
+  await page.waitForFunction((m) => document.documentElement.dataset.gcj02AlignMode === m, mode, {
+    timeout: 30000
+  });
+}
+
+async function waitForOverlayOff(page) {
+  await page.waitForFunction(() => {
+    if (document.documentElement.dataset.gcj02AlignMode === "off") return true;
+    const root = document.getElementById("gcj02-aligner-root");
+    return !root || root.style.display === "none" || root.dataset.alignMode === "off";
+  }, { timeout: 30000 });
+}
+
 /** Box of Maps' own basemap toggle, for a real (trusted) user click. */
 async function basemapToggleBox(page) {
   const fromContent = await page.evaluate(() => new Promise((resolve) => {
@@ -801,6 +851,11 @@ module.exports = {
   overlaySvvCyanPixels,
   waitForOverlaySvvPb,
   waitForOverlay,
+  waitForOverlayOff,
+  waitForAlignMode,
+  openPopup,
+  readAlignModeStorage,
+  setModeViaPopup,
   waitForNativePois,
   overlayAlignmentStats,
   overlayPoiScreen,

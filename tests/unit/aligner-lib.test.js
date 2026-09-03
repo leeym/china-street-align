@@ -320,14 +320,21 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.match(contentJs, /if \(!inChina\(parseMapState\(\)\)\) return;/);
   });
 
-  it("shows GCJ-02 datum status inside China and no popup UI", () => {
+  it("ships a toolbar popup for On/Off alignment and GCJ-02 status in China", () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, "manifest.json"), "utf8"));
-    assert.equal(manifest.action?.default_popup, undefined);
-    assert.ok(!(manifest.permissions || []).includes("storage"));
-    assert.equal(fs.existsSync(path.join(rootDir, "popup.html")), false);
+    assert.equal(manifest.action?.default_popup, "popup.html");
+    assert.ok((manifest.permissions || []).includes("storage"));
+    assert.equal(fs.existsSync(path.join(rootDir, "popup.html")), true);
+    assert.equal(fs.existsSync(path.join(rootDir, "popup.js")), true);
+    assert.equal(fs.existsSync(path.join(rootDir, "assets/icons/icon128.png")), true);
+    assert.equal(manifest.icons?.["128"], "assets/icons/icon128.png");
+    assert.match(manifest.name, /^China Street Align for Google Maps$/);
     assert.match(contentJs, /datumStatusLabel/);
     assert.match(contentJs, /GCJ-02/);
     assert.match(contentJs, /Aligning ·/);
+    assert.match(contentJs, /function setMode/);
+    assert.match(contentJs, /function loadAlignMode/);
+    assert.match(contentJs, /ALIGN_MODE_KEY/);
     assert.doesNotMatch(contentJs, /setActionStatus/);
     assert.doesNotMatch(contentJs, /gcj02-aligner-modebar/);
     const sw = fs.readFileSync(path.join(rootDir, "service-worker.js"), "utf8");
@@ -337,6 +344,11 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.ok(fs.existsSync(path.join(rootDir, "THIRD_PARTY_NOTICES")));
     const packJs = fs.readFileSync(path.join(rootDir, "scripts", "pack.js"), "utf8");
     assert.match(packJs, /THIRD_PARTY_NOTICES/);
+    assert.match(packJs, /popup\.html/);
+    assert.match(packJs, /icon128\.png/);
+    const license = fs.readFileSync(path.join(rootDir, "LICENSE"), "utf8");
+    assert.match(license, /AS IS/);
+    assert.match(license, /THIRD_PARTY_NOTICES/);
   });
 
   it("translates the overlay with the pointer while dragging in China", () => {
@@ -1384,7 +1396,7 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.ok(measure < guard, "measurement must precede the size guard");
   });
 
-  it("wires always-on alignment through content script", () => {
+  it("wires Hybrid/Off mode through the content script", () => {
     assert.match(contentJs, /function maybeHybridRewindToMap/);
     assert.match(contentJs, /function hybridNeedsNativeLayers/);
     assert.match(contentJs, /function hybridYieldsNativeCanvas/);
@@ -1393,6 +1405,8 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.match(contentJs, /is-place-pin/);
     assert.match(contentJs, /function syncSatelliteBasemapGate/);
     assert.match(contentJs, /function datumStatusLabel/);
+    assert.match(contentJs, /alignMode === "hybrid"/);
+    assert.match(contentJs, /dataset\.gcj02AlignMode/);
     // Layers-panel Transit/Traffic chips must not look like directions travel modes.
     assert.match(contentJs, /layerswitcher/i);
     assert.match(contentJs, /menuitemcheckbox/);

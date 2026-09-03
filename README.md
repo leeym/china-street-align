@@ -6,7 +6,7 @@ Download the latest Load-unpacked zip → see [Install](#install) below. (Chrome
 
 A Chrome extension that, **inside China**, aligns Google Maps **WGS-84 satellite imagery** with **GCJ-02 street labels** so the photo and the roads sit on the same ground.
 
-The Chrome Web Store / toolbar name is **Google Maps China Street Align**. This repository is `china-street-align`.
+The Chrome Web Store / toolbar name is **China Street Align for Google Maps**. This repository is `china-street-align`.
 
 **Not affiliated with or endorsed by Google.** Google Maps is a trademark of Google LLC. See [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for Google-derived artwork in the package.
 
@@ -93,7 +93,7 @@ No data is sent to any server other than Google’s existing tile hosts.
 
 - No accounts, analytics, or third-party servers
 - Tile URLs are fetched by the extension service worker from Google hosts already used by Maps
-- No browsing history or location is stored; settings are not persisted (always-on inside the overlay region)
+- No browsing history or location is stored; the toolbar popup On/Off choice is kept in `chrome.storage.local` only
 - Not affiliated with or endorsed by Google; see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)
 
 ## Design principles
@@ -128,7 +128,9 @@ Version follows [Semantic Versioning](https://semver.org/) in `manifest.json`. R
 
 ## Usage
 
-Inside China the extension aligns the two datums automatically; outside China it stays off. Each Maps tab is independent — a China view in one tab does not change another tab showing elsewhere. A small status line at the top of the map shows the current GCJ-02 / WGS-84 state, version, and zoom while tiles are painting.
+Inside China the extension aligns the two datums automatically (**On**, the default); outside China it stays idle. Use the toolbar popup to switch **On** / **Off** for every Maps tab (stored locally in the browser). Each Maps tab still decides region from its own camera — a China view in one tab does not change another tab showing elsewhere.
+
+A small status line at the top of the map shows the current GCJ-02 / WGS-84 state, version, and zoom while tiles are painting (hidden when Off or outside the overlay region).
 
 Map zoom, search, layers, and other Google chrome stay clickable (overlay is `pointer-events: none` under them). Full Street View and 3D Earth stay on Google’s native view.
 
@@ -146,6 +148,7 @@ npm test
 - `npm run test:e2e` — Playwright: extension chrome, place pins, directions basemap handoff, pan/zoom smoke tests
 - `npm run test:directions` — directions basemap handoff only (used in CI)
 - `npm run pack` — build `dist/china-street-align-<version>.zip` for GitHub Releases
+- `node scripts/bake-icons.js` — regenerate toolbar / store PNG icons
 - CI runs unit tests and a **stable subset** of directions e2e on every push and pull request. Run `npm run test:e2e` locally for the full Playwright suite (place pins, pan/zoom, satellite handoff).
 
 ## Limits
@@ -157,4 +160,4 @@ npm test
 
 ## License
 
-[THE PEARL-TEA-WARE LICENSE](LICENSE) (based on Poul-Henning Kamp’s [Beer-ware License](https://people.freebsd.org/~phk/)). Keep the notice; do what you want with the code. If we meet and you think it was worth it, you can buy Yen-Ming Lee a pearl tea.
+[THE PEARL-TEA-WARE LICENSE](LICENSE) (based on Poul-Henning Kamp’s [Beer-ware License](https://people.freebsd.org/~phk/)). Keep the notice; do what you want with the code. If we meet and you think it was worth it, you can buy Yen-Ming Lee a pearl tea. The software is provided **as is**, without warranty; see [LICENSE](LICENSE) for the full disclaimer. Google-derived pin artwork is covered separately in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>China Street Align</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>China Street Align</h1>
+    <p class="sub">
+      Inside China, turn alignment on to match WGS-84 satellite with GCJ-02 streets,
+      or off for native Google Maps.
+    </p>
+    <p class="current">Active: <strong id="current">…</strong> · <span id="version"></span></p>
+    <p id="error" class="error" hidden></p>
+    <form id="modes">
+      <label class="mode">
+        <input type="radio" name="alignMode" value="hybrid" />
+        <span class="title">On</span>
+        <span class="desc">
+          Align when possible. Search, directions, terrain, traffic, and similar
+          views fall back to Google’s map so native layers stay intact.
+        </span>
+      </label>
+      <label class="mode">
+        <input type="radio" name="alignMode" value="off" />
+        <span class="title">Off</span>
+        <span class="desc">Native Google Maps, no alignment.</span>
+      </label>
+    </form>
+    <script src="popup.js"></script>
+  </body>
+</html>

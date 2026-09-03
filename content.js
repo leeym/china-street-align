@@ -18,6 +18,12 @@
   const GESTURE_SETTLE_MAX_MS = 1500;
   const PAN_MOVE_PX = 3;
 
+  const ALIGN_MODE_KEY = "alignMode";
+  const DEFAULT_ALIGN_MODE = "hybrid";
+  // "hybrid" (On) aligns when possible; "off" is native Maps.
+  let alignMode = DEFAULT_ALIGN_MODE;
+  let alignModeLoaded = false;
+  let alignModeReadId = 0;
   const BASEMAP_SWITCH_MAX_TRIES = 6;
   let hybridRewindTries = 0;
   let directionsLatchUntil = 0;
@@ -276,8 +282,17 @@
     return `https://mt${s}.google.com/vt/lyrs=${lyrs}&x=${x}&y=${y}&z=${z}`;
   }
 
+  function normalizeMode(v) {
+    return globalThis.Gcj02Aligner.normalizeAlignMode(v);
+  }
+
+  function publishAlignMode() {
+    document.documentElement.dataset.gcj02AlignMode = alignMode;
+    if (root) root.dataset.alignMode = alignMode;
+  }
+
   function hybridAlign() {
-    return true;
+    return alignMode === "hybrid";
   }
 
   function hybridNeedsNativeLayers() {
@@ -548,6 +563,7 @@
   }
 
   function datumStatusLabel() {
+    if (alignMode === "off") return "Off · native Google Maps";
     if (satGateNoticeUntil > Date.now()) {
       return "GCJ-02 → WGS-84 · satellite blocked while layers active";
     }
@@ -713,6 +729,7 @@
   }
 
   function effectiveMode(st) {
+    if (alignMode === "off") return "off";
     return st && !outOfChina(st.lat, st.lon) ? "on" : "off";
   }
 
@@ -1703,9 +1720,74 @@
     syncPois(st, w, h);
   }
 
+  function setMode(v) {
+    if (!alive) return;
+    const next = normalizeMode(v);
+    if (next === alignMode) {
+      publishAlignMode();
+      return;
+    }
+    alignMode = next;
+    publishAlignMode();
+    setNativeMapHidden(false);
+    setHoveredPoi("");
+    if (panEl) {
+      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
+        .forEach((e) => e.remove());
+    }
+    lastKey = "";
+    lastPoiKey = "";
+    hybridRewindTries = 0;
+    redraw();
+  }
+
+  function applyStoredAlignMode(v) {
+    alignModeLoaded = true;
+    if (normalizeMode(v) === alignMode) {
+      publishAlignMode();
+      lastKey = "";
+      redraw();
+      return;
+    }
+    setMode(v);
+  }
+
+  function readStoredAlignMode(cb) {
+    const readId = ++alignModeReadId;
+    const finish = (v) => {
+      if (readId !== alignModeReadId) return;
+      try { cb(v); } catch (_e) {}
+    };
+    try {
+      chrome.storage.local.get({ [ALIGN_MODE_KEY]: DEFAULT_ALIGN_MODE }, (got) => {
+        try { void chrome.runtime.lastError; } catch (_e) {}
+        finish(got?.[ALIGN_MODE_KEY] ?? DEFAULT_ALIGN_MODE);
+      });
+    } catch (_e) {
+      finish(DEFAULT_ALIGN_MODE);
+    }
+  }
+
+  function loadAlignMode() {
+    try {
+      readStoredAlignMode((v) => {
+        if (alignModeLoaded) return;
+        applyStoredAlignMode(v);
+      });
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local" || !changes[ALIGN_MODE_KEY]) return;
+        alignModeReadId += 1;
+        applyStoredAlignMode(changes[ALIGN_MODE_KEY].newValue);
+      });
+    } catch (_e) {
+      applyStoredAlignMode(alignMode);
+    }
+  }
+
   addEventListener("message", (ev) => {
     if (!alive || ev.source !== window) return;
     if (ev.data?.source !== "gcj02-aligner") return;
+    if (ev.data?.type === "setMode") setMode(ev.data.mode);
     if (ev.data?.type === "getBasemapToggleBox") {
       const toggle = nativeBasemapToggle();
       const box = toggle
@@ -1824,5 +1906,10 @@
     }
   }, 400);
 
-  redraw();
+  publishAlignMode();
+  loadAlignMode();
+  // If storage never answers (no permission, disabled profile), still draw.
+  setTimeout(() => {
+    if (!alignModeLoaded) applyStoredAlignMode(alignMode);
+  }, 300);
 })();
