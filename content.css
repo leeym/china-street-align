@@ -134,14 +134,14 @@
 .gcj02-poi-teardrop {
   display: none;
   position: relative;
-  width: 27px;
-  height: 43px;
+  width: 28px;
+  height: 39px;
   overflow: visible;
 }
 .gcj02-poi-teardrop img {
   display: block;
-  width: 27px;
-  height: 43px;
+  width: 28px;
+  height: 39px;
   pointer-events: none !important;
 }
 .gcj02-poi-label {

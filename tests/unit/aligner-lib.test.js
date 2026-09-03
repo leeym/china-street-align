@@ -993,9 +993,11 @@ describe("search result POIs on the overlay", () => {
     assert.match(contentJs, /onSidebarPointerOver/);
     assert.doesNotMatch(contentJs, /gcj02-poi-pin/);
     const pin = lib.nativeSpotlightPinSpec(2);
-    assert.match(pin.src, /spotlight-poi2_hdpi\.png/);
-    assert.equal(pin.width, 27);
-    assert.equal(pin.height, 43);
+    assert.match(pin.path, /assets\/place-pin-hdpi\.png/);
+    assert.equal(pin.width, 28);
+    assert.equal(pin.height, 39);
+    assert.match(contentJs, /chrome\.runtime\.getURL\(pin\.path\)/);
+    assert.ok(fs.existsSync(path.join(rootDir, "assets", "place-pin-hdpi.png")));
   });
 
   it("plots overlay POIs with the camera street shift, with clean labels", () => {

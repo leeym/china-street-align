@@ -35,7 +35,9 @@ const FILES = [
   "page-basemap.js",
   "content.css",
   "service-worker.js",
-  "LICENSE"
+  "LICENSE",
+  "assets/place-pin.png",
+  "assets/place-pin-hdpi.png"
 ];
 
 fs.rmSync(dist, { recursive: true, force: true });
@@ -47,7 +49,9 @@ for (const file of FILES) {
     console.error(`Missing required file: ${file}`);
     process.exit(1);
   }
-  fs.copyFileSync(src, path.join(stageDir, file));
+  const dest = path.join(stageDir, file);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
 }
 
 // zip from dist/ so the archive root is china-street-align/

@@ -1185,7 +1185,7 @@
     icon.appendChild(path);
     mark.appendChild(icon);
 
-    // Place / hover teardrop: Google's pre-colored red spotlight POI artwork.
+    // Place / hover teardrop: baked Maps spotlight_pin_v4 (same art as Places).
     const pin = globalThis.Gcj02Aligner.nativeSpotlightPinSpec(2);
     const tear = document.createElement("div");
     tear.className = "gcj02-poi-teardrop";
@@ -1194,7 +1194,7 @@
     tear.style.height = `${pin.height}px`;
     const img = document.createElement("img");
     img.className = "gcj02-poi-teardrop-img";
-    img.src = pin.src;
+    img.src = chrome.runtime.getURL(pin.path);
     img.alt = "";
     img.draggable = false;
     img.width = pin.width;

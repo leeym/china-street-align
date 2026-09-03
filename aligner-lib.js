@@ -624,25 +624,23 @@
     return "place";
   }
 
-  // Classic Maps hover / place pin (red teardrop). Prefer Google's pre-colored
-  // spotlight POI artwork so the overlay matches the native Places pin.
+  // Classic Maps hover / place pin (red teardrop). SVG path is a fallback glyph;
+  // Places overlay uses the baked spotlight_pin_v4 composite in assets/.
   const POI_HOVER_TEARDROP = {
     fill: "#EA4335",
     // Tip at bottom-centre so translate(-50%, -100%) parks the point on the place.
     path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
   };
 
-  // Pre-colored red Places pin (Maps API sprite). Do not use maps/vt/icon
-  // spotlight_pin_v4_* — those are cyan/magenta templates that WebGL recolors;
-  // loading them as <img> shows fluorescent blue, not Google red.
+  // Exact Places teardrop: Maps' spotlight_pin_v4 outline+fill+dot templates,
+  // recolored to native reds (see scripts/bake-place-pin.js). Not the older
+  // maps.gstatic spotlight-poi2 sprite, which is a different shape.
   function nativeSpotlightPin(scale) {
     const hdpi = Number(scale) !== 1;
     return {
-      src: hdpi
-        ? "https://maps.gstatic.com/mapfiles/api-3/images/spotlight-poi2_hdpi.png"
-        : "https://maps.gstatic.com/mapfiles/api-3/images/spotlight-poi2.png",
-      width: 27,
-      height: 43
+      path: hdpi ? "assets/place-pin-hdpi.png" : "assets/place-pin.png",
+      width: 28,
+      height: 39
     };
   }
 
