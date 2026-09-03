@@ -1,3 +1,6 @@
+// In-memory tile cache (best-effort performance only). MV3 may suspend this
+// service worker at any time; the cache is intentionally not persisted to
+// disk — stale tiles, disk usage, and invalidation are not worth the cost.
 const cache = new Map();
 const pending = new Map();
 const MAX_CACHE_BYTES = 20 * 1024 * 1024;

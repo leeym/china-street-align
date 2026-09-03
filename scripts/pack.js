@@ -36,6 +36,7 @@ const FILES = [
   "content.css",
   "service-worker.js",
   "LICENSE",
+  "THIRD_PARTY_NOTICES",
   "assets/place-pin.png",
   "assets/place-pin-hdpi.png"
 ];

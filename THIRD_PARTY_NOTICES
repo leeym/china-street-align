@@ -1,0 +1,23 @@
+Third-party assets
+==================
+
+assets/place-pin.png and assets/place-pin-hdpi.png
+--------------------------------------------------
+
+These PNG files are derived from Google Maps `spotlight_pin_v4` artwork
+(outline, fill, and center-dot layers). They are recolored and composited
+at build time (see scripts/bake-place-pin.js) so the extension overlay can
+show a Places teardrop that matches the native Google Maps pin appearance.
+
+They are used only inside Google Maps pages served by this extension.
+They do not represent this project as an official Google product.
+
+Google Maps is a trademark of Google LLC. This extension is not affiliated
+with or endorsed by Google.
+
+Tile data
+---------
+
+Map tiles are fetched at runtime from Google tile hosts already used by
+Google Maps in the browser. The extension does not redistribute Google
+map tiles in the release package.

@@ -333,6 +333,10 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     const sw = fs.readFileSync(path.join(rootDir, "service-worker.js"), "utf8");
     assert.doesNotMatch(sw, /setActionStatus/);
     assert.doesNotMatch(sw, /OffscreenCanvas/);
+    assert.match(sw, /intentionally not persisted/);
+    assert.ok(fs.existsSync(path.join(rootDir, "THIRD_PARTY_NOTICES")));
+    const packJs = fs.readFileSync(path.join(rootDir, "scripts", "pack.js"), "utf8");
+    assert.match(packJs, /THIRD_PARTY_NOTICES/);
   });
 
   it("translates the overlay with the pointer while dragging in China", () => {

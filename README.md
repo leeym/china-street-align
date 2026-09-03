@@ -8,6 +8,8 @@ A Chrome extension that, **inside China**, aligns Google Maps **WGS-84 satellite
 
 The Chrome Web Store / toolbar name is **Google Maps China Street Align**. This repository is `china-street-align`.
 
+**Not affiliated with or endorsed by Google.** Google Maps is a trademark of Google LLC. See [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for Google-derived artwork in the package.
+
 ## Why streets and satellite do not line up
 
 Google Maps satellite tiles over China are typically **WGS-84** (the same datum as GPS). Street, label, and POI tiles are typically **GCJ-02**.
@@ -94,6 +96,7 @@ No data is sent to any server other than Google’s existing tile hosts.
 - No accounts, analytics, or third-party servers
 - Tile URLs are fetched by the extension service worker from Google hosts already used by Maps
 - No browsing history or location is stored; settings are not persisted (always-on inside the overlay region)
+- Not affiliated with or endorsed by Google; see [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES)
 
 ## Design principles
 
