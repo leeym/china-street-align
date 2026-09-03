@@ -1,6 +1,6 @@
 {
   "name": "china-street-align",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Chrome extension: inside China, aligns GCJ-02 street labels with WGS-84 satellite imagery on Google Maps.",
   "main": "content.js",
   "scripts": {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Google Maps China Street Align",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Inside China, aligns GCJ-02 street labels with WGS-84 satellite imagery on Google Maps.",
   "host_permissions": [
     "https://www.google.com/*",
@@ -19,7 +19,9 @@
     "https://khms2.google.com/*",
     "https://khms3.google.com/*"
   ],
-  "background": { "service_worker": "service-worker.js" },
+  "background": {
+    "service_worker": "service-worker.js"
+  },
   "action": {
     "default_title": "Google Maps China Street Align"
   },
@@ -32,7 +34,9 @@
         "https://www.google.com.hk/maps/*",
         "https://maps.google.com/*"
       ],
-      "js": ["page-basemap.js"],
+      "js": [
+        "page-basemap.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle"
     },
@@ -44,14 +48,22 @@
         "https://www.google.com.hk/maps/*",
         "https://maps.google.com/*"
       ],
-      "js": ["aligner-lib.js", "content.js"],
-      "css": ["content.css"],
+      "js": [
+        "aligner-lib.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["assets/place-pin.png", "assets/place-pin-hdpi.png"],
+      "resources": [
+        "assets/place-pin.png",
+        "assets/place-pin-hdpi.png"
+      ],
       "matches": [
         "https://www.google.com/*",
         "https://www.google.com.hk/*",
