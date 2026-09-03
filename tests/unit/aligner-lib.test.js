@@ -328,6 +328,7 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(fs.existsSync(path.join(rootDir, "popup.js")), true);
     assert.equal(fs.existsSync(path.join(rootDir, "assets/icons/icon128.png")), true);
     assert.equal(manifest.icons?.["128"], "assets/icons/icon128.png");
+    assert.equal(manifest.web_accessible_resources?.[0]?.use_dynamic_url, true);
     assert.match(manifest.name, /^China Street Align for Google Maps$/);
     assert.match(contentJs, /datumStatusLabel/);
     assert.match(contentJs, /GCJ-02/);

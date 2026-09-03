@@ -14,7 +14,7 @@ jobs:
           node-version: "22"
       - run: npm run test:unit
 
-  directions-e2e:
+  e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,5 +24,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install chromium --with-deps
       # Extension tests launch headed Chromium; Linux runners need a virtual display.
-      # Run the stable subset: user-flow handoff + direct /dir/ satellite rewind.
-      - run: xvfb-run --auto-servernum npx playwright test tests/directions-native.spec.js --grep "user flow|/dir/ URL"
+      - name: directions (stable subset)
+        run: xvfb-run --auto-servernum npx playwright test tests/directions-native.spec.js --grep "user flow|/dir/ URL"
+      - name: popup On/Off
+        run: xvfb-run --auto-servernum npx playwright test tests/popup.spec.js
