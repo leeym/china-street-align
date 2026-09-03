@@ -686,11 +686,27 @@ describe("GCJ box excludes neighboring countries inside the literature bounds", 
       [22.3193, 114.1694], // Hong Kong
       [22.1987, 113.5439], // Macau
       [40.8175, 111.7656], // Hohhot
-      [49.212, 119.765] // Hulunbuir
+      [49.212, 119.765], // Hulunbuir
+      [41.710262, 124.802589], // 清永陵 (Liaoning; directions e2e landmark)
+      [40.124, 124.383], // Dandong
+      [42.891, 129.509], // Yanji
+      [44.55, 129.63] // Mudanjiang
     ];
     for (const [lat, lon] of inside) {
       assert.equal(lib.outOfChina(lat, lon), false, `${lat},${lon}`);
       assert.equal(lib.inExcludedNeighborRegion(lat, lon), false, `${lat},${lon}`);
+    }
+  });
+
+  it("still treats Korea and Japan cities as outside", () => {
+    const outside = [
+      [39.039, 125.762], // Pyongyang
+      [37.566, 126.978], // Seoul
+      [33.59, 130.401] // Fukuoka
+    ];
+    for (const [lat, lon] of outside) {
+      assert.equal(lib.inExcludedNeighborRegion(lat, lon), true, `${lat},${lon}`);
+      assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
     }
   });
 });

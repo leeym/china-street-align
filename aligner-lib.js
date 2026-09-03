@@ -532,9 +532,13 @@
     [13.5, 22.3, 100.0, 107.0], // Laos
     [8.0, 20.5, 102.0, 106.5], // Vietnam (south)
     [20.5, 22.5, 104.0, 106.8], // Vietnam (north, west of Guangxi / Yunnan)
-    [37.5, 43.5, 124.0, 130.8], // North Korea
+    // North Korea — stepped edges so Liaoning / Jilin / Yanbian stay in.
+    [37.5, 39.95, 124.25, 128.5], // southern / western NK (Pyongyang); south of Dandong
+    [39.95, 42.2, 126.2, 130.5], // mid-north NK (Chongjin); south/west of Yanji / Hunchun
     [33.0, 39.5, 124.5, 132.0], // South Korea
-    [24.0, 46.0, 128.0, 137.8], // Japan
+    // Japan — keep west of Kyushu/Honshu; do not swallow Yanbian / Mudanjiang.
+    [24.0, 37.0, 129.0, 137.8], // Ryukyu / Kyushu / Shikoku / south Honshu
+    [37.0, 46.0, 130.5, 137.8], // north Honshu / west Hokkaido
     [0.8, 21.0, 117.0, 127.0], // Philippines
     [42.0, 55.0, 131.0, 137.8] // Russia (Far East, east of Heilongjiang)
   ];
