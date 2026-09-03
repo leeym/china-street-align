@@ -149,7 +149,7 @@ npm test
 - `npm run test:directions` — directions basemap handoff only (used in CI)
 - `npm run pack` — build `dist/china-street-align-<version>.zip` for GitHub Releases
 - `node scripts/bake-icons.js` — regenerate toolbar / store PNG icons
-- CI runs unit tests and a **stable subset** of directions e2e on every push and pull request. Run `npm run test:e2e` locally for the full Playwright suite (place pins, pan/zoom, satellite handoff).
+- CI runs unit tests plus Playwright **directions** (stable subset) and **popup** On/Off e2e on every push and pull request. Run `npm run test:e2e` locally for the full Playwright suite (place pins, pan/zoom, satellite handoff).
 
 ## Limits
 
