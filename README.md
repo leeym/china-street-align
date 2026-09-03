@@ -12,14 +12,14 @@ The Chrome Web Store / toolbar name is **Google Maps China Street Align**. This 
 
 ## Why streets and satellite do not line up
 
-Google Maps satellite tiles over China are typically **WGS-84** (the same datum as GPS). Street, label, and POI tiles are typically **GCJ-02**.
+On [Google Maps in China](https://en.wikipedia.org/wiki/Google_Maps#Google_Maps_in_China), the satellite photo and the street map often disagree. Satellite imagery is usually **[WGS-84](https://en.wikipedia.org/wiki/World_Geodetic_System#WGS84)** — the same datum GPS uses — while roads, labels, and place pins are drawn in **[GCJ-02](https://en.wikipedia.org/wiki/Restrictions_on_geographic_data_in_China#GCJ-02)** (“Mars coordinates”), a mandated offset used by public maps in China. Wikipedia calls the mismatch the **[GPS shift problem](https://en.wikipedia.org/wiki/Restrictions_on_geographic_data_in_China#GPS_shift_problem)**: a pin or road can land hundreds of metres away from the building in the photo.
 
-That split is not a Google bug. Public maps of China must use an approved national geodetic system:
+That is not a rendering bug. Chinese law requires approved map products to use the national geodetic system (implemented in practice as GCJ-02):
 
 - [Surveying and Mapping Law of the People’s Republic of China](https://ghzrzyw.beijing.gov.cn/zhengwuxinxi/zcfg/fl/201912/t20191213_1166995.html) (《中华人民共和国测绘法》, 2017 revision; official reprint)
 - [Regulations on Map Management](https://www.gov.cn/zhengce/2015-12/14/content_5023591.htm) (《地图管理条例》, State Council Decree No. 664)
 
-In practice, civilian internet maps implement that system as **GCJ-02** (often called “Mars coordinates”), a confidential offset from WGS-84 historically associated with the State Bureau of Surveying and Mapping (国测局). Satellite / aerial imagery is often still published in WGS-84. Plotting GCJ-02 streets on WGS-84 photos produces a consistent shift (on the order of hundreds of metres).
+This extension does not replace Google Maps or change Google’s servers. Inside China it realigns what you see — shifting GCJ-02 street / label tiles onto the WGS-84 satellite — so the photo and the roads sit on the same ground.
 
 Hall of Supreme Harmony (太和殿) at the Forbidden City — two combinations **misalign** without the extension; the extension aligns both:
 
@@ -49,9 +49,7 @@ The other two pairings already match without the extension: **[太和殿 · Map]
 
 Screenshots: `npm run capture:readme` (Playwright, half-size map crops).
 
-This project does **not** change Google’s servers. Inside China it paints aligned satellite and label tiles where it can do so without breaking native Google features.
-
-Outside China the extension stays off.
+Outside China the extension stays off. Inside China it only paints aligned tiles where it can do so without breaking native Google features (search, directions, terrain, and similar views stay on Google’s canvas).
 
 ## How it works
 
