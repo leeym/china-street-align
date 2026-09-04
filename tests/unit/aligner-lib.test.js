@@ -692,22 +692,46 @@ describe("GCJ box excludes neighboring countries inside the literature bounds", 
     }
   });
 
-  it("still treats mainland China, Hong Kong, and Macau as inside", () => {
+  it("still treats mainland China as inside", () => {
     const inside = [
       [39.9167, 116.3869], // Beijing
       [31.2304, 121.4737], // Shanghai
-      [22.3193, 114.1694], // Hong Kong
-      [22.1987, 113.5439], // Macau
       [40.8175, 111.7656], // Hohhot
       [49.212, 119.765], // Hulunbuir
       [41.710262, 124.802589], // 清永陵 (Liaoning; directions e2e landmark)
       [40.124, 124.383], // Dandong
       [42.891, 129.509], // Yanji
-      [44.55, 129.63] // Mudanjiang
+      [44.55, 129.63], // Mudanjiang
+      [22.5329, 114.1145], // Shenzhen Luohu (mainland, north of HK)
+      [22.479, 113.918], // Shenzhen Shekou
+      [22.219, 113.549] // Zhuhai Gongbei
     ];
     for (const [lat, lon] of inside) {
       assert.equal(lib.outOfChina(lat, lon), false, `${lat},${lon}`);
       assert.equal(lib.inExcludedNeighborRegion(lat, lon), false, `${lat},${lon}`);
+      assert.equal(lib.inHongKong(lat, lon), false, `${lat},${lon}`);
+      assert.equal(lib.inMacau(lat, lon), false, `${lat},${lon}`);
+    }
+  });
+
+  it("treats Hong Kong and Macau as outside the overlay region", () => {
+    const sars = [
+      [22.3193, 114.1694, "hk"], // Central
+      [22.2759, 114.1455, "hk"], // Victoria Peak
+      [22.308, 113.922, "hk"], // Lantau / airport
+      [22.391, 113.976, "hk"], // Tuen Mun
+      [22.1987, 113.5439, "mo"], // Senado Square
+      [22.149, 113.569, "mo"] // Cotai
+    ];
+    for (const [lat, lon, which] of sars) {
+      assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
+      if (which === "hk") {
+        assert.equal(lib.inHongKong(lat, lon), true, `${lat},${lon}`);
+        assert.equal(lib.inMacau(lat, lon), false, `${lat},${lon}`);
+      } else {
+        assert.equal(lib.inMacau(lat, lon), true, `${lat},${lon}`);
+        assert.equal(lib.inHongKong(lat, lon), false, `${lat},${lon}`);
+      }
     }
   });
 

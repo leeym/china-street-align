@@ -518,7 +518,38 @@
     );
   }
 
-  // Inside the literature GCJ box but outside PRC / HK / Macau map territory.
+  // Hong Kong SAR — WGS-84 on Google.com; mainland GCJ does not apply under
+  // One Country Two Systems. Boxes stay south/east of Shenzhen (Shekou/Nanshan
+  // ~113.92°E, Luohu port ~22.53°N).
+  const HONG_KONG_BOXES = [
+    [22.15, 22.36, 113.82, 114.45], // Lantau, HK Island, Kowloon / southern NT
+    [22.36, 22.52, 113.93, 114.45] // northern NT; west edge east of Shekou
+  ];
+
+  // Macau SAR — same WGS-84 treatment. Keep Zhuhai Gongbei (~22.219°N) and
+  // Hengqin (~113.54°E) on the mainland side of the boxes.
+  const MACAU_BOXES = [
+    [22.175, 22.217, 113.528, 113.565], // Macau Peninsula
+    [22.109, 22.175, 113.548, 113.598] // Taipa / Cotai / Coloane
+  ];
+
+  function inHongKong(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    return HONG_KONG_BOXES.some(([south, north, west, east]) =>
+      inLatLonBox(la, lo, south, north, west, east)
+    );
+  }
+
+  function inMacau(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    return MACAU_BOXES.some(([south, north, west, east]) =>
+      inLatLonBox(la, lo, south, north, west, east)
+    );
+  }
+
+  // Inside the literature GCJ box but outside PRC map territory.
   // Conservative lat/lon rectangles — not a political border.
   const GCJ_BOX_EXCLUSIONS = [
     [46.0, 52.5, 87.0, 107.0], // Mongolia (west / central, incl. Ulaanbaatar)
@@ -555,6 +586,8 @@
     if (inXiamenMainland(lat, lon)) return false;
     if (inTaiwanIsland(lat, lon)) return true;
     if (inPenghuKinmenMatsu(lat, lon)) return true;
+    if (inHongKong(lat, lon)) return true;
+    if (inMacau(lat, lon)) return true;
     if (!inChinaGcjBox(lat, lon)) return true;
     if (inExcludedNeighborRegion(lat, lon)) return true;
     return false;
@@ -1284,6 +1317,8 @@
     inTaiwanIsland,
     inXiamenMainland,
     inPenghuKinmenMatsu,
+    inHongKong,
+    inMacau,
     inExcludedNeighborRegion,
     outOfChina,
     wgsToGcj,

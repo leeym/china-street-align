@@ -53,7 +53,7 @@ Outside China the extension stays off. Inside China it only paints aligned tiles
 
 ## How it works
 
-1. **Detect region** — reads the map camera `@lat,lon` from the URL (not device GPS). If the point is outside the overlay region (mainland PRC bounding area minus Taiwan and neighboring countries), the extension does nothing.
+1. **Detect region** — reads the map camera `@lat,lon` from the URL (not device GPS). If the point is outside the overlay region (mainland PRC bounding area minus Taiwan, Hong Kong, Macau, and neighboring countries), the extension does nothing.
 2. **Fetch tiles** — the service worker proxies Google map tile URLs and caches them in memory (~20 MB LRU).
 3. **Repaint stack** — hides Google’s skewed satellite canvas and paints WGS-84 `s` imagery plus CSS-shifted GCJ-02 hybrid `h` labels so roads sit on the photo.
 4. **Yield to native** — search, directions, terrain, traffic, pegman, and similar views tear down the overlay and switch to Google’s Map basemap when needed.
@@ -72,12 +72,6 @@ No data is sent to any server other than Google’s existing tile hosts.
 | Outside overlay region | Extension off (per tab) |
 
 ## FAQ
-
-**Why does Taiwan stay native?** Taiwan and China are two separate countries, and laws and regulations of the People’s Republic of China do not apply to Taiwan. Since GCJ-02 is mandated by Chinese regulations for online mapping within China, Taiwan is outside the scope of those requirements. Taiwan island and the offshore islands of Penghu, Kinmen, and Matsu are all excluded.
-
-**What about Hong Kong and Macau?** Hong Kong and Macau are Special Administrative Regions of China, and Chinese laws and regulations apply to both. Since GCJ-02 is mandated by Chinese regulations for online mapping within China, they fall within the scope of those requirements.
-
-**What about Mongolia or Vietnam near the border?** v0.8.3 adds conservative exclusion rectangles for countries inside the GCJ box but outside PRC map territory. Border areas can still be ambiguous — reload if a view looks wrong.
 
 **Desktop Chrome only?** Yes. Manifest V3 Chrome extension; other browsers are unsupported.
 
