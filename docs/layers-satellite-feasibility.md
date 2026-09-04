@@ -8,9 +8,15 @@ keeps an **aligned satellite** stack (WGS `lyrs=s` + CSS-shifted GCJ `h`).
 | Feature | Layer type | Behavior |
 | --- | --- | --- |
 | Traffic / transit / bike | Own raster tiles (`h,traffic`, …) | Stay on **aligned satellite** via `extraLyrs` |
-| Street View coverage (`!1e5` URL) | Own `svv` / `vt/pb` tiles | Stay on **aligned satellite** |
+| Street View coverage (Layers UI or `!1e5` URL) | Own `svv` / `vt/pb` tiles | Stay on **aligned satellite** |
 | Search pins, directions, terrain | Native canvas (same surface as basemap) | **Force Map** basemap; overlay off |
-| Pegman drag / full Street View / 3D Earth | Native canvas / native view | **Force Map** or native Google view |
+| Pegman drag / full Street View / 3D Earth | Native canvas / native view | Pegman drag paints `svv` while held; full SV / 3D stay native |
+
+Note: the Layers panel **Street View** toggle often sets an internal
+`layerswitcher.intent.streetview` checked state and fetches `vt/stream/pb=!2ssvv`
+**without** writing `!1e5` into the URL. The extension latches that UI/network
+signal and paints `svv` on the aligned stack. Deep links that already contain
+`!1e5` still work via `mapLayerIds`.
 
 Abandoned: keeping aligned satellite while search / directions / terrain stay open
 (those glyphs die when `hideNative` covers the canvas; no clean selective hide).

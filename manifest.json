@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "China Street Align for Google Maps",
-  "version": "0.8.14",
+  "version": "0.8.15",
   "description": "Inside China, aligns GCJ-02 street labels with WGS-84 satellite imagery on Google Maps.",
   "permissions": ["storage"],
   "host_permissions": [

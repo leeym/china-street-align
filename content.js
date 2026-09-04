@@ -40,6 +40,11 @@
   let lastHost = null;
   let hoveredPoiKey = "";
   let alive = true;
+  // Layers → Street View coverage: Maps often paints blue lines on the native
+  // canvas without putting `!1e5` in the URL. Latch while the layer is on (or
+  // while pegman drag shows coverage) so the overlay can paint `svv` tiles.
+  let streetViewCover = false;
+  let pegmanCover = false;
   // While the user drags, Maps updates the camera only on release (URL `@`).
   // Native canvas is hidden, so translate the overlay with the pointer so tiles
   // follow the cursor the way Off does outside China.
@@ -54,6 +59,13 @@
   const obs = new MutationObserver(() => {
     if (!alive || gestureBusy()) return;
     if (noteDirectionsStateChange()) {
+      lastKey = "";
+      clearTimeout(timer);
+      clearTimeout(syncTimer);
+      timer = setTimeout(redraw, 80);
+      return;
+    }
+    if (noteStreetViewLayerChange()) {
       lastKey = "";
       clearTimeout(timer);
       clearTimeout(syncTimer);
@@ -243,25 +255,122 @@
     blendNative: false
   };
 
+  function streetViewLayerChecked() {
+    const el = document.querySelector('[jsaction="layerswitcher.intent.streetview"]');
+    if (el) return el.getAttribute("aria-checked") === "true";
+    for (const n of document.querySelectorAll('[role="menuitemcheckbox"][aria-checked="true"]')) {
+      const label = `${n.getAttribute("aria-label") || ""} ${n.textContent || ""}`;
+      // Layer chip, not the pegman "Browse Street View images" control.
+      if (/street\s*view|街景服務|街景服务/i.test(label) && !/browse|瀏覽|浏览/i.test(label)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function urlHasStreetViewCoverageLayer() {
+    return globalThis.Gcj02Aligner.mapLayerIds(
+      globalThis.Gcj02Aligner.dataParam(location.href)
+    ).includes(5);
+  }
+
+  function streetViewCoverageWanted() {
+    // Prefer the latch (Layers click / aria-checked / vt/stream, or pegman drag)
+    // over a live DOM read so an explicit off is not undone mid-frame.
+    return pegmanCover || streetViewCover || urlHasStreetViewCoverageLayer();
+  }
+
+  function setStreetViewCover(on) {
+    const next = !!on;
+    if (next === streetViewCover) return;
+    streetViewCover = next;
+    lastKey = "";
+    if (!gestureBusy()) redraw();
+  }
+
+  function setPegmanCover(on) {
+    const next = !!on;
+    if (next === pegmanCover) return;
+    pegmanCover = next;
+    lastKey = "";
+    if (!gestureBusy()) redraw();
+  }
+
+  // When the Layers panel is open we can read aria-checked; when it closes the
+  // node may disappear — keep the last known latch until we see an explicit off.
+  function noteStreetViewLayerChange() {
+    const el = document.querySelector('[jsaction="layerswitcher.intent.streetview"]');
+    if (!el) return false;
+    const on = el.getAttribute("aria-checked") === "true";
+    if (on === streetViewCover) return false;
+    streetViewCover = on;
+    return true;
+  }
+
+  function onStreetViewLayerPointer(ev) {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(
+      '[jsaction="layerswitcher.intent.streetview"], [jsaction*="layerswitcher.intent.streetview"]'
+    );
+    if (!btn) return;
+    // Optimistic on: Maps often paints coverage on the (hidden) canvas without
+    // `!1e5`, and aria-checked flips after the event. Force svv on the overlay.
+    setStreetViewCover(true);
+    setTimeout(() => {
+      noteStreetViewLayerChange();
+      lastKey = "";
+      if (!gestureBusy()) redraw();
+    }, 0);
+    setTimeout(() => {
+      // If the user turned the layer off, honour the unchecked state.
+      if (noteStreetViewLayerChange()) {
+        lastKey = "";
+        if (!gestureBusy()) redraw();
+      }
+    }, 350);
+  }
+
+  function onPegmanPointerDown(ev) {
+    if (!(ev.target instanceof Element)) return;
+    if (!globalThis.Gcj02Aligner.isStreetViewPegmanTarget(ev.target)) return;
+    setPegmanCover(true);
+  }
+
+  function onPegmanPointerUp() {
+    if (!pegmanCover) return;
+    setPegmanCover(false);
+  }
+
   function overlaySpec() {
     if (hybridYieldsNativeCanvas()) return NATIVE_ONLY_SPEC;
     const placeAligned = placeAlignedOverlaySpec();
-    if (placeAligned) return placeAligned;
+    if (placeAligned) {
+      return globalThis.Gcj02Aligner.withStreetViewCoverage(
+        placeAligned,
+        streetViewCoverageWanted()
+      );
+    }
     if (hybridCrispSatellite()) {
-      // Follow aligner-lib so traffic / transit / bike / svv land in extraLyrs
-      // on the aligned s+h stack (same GCJ road CSS shift as hybrid labels).
+      // Follow aligner-lib so traffic / transit / bike / URL !1e5 land in
+      // extraLyrs; Layers UI Street View often omits !1e5 — force svv then.
       const libSpec = globalThis.Gcj02Aligner.overlaySpec(location.href, alignMode);
-      if (!libSpec.nativeOnly && libSpec.label === "satellite") return libSpec;
-      return {
-        nativeOnly: false,
-        label: "satellite",
-        baseLyrs: ["s"],
-        roadLyrs: "h",
-        shadeLyrs: [],
-        extraLyrs: [],
-        hideNative: true,
-        blendNative: false
-      };
+      const base = (!libSpec.nativeOnly && libSpec.label === "satellite")
+        ? libSpec
+        : {
+          nativeOnly: false,
+          label: "satellite",
+          baseLyrs: ["s"],
+          roadLyrs: "h",
+          shadeLyrs: [],
+          extraLyrs: [],
+          hideNative: true,
+          blendNative: false
+        };
+      return globalThis.Gcj02Aligner.withStreetViewCoverage(
+        base,
+        streetViewCoverageWanted()
+      );
     }
     return NATIVE_ONLY_SPEC;
   }
@@ -1794,6 +1903,8 @@
     if (!alive || ev.source !== window) return;
     if (ev.data?.source !== "gcj02-aligner") return;
     if (ev.data?.type === "setMode") setMode(ev.data.mode);
+    if (ev.data?.type === "setPegmanCover") setPegmanCover(!!ev.data.on);
+    if (ev.data?.type === "setStreetViewCover") setStreetViewCover(!!ev.data.on);
     if (ev.data?.type === "getBasemapToggleBox") {
       const toggle = nativeBasemapToggle();
       const box = toggle
@@ -1818,6 +1929,25 @@
   document.addEventListener("pointermove", onPanPointerMove, true);
   document.addEventListener("pointerup", endPanDrag, true);
   document.addEventListener("pointercancel", endPanDrag, true);
+  // Pegman drag / Layers Street View: coverage often never reaches the URL.
+  document.addEventListener("pointerdown", onPegmanPointerDown, true);
+  document.addEventListener("pointerup", onPegmanPointerUp, true);
+  document.addEventListener("pointercancel", onPegmanPointerUp, true);
+  document.addEventListener("click", onStreetViewLayerPointer, true);
+  // Backup: Maps fetches vt/stream/pb=!2ssvv for the Layers Street View toggle
+  // (often with no !1e5 in the URL). Do not match our own /maps/vt/pb= overlay
+  // tiles or turning the latch off would immediately flip back on.
+  try {
+    const po = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (/\/maps\/vt\/stream\/pb=.*!2ssvv/i.test(e.name)) {
+          setStreetViewCover(true);
+          break;
+        }
+      }
+    });
+    po.observe({ type: "resource", buffered: false });
+  } catch (_e) {}
   // Smooth zoom preview for wheel and the corner +/- controls.
   document.addEventListener("wheel", onMapWheel, { capture: true, passive: true });
   document.addEventListener("pointerdown", onZoomButtonDown, true);
@@ -1828,6 +1958,7 @@
   addEventListener("blur", () => {
     endPanDrag(null);
     endZoomAnim(false);
+    onPegmanPointerUp();
   });
 
   obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
@@ -1862,6 +1993,11 @@
       return;
     }
     if (noteDirectionsStateChange()) {
+      lastKey = "";
+      redraw();
+      return;
+    }
+    if (noteStreetViewLayerChange()) {
       lastKey = "";
       redraw();
       return;
