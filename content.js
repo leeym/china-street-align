@@ -248,6 +248,10 @@
     const placeAligned = placeAlignedOverlaySpec();
     if (placeAligned) return placeAligned;
     if (hybridCrispSatellite()) {
+      // Follow aligner-lib so traffic / transit / bike / svv land in extraLyrs
+      // on the aligned s+h stack (same GCJ road CSS shift as hybrid labels).
+      const libSpec = globalThis.Gcj02Aligner.overlaySpec(location.href, alignMode);
+      if (!libSpec.nativeOnly && libSpec.label === "satellite") return libSpec;
       return {
         nativeOnly: false,
         label: "satellite",
@@ -340,7 +344,8 @@
   }
 
   // Hybrid yields to Google's native canvas when overlay cannot paint crisply
-  // or must not redraw Google layers (search, directions, terrain, traffic, etc.).
+  // or must not redraw Google layers (search, directions, terrain, pegman, etc.).
+  // Raster extras (traffic / transit / bike / SV coverage) stay on the overlay.
   function hybridYieldsNativeCanvas() {
     if (!hybridAlign()) return false;
     if (hybridNeedsNativeLayers()) return true;
@@ -542,8 +547,9 @@
     return false;
   }
 
-  // Switch satellite → map when Hybrid must keep Google's native canvas (directions,
-  // search, terrain, traffic, …). Never skip overlay teardown while retrying.
+  // Switch satellite → map when Hybrid must keep Google's native canvas
+  // (search, directions, terrain, pegman, …). Raster extras stay on overlay.
+  // Never skip overlay teardown while retrying.
   function maybeHybridRewindToMap() {
     if (!inChina(parseMapState())) return;
     if (!hybridAlign() || !hybridNeedsNativeLayers()) {

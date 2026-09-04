@@ -762,9 +762,17 @@ describe("Google Maps layer overlay spec", () => {
   const SAT = "https://www.google.com/maps/@39.9167135,116.3868853,4718m/data=!3m1!1e3";
   const TERRAIN = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e4";
   const TRAFFIC = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e1";
+  const SAT_TRAFFIC =
+    "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e3!5m1!1e1";
   const TRANSIT = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e2";
+  const SAT_TRANSIT =
+    "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e3!5m1!1e2";
   const BIKE = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e3";
+  const SAT_BIKE =
+    "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e3!5m1!1e3";
   const SV_COVER = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e5";
+  const SAT_SV_COVER =
+    "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e3!5m1!1e5";
   const TERRAIN_TRAFFIC = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m2!1e1!1e4";
   const STREET_VIEW = "https://www.google.com/maps/@39.9167135,116.3868853,3a,75y,90h,90t/data=!3m6!1e1!3m5!1sAF1Qip";
   const STREET_VIEW_Z = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e1";
@@ -797,13 +805,24 @@ describe("Google Maps layer overlay spec", () => {
     assert.equal(lib.hybridNeedsNativeLayers(on, false), true);
   });
 
-  it("treats traffic, transit, bicycling and SV layer URLs as native-only", () => {
+  it("keeps map-only traffic/transit/bike/SV native; paints them on satellite", () => {
     assert.equal(lib.overlaySpec(TRAFFIC).nativeOnly, true);
     assert.equal(lib.overlaySpec(TRANSIT).nativeOnly, true);
     assert.equal(lib.overlaySpec(BIKE).nativeOnly, true);
     assert.equal(lib.overlaySpec(SV_COVER).nativeOnly, true);
     assert.equal(lib.overlaySpec(TERRAIN_TRAFFIC).nativeOnly, true);
-    assert.equal(lib.hybridNeedsNativeLayers(TRAFFIC, false), true);
+    // Raster extras alone do not force Map — they paint via extraLyrs on satellite.
+    assert.equal(lib.hybridNeedsNativeLayers(TRAFFIC, false), false);
+    assert.equal(lib.hybridNeedsNativeLayers(SAT_TRAFFIC, false), false);
+
+    const satTraffic = lib.overlaySpec(SAT_TRAFFIC);
+    assert.equal(satTraffic.nativeOnly, false);
+    assert.equal(satTraffic.label, "satellite");
+    assert.deepEqual(satTraffic.extraLyrs, ["h,traffic"]);
+
+    assert.deepEqual(lib.overlaySpec(SAT_TRANSIT).extraLyrs, ["m,transit"]);
+    assert.deepEqual(lib.overlaySpec(SAT_BIKE).extraLyrs, ["h,bike"]);
+    assert.deepEqual(lib.overlaySpec(SAT_SV_COVER).extraLyrs, ["svv"]);
   });
 
   it("withStreetViewCoverage is a no-op under hybrid native-only specs", () => {
@@ -813,6 +832,10 @@ describe("Google Maps layer overlay spec", () => {
     assert.deepEqual(lib.withStreetViewCoverage(map, false).extraLyrs, []);
     assert.deepEqual(lib.withStreetViewCoverage(lib.overlaySpec(SV_COVER), true).extraLyrs, []);
     assert.equal(lib.withStreetViewCoverage(lib.overlaySpec(STREET_VIEW), true).nativeOnly, true);
+    assert.deepEqual(
+      lib.withStreetViewCoverage(lib.overlaySpec(SAT), true).extraLyrs,
+      ["svv"]
+    );
   });
 
   it("builds Maps vt/pb Street View coverage tile URLs (not empty lyrs=svv)", () => {
@@ -988,6 +1011,8 @@ describe("Google Maps layer overlay spec", () => {
     assert.match(contentJs, /overlaySpec\(/);
     assert.doesNotMatch(contentJs, /function isSatelliteView/);
     assert.match(contentJs, /spec\.nativeOnly/);
+    // Crisp satellite must pull lib.extraLyrs (traffic etc.), not hardcode [].
+    assert.match(contentJs, /Gcj02Aligner\.overlaySpec\(location\.href, alignMode\)/);
   });
 });
 
@@ -1323,7 +1348,7 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.equal(lib.normalizeAlignMode("native"), "off");
   });
 
-  it("hybrid knows when extra map layers need the vector basemap", () => {
+  it("hybrid yields Map for canvas layers; keeps raster extras on satellite", () => {
     assert.equal(lib.hybridNeedsNativeLayers(WUZHANGYUAN.terrainHref, false), true);
     const dir =
       "https://www.google.com/maps/dir/%E6%95%85%E5%AE%AE%E5%8D%88%E9%96%80/%E5%A4%A9%E5%AE%89%E9%96%80/@39.9112947,116.3947854,1180m/data=!3m2!1e3!4b1!4m14!4m13!1m5!1m1!1s0x35f052c194aa1469:0x82c6fcd5085ca28d!2m2!1d116.39721!2d39.9138664!1m5!1m1!1s0x36637698dc4374d9:0x6928cb83a148399a!2m2!1d116.3974799!2d39.9087202!3e2";
@@ -1353,19 +1378,27 @@ describe("ALIGN MODES: Hybrid and Off", () => {
       ),
       false
     );
+    // Raster extras alone do not force the Map basemap (painted via extraLyrs).
     assert.equal(
       lib.hybridNeedsNativeLayers(
         "https://www.google.com/maps/@39.9097061,116.3989484,15.79z/data=!5m1!1e2",
         false
       ),
-      true
+      false
     );
     assert.equal(
       lib.hybridNeedsNativeLayers(
         "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e1",
         false
       ),
-      true
+      false
+    );
+    assert.equal(
+      lib.hybridNeedsNativeLayers(
+        "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e3!5m1!1e1",
+        false
+      ),
+      false
     );
   });
 
@@ -1397,7 +1430,7 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.equal(lib.overlaySpec(placeWithDir).nativeOnly, true);
   });
 
-  it("hybrid overlay spec yields native for directions, search, terrain and traffic", () => {
+  it("yields Map for search/dir/terrain; keeps sat+raster extras on overlay", () => {
     const dir =
       "https://www.google.com/maps/dir/A/B/@39.91,116.39,15z";
     assert.equal(lib.overlaySpec(dir).nativeOnly, true);
@@ -1407,6 +1440,14 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.equal(lib.overlaySpec(WUZHANGYUAN.terrainHref).nativeOnly, true);
     const traffic = "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!5m1!1e1";
     assert.equal(lib.overlaySpec(traffic).nativeOnly, true);
+    const satTraffic =
+      "https://www.google.com/maps/@39.9167135,116.3868853,15z/data=!3m1!1e3!5m1!1e1";
+    const satTrafficSpec = lib.overlaySpec(satTraffic);
+    assert.equal(satTrafficSpec.nativeOnly, false);
+    assert.deepEqual(satTrafficSpec.extraLyrs, ["h,traffic"]);
+    const satSearch =
+      "https://www.google.com/maps/search/%E7%B4%AB%E7%A6%81%E5%9F%8E/@39.9167135,116.3868853,15z/data=!3m1!1e3";
+    assert.equal(lib.overlaySpec(satSearch).nativeOnly, true);
     const map = "https://www.google.com/maps/@39.9167135,116.3868853,15z";
     assert.equal(lib.overlaySpec(map).nativeOnly, true);
   });

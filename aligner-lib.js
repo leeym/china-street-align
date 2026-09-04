@@ -198,18 +198,17 @@
     return /\/maps\/place\//i.test(String(href || ""));
   }
 
-  // Hybrid mode: crisp satellite only on a clean map. Block satellite for views
-  // where we must keep Google's native canvas (search pins, directions, terrain,
-  // traffic, pegman). Place pages on the map basemap use native pins; on
-  // satellite they use aligned WGS imagery under the native canvas (no repaint).
+  // Hybrid mode: force Map when Google paints features on the native canvas
+  // (search pins, directions, terrain, pegman). Raster map extras (traffic /
+  // transit / bike / SV coverage) have their own tile families and stay on the
+  // aligned satellite stack via overlaySpec.extraLyrs — do not yield for them.
   function hybridNeedsNativeLayers(href, pegmanCover) {
     if (isTerrainView(href)) return true;
     if (isDirectionsView(href)) return true;
     if (hasDirectionsRouteData(href)) return true;
     if (isSearchView(href)) return true;
     if (pegmanCover) return true;
-    const ids = mapLayerIds(dataParam(href));
-    return ids.some((id) => id === 1 || id === 2 || id === 3 || id === 5);
+    return false;
   }
 
   // Blended mode camera. The native canvas keeps drawing the GCJ-02 world around
@@ -1171,7 +1170,8 @@
     const satelliteBasemap = type === 3;
     const terrain = !satelliteBasemap && layers.includes(4);
 
-    // Hybrid: never repaint Google layers except crisp satellite + shifted labels.
+    // Yield for canvas-native views; keep satellite (+ optional raster extras)
+    // only when search / directions / terrain / pegman are not active.
     if (
       isDirectionsView(url)
       || isSearchView(url)

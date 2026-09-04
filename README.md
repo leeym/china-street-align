@@ -49,14 +49,14 @@ The other two pairings already match without the extension: **[太和殿 · Map]
 
 Screenshots: `npm run capture:readme` (Playwright, half-size map crops).
 
-Outside China the extension stays off. Inside China it only paints aligned tiles where it can do so without breaking native Google features (search, directions, terrain, and similar views stay on Google’s canvas).
+Outside China the extension stays off. Inside China it only paints aligned tiles where it can do so without breaking native Google features (search, directions, terrain, and similar views stay on Google’s canvas; traffic / transit / bike can stay on the aligned satellite stack).
 
 ## How it works
 
 1. **Detect region** — reads the map camera `@lat,lon` from the URL (not device GPS). If the point is outside the overlay region (mainland PRC bounding area minus Taiwan, Hong Kong, Macau, and neighboring countries), the extension does nothing.
 2. **Fetch tiles** — the service worker proxies Google map tile URLs and caches them in memory (~20 MB LRU).
 3. **Repaint stack** — hides Google’s skewed satellite canvas and paints WGS-84 `s` imagery plus CSS-shifted GCJ-02 hybrid `h` labels so roads sit on the photo.
-4. **Yield to native** — search, directions, terrain, traffic, pegman, and similar views tear down the overlay and switch to Google’s Map basemap when needed.
+4. **Yield to native** — search, directions, terrain, pegman, and similar views tear down the overlay and switch to Google’s Map basemap when needed. Raster traffic / transit / bike (and Street View coverage tiles) stay on the aligned satellite stack.
 
 No data is sent to any server other than Google’s existing tile hosts.
 
@@ -65,9 +65,10 @@ No data is sent to any server other than Google’s existing tile hosts.
 | View | Extension behavior |
 | --- | --- |
 | Satellite / hybrid (clean photo) | Aligned WGS photo + shifted GCJ labels |
+| Satellite + traffic / transit / bike | Same stack plus shifted raster extras (`h,traffic`, …) |
 | Place page (named POI) | Aligned stack; one native-style teardrop if pin datum ≠ basemap |
 | Place page (WGS lat/lon in URL) | Same; pin stays on feature |
-| Search / directions / terrain / traffic | Native Map basemap; overlay off |
+| Search / directions / terrain | Native Map basemap; overlay off |
 | Street View / 3D Earth | Native Google view; overlay off |
 | Outside overlay region | Extension off (per tab) |
 
@@ -93,8 +94,8 @@ No data is sent to any server other than Google’s existing tile hosts.
 ## Design principles
 
 1. **Satellite and streets must coincide whenever both are visible.** On a clean satellite view the extension hides Google’s skewed photo and paints aligned WGS-84 `s` imagery with CSS-shifted hybrid `h` labels on top, so the roads sit on the features in the photo.
-2. **Do not repaint Google’s layers — except one Place teardrop when needed.** Search pins, directions routes, terrain, traffic, transit, bicycling, Street View coverage, and similar features stay on Google’s native canvas. The only overlay glyph is a single aligned teardrop on Place pages when the URL pin datum does not match the current basemap (e.g. named「太和殿」on satellite, or a WGS DMS query on the street map). That teardrop is composited from Google Maps’ own `spotlight_pin_v4` templates (same assets as the Places pin), recolored to the native reds.
-3. **If rules 1 and 2 cannot both hold, turn off satellite and use the map basemap.** The extension detects views that need native layers (search, directions, terrain, traffic, pegman drag, etc.), tears down the aligned overlay, and switches Google Maps to the **Map** basemap. Rewriting the URL alone is not enough — Maps can keep painting satellite tiles until the Layers / minimap control is clicked; the extension does that for you when you open **Directions** (規劃路線) from satellite.
+2. **Do not repaint Google’s interactive layers — except one Place teardrop when needed, and raster map extras on satellite.** Search pins, directions routes, and terrain stay on Google’s native canvas. On an aligned satellite view the extension may paint Maps’ own traffic / transit / bike / Street View coverage tile families on top of the `s`+`h` stack (same GCJ CSS shift as road labels). The only overlay glyph is a single aligned teardrop on Place pages when the URL pin datum does not match the current basemap (e.g. named「太和殿」on satellite, or a WGS DMS query on the street map). That teardrop is composited from Google Maps’ own `spotlight_pin_v4` templates (same assets as the Places pin), recolored to the native reds.
+3. **If rules 1 and 2 cannot both hold, turn off satellite and use the map basemap.** The extension detects views that need the native canvas (search, directions, terrain, pegman drag, etc.), tears down the aligned overlay, and switches Google Maps to the **Map** basemap. Rewriting the URL alone is not enough — Maps can keep painting satellite tiles until the Layers / minimap control is clicked; the extension does that for you when you open **Directions** (規劃路線) from satellite. See [docs/layers-satellite-feasibility.md](docs/layers-satellite-feasibility.md) for the layers research note.
 
 **Datum rules (still apply to the aligned tile stack):**
 
