@@ -735,6 +735,14 @@ describe("GCJ box excludes neighboring countries inside the literature bounds", 
     }
   });
 
+  it("keeps Dongxing (PRC) inside and Mong Cai (Vietnam) outside", () => {
+    // Beilun River border: points are ~1–2 km apart.
+    assert.equal(lib.outOfChina(21.547717, 107.9690085), false); // 东兴市人民政府
+    assert.equal(lib.inExcludedNeighborRegion(21.547717, 107.9690085), false);
+    assert.equal(lib.outOfChina(21.5307043, 107.9581901), true); // 芒街長途客運站
+    assert.equal(lib.inExcludedNeighborRegion(21.5307043, 107.9581901), true);
+  });
+
   it("still treats Korea and Japan cities as outside", () => {
     const outside = [
       [39.039, 125.762], // Pyongyang

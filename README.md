@@ -139,11 +139,12 @@ npm test
 ```
 
 - `npm run test:unit` — Node test runner (`tests/unit`)
-- `npm run test:e2e` — Playwright: extension chrome, place pins, directions basemap handoff, pan/zoom smoke tests
+- `npm run test:e2e` — Playwright: hybrid Off/On offset, extension chrome smoke, place pins, directions, pan/zoom
+- `npm run test:hybrid-offset` — Google hybrid offset Off vs On (border / SAR / mainland fixtures)
 - `npm run test:directions` — directions basemap handoff only (used in CI)
 - `npm run pack` — build `dist/china-street-align-<version>.zip` for GitHub Releases
 - `node scripts/bake-icons.js` — regenerate toolbar / store PNG icons
-- CI runs unit tests plus Playwright **directions** (stable subset) and **popup** On/Off e2e on every push and pull request. Run `npm run test:e2e` locally for the full Playwright suite (place pins, pan/zoom, satellite handoff).
+- CI runs unit tests plus Playwright **directions** (stable subset) and **popup** On/Off e2e on every push and pull request. Run `npm run test:e2e` locally for the full Playwright suite.
 
 ## Limits
 

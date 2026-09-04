@@ -563,6 +563,8 @@
     [13.5, 22.3, 100.0, 107.0], // Laos
     [8.0, 20.5, 102.0, 106.5], // Vietnam (south)
     [20.5, 22.5, 104.0, 106.8], // Vietnam (north, west of Guangxi / Yunnan)
+    // Mong Cai tip east of 106.8°E; north edge stays south of Dongxing (~21.55°N).
+    [21.20, 21.545, 106.8, 108.20],
     // North Korea — stepped edges so Liaoning / Jilin / Yanbian stay in.
     [37.5, 39.95, 124.25, 128.5], // southern / western NK (Pyongyang); south of Dandong
     [39.95, 42.2, 126.2, 130.5], // mid-north NK (Chongjin); south/west of Yanji / Hunchun
