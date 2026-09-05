@@ -1,8 +1,10 @@
 # China Street Align
 
 [![Add to Chrome](docs/add-to-chrome.svg)](https://github.com/leeym/china-street-align/releases/latest/download/china-street-align.zip)
+[![Buy me a pearl tea](docs/buy-me-a-pearl-tea.svg)](https://buymeacoffee.com/leeym)
 
 Download the latest Load-unpacked zip → see [Install](#install) below. (Chrome Web Store listing coming later; until then this is the install path.)
+If the extension helps you, you can [buy me a pearl tea](https://buymeacoffee.com/leeym) — entirely optional.
 
 A Chrome extension that, **inside China**, aligns Google Maps **WGS-84 satellite imagery** with **GCJ-02 street labels** so the photo and the roads sit on the same ground.
 
@@ -156,4 +158,4 @@ npm test
 
 ## License
 
-[THE PEARL-TEA-WARE LICENSE](LICENSE) (based on Poul-Henning Kamp’s [Beer-ware License](https://people.freebsd.org/~phk/)). Keep the notice; do what you want with the code. If we meet and you think it was worth it, you can buy Yen-Ming Lee a pearl tea. The software is provided **as is**, without warranty; see [LICENSE](LICENSE) for the full disclaimer. Google-derived pin artwork is covered separately in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+[THE PEARL-TEA-WARE LICENSE](LICENSE) (based on Poul-Henning Kamp’s [Beer-ware License](https://people.freebsd.org/~phk/)). Keep the notice; do what you want with the code. If we meet and you think it was worth it, you can buy Yen-Ming Lee a pearl tea — or [buy one online](https://buymeacoffee.com/leeym). The software is provided **as is**, without warranty; see [LICENSE](LICENSE) for the full disclaimer. Google-derived pin artwork is covered separately in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
