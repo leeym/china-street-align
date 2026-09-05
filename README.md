@@ -159,3 +159,5 @@ npm test
 ## License
 
 [THE PEARL-TEA-WARE LICENSE](LICENSE) (based on Poul-Henning Kamp’s [Beer-ware License](https://people.freebsd.org/~phk/)). Keep the notice; do what you want with the code. If we meet and you think it was worth it, you can buy Yen-Ming Lee a pearl tea — or [buy one online](https://buymeacoffee.com/leeym). The software is provided **as is**, without warranty; see [LICENSE](LICENSE) for the full disclaimer. Google-derived pin artwork is covered separately in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+
+[![Buy me a pearl tea](docs/buy-me-a-pearl-tea.svg)](https://buymeacoffee.com/leeym)
