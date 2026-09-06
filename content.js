@@ -845,14 +845,19 @@
 
   function effectiveMode(st) {
     if (alignMode === "off") return "off";
-    return st && !outOfChina(st.lat, st.lon) ? "on" : "off";
+    if (!st || outOfChina(st.lat, st.lon)) return "off";
+    // Even inside China, skip the overlay when the GCJ pixel shift is below
+    // what the eye can reliably see (see MIN_VISIBLE_SHIFT_PX / 海門島).
+    if (!globalThis.Gcj02Aligner.overlayShiftVisible(st.lat, st.lon, st.zoom)) return "off";
+    return "on";
   }
 
   function inChina(st) {
     return effectiveMode(st) === "on";
   }
 
-  // Tear down overlay, gates, and latches when the map view leaves China.
+  // Tear down overlay, gates, and latches when idle (outside China, or inside
+  // China but the GCJ shift is too small to see).
   function standDownOutsideChina() {
     hybridRewindTries = 0;
     directionsLatchUntil = 0;

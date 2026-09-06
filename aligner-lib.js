@@ -92,6 +92,16 @@
     return { dx, dy, hypot: Math.hypot(dx, dy) };
   }
 
+  // Below this CSS-pixel length the GCJ shift is not reliably visible (matches
+  // hybrid-offset e2e “aligned” band of hypot < 3). Measured at 海門島
+  // (24.4064°N, 117.9585°E): hypot≈2.9 at z=9.5 (~252 km ground width) and
+  // ≈4.2 at z=10; the user’s 2801m (~z16) view is ~264px and must stay on.
+  const MIN_VISIBLE_SHIFT_PX = 3;
+
+  function overlayShiftVisible(lat, lon, zoom) {
+    return overlayShiftPx(Number(lat), Number(lon), Number(zoom)).hypot >= MIN_VISIBLE_SHIFT_PX;
+  }
+
   // Google street tiles are indexed in WGS mercator but drawn in GCJ-02.
   // Fetch the GCJ tile that belongs on this WGS slot and align the GCJ
   // feature at the tile center onto the WGS center (no CSS translate of a
@@ -1292,6 +1302,8 @@
     worldPixel,
     tileCenterLatLon,
     overlayShiftPx,
+    MIN_VISIBLE_SHIFT_PX,
+    overlayShiftVisible,
     overlayRoadTile,
     overlayCamera,
     overlayPoiScreenPx,

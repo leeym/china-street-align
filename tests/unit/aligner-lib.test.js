@@ -314,10 +314,40 @@ describe("CORE: WGS satellite, GCJ layers shift in China", () => {
     assert.equal(lib.outOfChina(25.033, 121.565), true);
     assert.match(contentJs, /outOfChina\(/);
     assert.match(contentJs, /effectiveMode/);
+    assert.match(contentJs, /overlayShiftVisible/);
     assert.match(contentJs, /function standDownOutsideChina/);
     assert.match(contentJs, /function inChina/);
     assert.match(contentJs, /if \(!inChina\(st\)\)/);
     assert.match(contentJs, /if \(!inChina\(parseMapState\(\)\)\) return;/);
+  });
+
+  it("stands down inside China when the GCJ shift is below ~3px (海門島)", () => {
+    // User fixture: 海門島 @24.4064,117.9585 — shift doubles each zoom level.
+    // At 2801m (~z16) hypot≈264px (must stay on); at z=9 hypot≈2.1 (off).
+    assert.equal(lib.MIN_VISIBLE_SHIFT_PX, 3);
+    const lat = 24.4064247;
+    const lon = 117.9585426;
+    assert.equal(lib.outOfChina(lat, lon), false);
+
+    const closeUp = lib.parseMapHref(
+      "https://www.google.com/maps/search/%E6%B5%B7%E9%96%80%E5%B3%B6/@24.4064247,117.9585426,2801m/data=!3m2!1e3!4b1"
+    );
+    assert.ok(closeUp.zoom > 15.5 && closeUp.zoom < 16.5, `zoom ${closeUp.zoom}`);
+    const near = lib.overlayShiftPx(lat, lon, closeUp.zoom);
+    assert.ok(near.hypot > 200, `2801m shift ${near.hypot}`);
+    assert.equal(lib.overlayShiftVisible(lat, lon, closeUp.zoom), true);
+
+    const z9 = lib.overlayShiftPx(lat, lon, 9);
+    assert.ok(z9.hypot < lib.MIN_VISIBLE_SHIFT_PX, `z9 ${z9.hypot}`);
+    assert.equal(lib.overlayShiftVisible(lat, lon, 9), false);
+
+    const z10 = lib.overlayShiftPx(lat, lon, 10);
+    assert.ok(z10.hypot > lib.MIN_VISIBLE_SHIFT_PX, `z10 ${z10.hypot}`);
+    assert.equal(lib.overlayShiftVisible(lat, lon, 10), true);
+
+    // ~245 km ground width ≈ first zoom where hypot crosses 3px at 海門島.
+    const zCross = lib.metersToZoom(lat, 245000);
+    assert.ok(Math.abs(zCross - 9.54) < 0.15, `cross zoom ${zCross}`);
   });
 
   it("ships a toolbar popup for On/Off alignment and GCJ-02 status in China", () => {
