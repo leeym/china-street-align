@@ -72,11 +72,14 @@ No data is sent to any server other than Google’s existing tile hosts.
 | Place page (WGS lat/lon in URL) | Same; pin stays on feature |
 | Search / directions / terrain | Native Map basemap; overlay off |
 | Street View / 3D Earth | Native Google view; overlay off |
+| Zoomed out (GCJ shift &lt; ~3 CSS px) | Extension off — even inside China |
 | Outside overlay region | Extension off (per tab) |
 
 ## FAQ
 
 **Desktop Chrome only?** Yes. Manifest V3 Chrome extension; other browsers are unsupported.
+
+**Why does it turn off when I zoom out inside China?** The GCJ→WGS mismatch shrinks on screen as you zoom out. Below about **3 CSS pixels** of shift the difference is not reliably visible, so the overlay stands down and leaves Google’s native map alone. At [海門島](https://www.google.com/maps/search/%E6%B5%B7%E9%96%80%E5%B3%B6/@24.4064247,117.9585426,2801m/data=!3m2!1e3!4b1) that threshold is roughly **z ≥ 10** (ground width ≲ 180 km) to stay on; the same island at **2801 m** (~z16) stays aligned (~264 px of shift).
 
 **Analytics or telemetry?** None. Tile fetches go only to Google; nothing is logged or uploaded by this extension.
 
@@ -98,6 +101,7 @@ No data is sent to any server other than Google’s existing tile hosts.
 1. **Satellite and streets must coincide whenever both are visible.** On a clean satellite view the extension hides Google’s skewed photo and paints aligned WGS-84 `s` imagery with CSS-shifted hybrid `h` labels on top, so the roads sit on the features in the photo.
 2. **Do not repaint Google’s interactive layers — except one Place teardrop when needed, and raster map extras on satellite.** Search pins, directions routes, and terrain stay on Google’s native canvas. On an aligned satellite view the extension may paint Maps’ own traffic / transit / bike / Street View coverage tile families on top of the `s`+`h` stack (same GCJ CSS shift as road labels). The only overlay glyph is a single aligned teardrop on Place pages when the URL pin datum does not match the current basemap (e.g. named「太和殿」on satellite, or a WGS DMS query on the street map). That teardrop is composited from Google Maps’ own `spotlight_pin_v4` templates (same assets as the Places pin), recolored to the native reds.
 3. **If rules 1 and 2 cannot both hold, turn off satellite and use the map basemap.** The extension detects views that need the native canvas (search, directions, terrain, pegman drag, etc.), tears down the aligned overlay, and switches Google Maps to the **Map** basemap. Rewriting the URL alone is not enough — Maps can keep painting satellite tiles until the Layers / minimap control is clicked; the extension does that for you when you open **Directions** (規劃路線) from satellite. See [docs/layers-satellite-feasibility.md](docs/layers-satellite-feasibility.md) for the layers research note.
+4. **If the GCJ shift is too small to see, stay off.** `overlayShiftPx` below `MIN_VISIBLE_SHIFT_PX` (3 CSS px) means the overlay would change nothing the eye can trust — stand down even inside the China region (calibrated at 海門島).
 
 **Datum rules (still apply to the aligned tile stack):**
 
@@ -125,9 +129,9 @@ Version follows [Semantic Versioning](https://semver.org/) in `manifest.json`. R
 
 ## Usage
 
-Inside China the extension aligns the two datums automatically (**On**, the default); outside China it stays idle. Use the toolbar popup to switch **On** / **Off** for every Maps tab (stored locally in the browser). Each Maps tab still decides region from its own camera — a China view in one tab does not change another tab showing elsewhere.
+Inside China the extension aligns the two datums automatically (**On**, the default) when the screen shift is large enough to see; outside China, or when zoomed out so far that the GCJ offset is under ~3 CSS px, it stays idle. Use the toolbar popup to switch **On** / **Off** for every Maps tab (stored locally in the browser). Each Maps tab still decides region and visibility from its own camera — a China view in one tab does not change another tab showing elsewhere.
 
-A small status line at the top of the map shows the current GCJ-02 / WGS-84 state, version, and zoom while tiles are painting (hidden when Off or outside the overlay region).
+A small status line at the top of the map shows the current GCJ-02 / WGS-84 state, version, and zoom while tiles are painting (hidden when Off, outside the overlay region, or when the shift is too small to paint).
 
 Map zoom, search, layers, and other Google chrome stay clickable (overlay is `pointer-events: none` under them). Full Street View and 3D Earth stay on Google’s native view.
 
@@ -153,6 +157,7 @@ npm test
 
 - Visual alignment only; it does not alter Google’s servers or URLs.
 - GCJ-02 is not a published formula. The shift uses a common public approximation and is locally first-order (a translation per view).
+- When zoomed out so the predicted GCJ screen shift is under ~3 CSS px, the overlay stays off even inside China (see FAQ / 海門島 calibration).
 - Google Maps DOM and tile URLs change. If controls or tiles break, reload the extension and reopen Maps.
 - This is not legal advice. The statutes above govern mapping products in China; this extension is a personal overlay on Google’s existing tiles.
 
