@@ -33,12 +33,13 @@ test.describe.serial("toolbar popup", () => {
     await context?.close();
   });
 
-  test("loads with version, On/Off modes, and default On selected", async () => {
+  test("loads with version, On/Off/Coverage modes, and default On selected", async () => {
     const popup = await openPopup(context, extId);
     await expect(popup.locator("h1")).toHaveText("China Street Align");
     await expect(popup.locator("#version")).toHaveText(`v${EXT_VERSION}`);
     await expect(popup.locator("#current")).toHaveText("On");
     await expect(popup.locator('input[value="hybrid"]')).toBeChecked();
+    await expect(popup.locator('input[value="coverage"]')).toHaveCount(1);
     await expect(popup.locator("#error")).toBeHidden();
     await popup.close();
   });
@@ -49,6 +50,22 @@ test.describe.serial("toolbar popup", () => {
     await expect(popup.locator("#current")).toHaveText("Off");
     expect(await readAlignModeStorage(popup)).toBe("off");
     await popup.close();
+  });
+
+  test("writes Coverage to storage and applies it to Maps", async () => {
+    await setModeViaPopup(context, extId, "coverage");
+    await waitForAlignMode(mapsPage, "coverage");
+    // Pixel paint / z-index checks live in coverage-mode.spec.js.
+    await mapsPage.waitForFunction(() => {
+      const root = document.getElementById("gcj02-aligner-root");
+      return root
+        && root.style.display !== "none"
+        && root.dataset.mode === "coverage"
+        && !!root.querySelector("canvas.gcj02-coverage")
+        && Number(getComputedStyle(root).zIndex) > 0;
+    }, { timeout: 30000 });
+    await setModeViaPopup(context, extId, "hybrid");
+    await waitForAlignMode(mapsPage, "hybrid");
   });
 
   test("applies popup mode to an open Maps tab via storage", async () => {

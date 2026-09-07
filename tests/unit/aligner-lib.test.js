@@ -454,6 +454,14 @@ describe("Maps chrome vs overlay stacking", () => {
     );
   });
 
+  it("raises coverage-mode overlay above the native canvas", () => {
+    const block = contentCss.match(/#gcj02-aligner-root\[data-mode="coverage"\]\s*\{([^}]+)\}/);
+    assert.ok(block, "missing coverage-mode z-index CSS");
+    const z = block[1].match(/z-index:\s*(\d+)/);
+    assert.ok(z);
+    assert.ok(Number(z[1]) > lib.OVERLAY_Z, "coverage z-index must beat the hybrid overlay");
+  });
+
   it("includes default holes for zoom cluster, search, and layers", () => {
     const holes = lib.defaultChromeHoles(1440, 900);
     assert.ok(holes.some((h) => h.x > 1300 && h.y > 600));
@@ -471,6 +479,9 @@ describe("Maps chrome vs overlay stacking", () => {
   it("does not append the overlay root to documentElement", () => {
     assert.doesNotMatch(contentJs, /documentElement\.appendChild\(\s*root\s*\)/);
     assert.match(contentJs, /function overlayHost\(/);
+    assert.match(contentJs, /function attachRootToHost\(/);
+    assert.match(contentJs, /gcj02-coverage/);
+    assert.match(contentJs, /root\.contains\(c\)/);
     assert.match(contentJs, /insertBefore\(\s*root,\s*host\.firstChild\s*\)/);
     assert.match(contentJs, /function fitOverlayToCanvas/);
     assert.doesNotMatch(contentJs, /host !== document\.body\) return \{ host/);
@@ -668,6 +679,10 @@ describe("GCJ overlay region excludes Taiwan island", () => {
       [24.9918, 119.4523], // Wuqiu
       [26.1506, 119.931], // Nangan, Matsu
       [26.2254, 119.9983], // Beigan, Matsu
+      [26.20, 119.95], // Beigan SW waters
+      [26.275, 119.985], // Gaodeng
+      [26.290, 119.988], // Gaodeng north
+      [26.341, 120.233], // Liangdao (亮島)
       [26.366, 120.4904], // Dongyin, Matsu
       [25.973, 119.939] // Juguang, Matsu
     ];
@@ -677,6 +692,21 @@ describe("GCJ overlay region excludes Taiwan island", () => {
       assert.equal(lib.inTaiwanIsland(lat, lon), false, `${lat},${lon}`);
       assert.equal(lib.inXiamenMainland(lat, lon), false, `${lat},${lon}`);
     }
+    // Kinmen / Lieyu outer tips (expanded boxes).
+    assert.equal(lib.outOfChina(24.530, 118.40), true); // Greater Kinmen north
+    assert.equal(lib.outOfChina(24.45, 118.48), true); // Greater Kinmen east
+    assert.equal(lib.outOfChina(24.385, 118.35), true); // Greater Kinmen south
+    assert.equal(lib.outOfChina(24.455, 118.245), true); // Lieyu north
+    assert.equal(lib.outOfChina(24.43, 118.210), true); // Lieyu west
+    // Nearby PRC must stay inside.
+    assert.equal(lib.outOfChina(24.546, 118.327), false); // Dadeng
+    assert.equal(lib.outOfChina(24.479, 118.089), false); // Xiamen
+    // Fujian coast west of Matsu — Huangqi east tip must stay inside.
+    assert.equal(lib.outOfChina(26.2751866, 119.7930114), false); // Lianjiang
+    assert.equal(lib.inPenghuKinmenMatsu(26.2751866, 119.7930114), false);
+    assert.equal(lib.outOfChina(26.3575, 119.930278), false); // Beijiao / Huangqi east tip
+    assert.equal(lib.inPenghuKinmenMatsu(26.3575, 119.930278), false);
+    assert.equal(lib.outOfChina(26.33, 119.92), false); // Huangqi east shore
   });
 
   it("keeps Jimei 兑山村 on the Xiamen overlay, not as Kinmen", () => {
@@ -704,9 +734,87 @@ describe("GCJ overlay region excludes Taiwan island", () => {
 });
 
 describe("GCJ box excludes neighboring countries inside the literature bounds", () => {
+  const { BORDER_POINTS } = require("../fixtures/china-border-points");
+
+  it("matches curated border in/out samples", () => {
+    for (const p of BORDER_POINTS) {
+      assert.equal(
+        lib.outOfChina(p.lat, p.lon),
+        p.out,
+        `${p.name} (${p.lat},${p.lon}) expected out=${p.out}`
+      );
+    }
+  });
+
+  it("cuts the Taiwan Strait at the MND median line (east half is out)", () => {
+    // ROC MND: segment (23°N, 118°E)–(27°N, 122°E) ⇒ lon = 118 + (lat − 23),
+    // then due south along 118°E below 23°N.
+    assert.equal(lib.taiwanStraitMedianLon(23.0), 118.0);
+    assert.equal(lib.taiwanStraitMedianLon(27.0), 122.0);
+    assert.equal(lib.taiwanStraitMedianLon(24.5), 119.5);
+    assert.equal(lib.taiwanStraitMedianLon(25.0), 120.0);
+    assert.equal(lib.taiwanStraitMedianLon(22.0), 118.0); // south ray
+    assert.equal(lib.eastOfTaiwanStraitMedian(24.5, 119.9), true);
+    assert.equal(lib.eastOfTaiwanStraitMedian(24.5, 119.4), false);
+    assert.equal(lib.eastOfTaiwanStraitMedian(25.5, 119.78), false); // Pingtan west
+    assert.equal(lib.eastOfTaiwanStraitMedian(25.03, 121.57), true); // Taipei
+    assert.equal(lib.eastOfTaiwanStraitMedian(22.627, 120.301), true); // Kaohsiung
+    assert.equal(lib.eastOfTaiwanStraitMedian(22.0, 117.5), false); // west of 118°E ray
+    assert.equal(lib.outOfChina(22.627, 120.301), true); // Kaohsiung
+    assert.equal(lib.outOfChina(21.5, 121.8), true); // SE of Taiwan / east of ray
+    // Taiwan-island AABB must not notch west of the median (Wuqiu–Juguang gap).
+    assert.equal(lib.outOfChina(25.2, 120.1), false);
+    assert.equal(lib.outOfChina(25.3, 120.15), false);
+    assert.ok(lib.inTaiwanIsland(25.2, 120.1)); // box still overlaps; gate ignores it
+    assert.ok(lib.taiwanStraitMedianLon(26.5) > lib.taiwanStraitMedianLon(23.0));
+  });
+
+  it("keeps Hainan inside and leaves the South China Sea / Philippine Sea outside", () => {
+    assert.equal(lib.inHainanIsland(19.1, 108.65), true);
+    assert.equal(lib.outOfChina(19.1, 108.65), false); // Dongfang west coast
+    assert.equal(lib.outOfChina(18.25, 109.5), false); // Sanya
+    assert.equal(lib.outOfChina(16.5, 112.0), true); // Paracel
+    assert.equal(lib.outOfChina(10.0, 115.0), true); // Spratly
+    assert.equal(lib.outOfChina(15.0, 128.0), true); // east of Luzon
+    assert.equal(lib.outOfChina(35.964, 137.571), true); // Narai-juku
+    assert.equal(lib.outOfChina(41.0, 130.2), true); // NK east nearshore
+    // Former enclave: SK box ended 39.5°N / first NK box only to 128.6°E.
+    assert.equal(lib.outOfChina(39.75, 129.0), true);
+    assert.equal(lib.outOfChina(39.75, 130.0), true);
+    assert.equal(lib.outOfChina(39.6, 129.5), true);
+    assert.equal(lib.outOfChina(42.86, 130.37), false); // Hunchun
+    // Daxinganling Prefecture must not be swallowed by Russia exclusions.
+    assert.equal(lib.outOfChina(50.411, 124.118), false); // Jiagedaqi
+    assert.equal(lib.outOfChina(52.34, 124.71), false); // Tahe
+    assert.equal(lib.outOfChina(51.73, 126.65), false); // Huma
+    assert.equal(lib.outOfChina(50.29, 127.54), true); // Blagoveshchensk
+    assert.equal(lib.outOfChina(50.245, 127.528), false); // Heihe CBD
+    assert.equal(lib.outOfChina(49.564, 128.476), false); // Xunke (Heihe Prefecture)
+    // Gyirong County (Tibet / Nepal border) must not be swallowed by Nepal exclusions.
+    assert.equal(lib.outOfChina(28.855, 85.298), false); // Gyirong county seat
+    assert.equal(lib.outOfChina(28.393, 85.325), false); // Gyirong town
+    assert.equal(lib.outOfChina(28.278, 85.370), false); // Gyirong Port
+    assert.equal(lib.outOfChina(27.717, 85.324), true); // Kathmandu
+    assert.equal(lib.outOfChina(28.21, 83.99), true); // Pokhara
+    // No long strip from Hainan west into north Vietnam / Tonkin at ~20°N.
+    assert.equal(lib.outOfChina(20.0, 106.5), true);
+    assert.equal(lib.outOfChina(20.0, 107.5), true);
+    assert.equal(lib.outOfChina(20.0, 108.0), true);
+    assert.equal(lib.outOfChina(21.547717, 107.9690085), false); // Dongxing
+    assert.equal(lib.outOfChina(21.05, 109.12), false); // Weizhou
+    assert.equal(lib.outOfChina(21.4368, 110.9414), false); // Wangcungang, Wuchuan
+    assert.equal(lib.outOfChina(21.44681, 109.04915), false); // Beihai Guantouling BBQ
+    assert.equal(lib.outOfChina(20.0, 108.0), true); // Beibu Gulf / Tonkin mid
+  });
+
   it("treats Mongolia, central Asia, and Far East Russia as outside", () => {
     const outside = [
       [47.8864, 106.9057], // Ulaanbaatar
+      [44.882, 110.137], // Sainshand (south Mongolia)
+      [43.728, 111.902], // Zamyn-Uud
+      [43.57, 104.426], // Dalanzadgad
+      [48.078, 114.535], // Choibalsan (east Mongolia)
+      [46.681, 113.279], // Baruun-Urt
       [43.238, 76.945], // Almaty
       [43.115, 131.885], // Vladivostok
       [27.717, 85.324], // Kathmandu
@@ -717,9 +825,44 @@ describe("GCJ box excludes neighboring countries inside the literature bounds", 
     ];
     for (const [lat, lon] of outside) {
       assert.equal(lib.inChinaGcjBox(lat, lon), true, `${lat},${lon} in GCJ box`);
-      assert.equal(lib.inExcludedNeighborRegion(lat, lon), true, `${lat},${lon}`);
+      // Overlay region is PRC land approx — not the literature box. Neighbors may
+      // be outside land boxes without needing an exclusion rectangle.
+      assert.equal(lib.inChinaLandApprox(lat, lon) && !lib.inExcludedNeighborRegion(lat, lon), false,
+        `${lat},${lon} must not pass the land∧¬excl gate`);
       assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
     }
+    assert.equal(lib.outOfChina(43.668, 111.977), false); // Erenhot
+    assert.equal(lib.outOfChina(49.6, 117.43), false); // Manzhouli
+  });
+
+  it("keeps SE Asia / Indian Ocean / maritime enclaves outside the land approx", () => {
+    const outside = [
+      [15.0, 90.0], // Bay of Bengal
+      [13.75, 100.5], // Bangkok
+      [18.79, 98.98], // Chiang Mai
+      [3.14, 101.69], // Kuala Lumpur
+      [4.175, 73.509], // Malé
+      [32.5, 128.7], // west of Kyushu
+      [21.5, 121.8], // SE of Taiwan
+      [41.5, 131.0], // east of NK
+      [30.3165, 78.0322], // Dehradun, Uttarakhand
+      [29.3803, 79.4636], // Nainital
+      [27.88, 78.08] // Aligarh, UP (SE of Delhi enclave)
+    ];
+    for (const [lat, lon] of outside) {
+      assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
+    }
+    assert.equal(lib.inChinaLandApprox(15.0, 90.0), false);
+    assert.equal(lib.inChinaLandApprox(13.75, 100.5), false);
+    assert.equal(lib.outOfChina(39.47, 75.99), false); // Kashgar
+    assert.equal(lib.outOfChina(43.825, 87.617), false); // Urumqi
+    assert.equal(lib.outOfChina(42.951, 89.189), false); // Turpan
+    assert.equal(lib.outOfChina(42.819, 93.515), false); // Hami
+    assert.equal(lib.outOfChina(43.917, 81.324), false); // Yining (Ili)
+    assert.equal(lib.outOfChina(44.214, 80.418), false); // Khorgas
+    assert.equal(lib.outOfChina(44.85, 82.07), false); // Bole (Bortala)
+    assert.equal(lib.outOfChina(44.16, 80.00), true); // Zharkent, Kazakhstan
+    assert.equal(lib.outOfChina(30.29, 81.17), false); // Purang (Tibet)
   });
 
   it("still treats mainland China as inside", () => {
@@ -777,12 +920,33 @@ describe("GCJ box excludes neighboring countries inside the literature bounds", 
     const outside = [
       [39.039, 125.762], // Pyongyang
       [37.566, 126.978], // Seoul
-      [33.59, 130.401] // Fukuoka
+      [33.59, 130.401], // Fukuoka
+      [26.2124, 127.6809], // Naha (Okinawa — west of the old 129°E Japan box)
+      [26.5916, 127.9773], // Nago
+      [24.3448, 124.1572], // Ishigaki
+      [24.8055, 125.2811], // Miyako
+      [24.4558, 122.9885], // Yonaguni (western Ryukyu; east of Taiwan)
+      [28.3772, 129.493] // Amami
     ];
     for (const [lat, lon] of outside) {
       assert.equal(lib.inExcludedNeighborRegion(lat, lon), true, `${lat},${lon}`);
       assert.equal(lib.outOfChina(lat, lon), true, `${lat},${lon}`);
     }
+  });
+
+  it("keeps Zhejiang / Shanghai east coast inside (not swallowed by Ryukyu boxes)", () => {
+    const inside = [
+      [31.2304, 121.4737], // Shanghai
+      [27.9938, 120.6994], // Wenzhou
+      [29.8683, 121.544], // Ningbo
+      [30.016, 122.1069], // Zhoushan
+      [23.9739, 121.6014] // Hualien — Taiwan island path, not Ryukyu exclusion
+    ];
+    for (const [lat, lon] of inside) {
+      assert.equal(lib.inExcludedNeighborRegion(lat, lon), false, `${lat},${lon}`);
+    }
+    assert.equal(lib.outOfChina(23.9739, 121.6014), true); // Taiwan
+    assert.equal(lib.outOfChina(31.2304, 121.4737), false); // Shanghai
   });
 });
 
@@ -1364,7 +1528,7 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     require("../fixtures/overlay-landmarks");
 
   it("normalizes mode names and migrates legacy streets/satellite to hybrid", () => {
-    assert.deepEqual(lib.ALIGN_MODES, ["hybrid", "off"]);
+    assert.deepEqual(lib.ALIGN_MODES, ["hybrid", "off", "coverage"]);
     assert.equal(lib.normalizeAlignMode("hybrid"), "hybrid");
     assert.equal(lib.normalizeAlignMode("auto"), "hybrid");
     assert.equal(lib.normalizeAlignMode("streets"), "hybrid");
@@ -1376,6 +1540,29 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.equal(lib.normalizeAlignMode("garbage"), "hybrid");
     assert.equal(lib.normalizeAlignMode("off"), "off");
     assert.equal(lib.normalizeAlignMode("native"), "off");
+    assert.equal(lib.normalizeAlignMode("coverage"), "coverage");
+    assert.equal(lib.normalizeAlignMode("region"), "coverage");
+    assert.equal(lib.normalizeAlignMode("mask"), "coverage");
+    assert.equal(lib.normalizeAlignMode("debug"), "coverage");
+  });
+
+  it("coverageClass matches region and visible-shift gates", () => {
+    // Beijing at street zoom — inside China with a large GCJ shift.
+    assert.equal(lib.coverageClass(39.9042, 116.4074, 15), "active");
+    // Taipei — Taiwan island is out of the China region gate.
+    assert.equal(lib.coverageClass(25.033, 121.5654, 15), "out");
+    // Naha — Ryukyu exclusion (must not be mis-tagged as China).
+    assert.equal(lib.coverageClass(26.2124, 127.6809, 14), "out");
+    // 海門島 at z≈9.5 — inside region but shift below MIN_VISIBLE_SHIFT_PX.
+    assert.equal(lib.coverageClass(24.4064, 117.9585, 9.5), "region");
+    assert.equal(lib.coverageClass(24.4064, 117.9585, 16), "active");
+  });
+
+  it("coverage mode overlaySpec stays native-only", () => {
+    const spec = lib.overlaySpec("https://www.google.com/maps/@39.91,116.39,15z/data=!3m1!1e3", "coverage");
+    assert.equal(spec.nativeOnly, true);
+    assert.equal(spec.label, "coverage");
+    assert.equal(spec.hideNative, false);
   });
 
   it("hybrid yields Map for canvas layers; keeps raster extras on satellite", () => {
@@ -1504,6 +1691,8 @@ describe("ALIGN MODES: Hybrid and Off", () => {
     assert.match(contentJs, /function maybeHybridRewindToMap/);
     assert.match(contentJs, /function hybridNeedsNativeLayers/);
     assert.match(contentJs, /function hybridYieldsNativeCanvas/);
+    assert.match(contentJs, /function coverageMode/);
+    assert.match(contentJs, /function redrawCoverageMask/);
     assert.match(contentJs, /function placeAlignedPinActive/);
     assert.match(contentJs, /function primaryPlacePoi/);
     assert.match(contentJs, /is-place-pin/);

@@ -2,15 +2,17 @@
 
 const ALIGN_MODE_KEY = "alignMode";
 const DEFAULT_ALIGN_MODE = "hybrid";
-const MODES = ["hybrid", "off"];
+const MODES = ["hybrid", "off", "coverage"];
 const MODE_LABELS = {
   hybrid: "On",
-  off: "Off"
+  off: "Off",
+  coverage: "Coverage"
 };
 
 function normalize(v) {
   const s = String(v == null ? "" : v).trim().toLowerCase();
   if (s === "off" || s === "native") return "off";
+  if (s === "coverage" || s === "region" || s === "mask" || s === "debug") return "coverage";
   if (s === "hybrid" || s === "auto" || s === "smart" || s === "on") return "hybrid";
   if (
     s === "satellite" || s === "sat" || s === "imagery" || s === "blend"

@@ -64,7 +64,7 @@ async function setModeViaPopup(context, extId, mode) {
     const input = document.querySelector(`input[value="${m}"]`);
     return input && input.checked;
   }, mode, { timeout: 5000 });
-  const labels = { hybrid: "On", off: "Off" };
+  const labels = { hybrid: "On", off: "Off", coverage: "Coverage" };
   await popup.waitForFunction((m) => {
     const el = document.getElementById("current");
     return el && el.textContent === m;
@@ -837,6 +837,54 @@ async function assertDirectionsVectorMapVisual(page, timeout = 45000) {
   }, { timeout });
 }
 
+async function waitForCoverageMask(page, timeout = 30000) {
+  await page.waitForFunction(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    if (!root || root.style.display === "none" || root.dataset.mode !== "coverage") return false;
+    const canvas = root.querySelector("canvas.gcj02-coverage");
+    if (!canvas || canvas.width < 8 || canvas.height < 8) return false;
+    const z = Number(getComputedStyle(root).zIndex);
+    return Number.isFinite(z) && z > 0;
+  }, null, { timeout });
+}
+
+/** Count painted teal / amber cells on the coverage tint canvas. */
+async function coverageTintStats(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById("gcj02-aligner-root");
+    const canvas = root && root.querySelector("canvas.gcj02-coverage");
+    if (!canvas) return { teal: 0, amber: 0, opaque: 0, zIndex: 0, mode: "" };
+    const zIndex = Number(getComputedStyle(root).zIndex) || 0;
+    const ctx = canvas.getContext("2d");
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let teal = 0;
+    let amber = 0;
+    let opaque = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3];
+      if (a < 8) continue;
+      opaque += 1;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      // Active tint ≈ rgb(15,120,110); region-only ≈ rgb(200,140,40).
+      if (g > r + 40 && b > r + 30 && g > 80 && b > 70) teal += 1;
+      else if (r > 150 && g > 90 && g < 180 && b < 80) amber += 1;
+    }
+    return {
+      teal,
+      amber,
+      opaque,
+      zIndex,
+      mode: root.dataset.mode || "",
+      activeCells: Number(root.dataset.coverageActive || 0),
+      regionCells: Number(root.dataset.coverageRegion || 0),
+      width: canvas.width,
+      height: canvas.height
+    };
+  });
+}
+
 module.exports = {
   EXT_PATH,
   launchExtensionContext,
@@ -853,6 +901,8 @@ module.exports = {
   waitForOverlay,
   waitForOverlayOff,
   waitForAlignMode,
+  waitForCoverageMask,
+  coverageTintStats,
   openPopup,
   readAlignModeStorage,
   setModeViaPopup,

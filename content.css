@@ -5,6 +5,10 @@
   z-index: 0 !important;
   overflow: hidden !important;
 }
+/* Coverage tint must sit above the native canvas (hybrid hides it; coverage does not). */
+#gcj02-aligner-root[data-mode="coverage"] {
+  z-index: 2 !important;
+}
 /* Tiles/POIs live here; pan-drag translates this layer inside the clipped root. */
 .gcj02-aligner-pan {
   position: absolute !important;
@@ -87,13 +91,14 @@
   pointer-events: none;
   max-width: 520px;
 }
-.gcj02-route {
+.gcj02-coverage {
   position: absolute !important;
   left: 0;
   top: 0;
-  overflow: visible !important;
+  width: 100%;
+  height: 100%;
   pointer-events: none !important;
-  z-index: 4 !important;
+  z-index: 8 !important;
 }
 .gcj02-poi {
   position: absolute !important;

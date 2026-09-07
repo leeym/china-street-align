@@ -9,7 +9,7 @@
     <h1>China Street Align</h1>
     <p class="sub">
       Inside China, turn alignment on to match WGS-84 satellite with GCJ-02 streets,
-      or off for native Google Maps.
+      or off for native Google Maps. Coverage paints a tint where On would align.
     </p>
     <p class="current">Active: <strong id="current">…</strong> · <span id="version"></span></p>
     <p id="error" class="error" hidden></p>
@@ -26,6 +26,14 @@
         <input type="radio" name="alignMode" value="off" />
         <span class="title">Off</span>
         <span class="desc">Native Google Maps, no alignment.</span>
+      </label>
+      <label class="mode">
+        <input type="radio" name="alignMode" value="coverage" />
+        <span class="title">Coverage</span>
+        <span class="desc">
+          Test overlay: teal tint where On would align; amber where the China
+          region matches but the GCJ shift is too small to see. Native map stays visible.
+        </span>
       </label>
     </form>
     <script src="popup.js"></script>

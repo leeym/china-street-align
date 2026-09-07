@@ -408,6 +408,10 @@
     return alignMode === "hybrid";
   }
 
+  function coverageMode() {
+    return alignMode === "coverage";
+  }
+
   function hybridNeedsNativeLayers() {
     if (!hybridAlign()) return false;
     if (directionsPanelOpen()) return true;
@@ -679,6 +683,7 @@
 
   function datumStatusLabel() {
     if (alignMode === "off") return "Off · native Google Maps";
+    if (coverageMode()) return "Coverage test · tint = where On would align";
     if (satGateNoticeUntil > Date.now()) {
       return "GCJ-02 → WGS-84 · satellite blocked while layers active";
     }
@@ -690,6 +695,7 @@
 
   function updateIdleStatus() {
     if (!statusEl) return;
+    if (coverageMode()) return;
     const st = parseMapState();
     if (effectiveMode(st) === "off") {
       statusEl.style.display = "none";
@@ -871,6 +877,10 @@
     let best = null;
     let bestArea = 0;
     document.querySelectorAll("canvas").forEach((c) => {
+      // Never treat our coverage tint (or any overlay canvas) as the Maps host —
+      // that makes host a descendant of root and insertBefore throws HierarchyRequestError.
+      if (c.classList?.contains("gcj02-coverage")) return;
+      if (root && root.contains(c)) return;
       const r = c.getBoundingClientRect();
       const area = r.width * r.height;
       if (area > bestArea && isMap(r.width, r.height, c.width, c.height)) {
@@ -881,7 +891,17 @@
     if (!best) return null;
     const host = best.parentElement;
     if (!host) return null;
+    if (root && (host === root || root.contains(host))) return null;
     return { host, canvas: best };
+  }
+
+  function attachRootToHost(host) {
+    if (!root || !host) return false;
+    // Guard against inserting root into its own subtree.
+    if (host === root || root.contains(host)) return false;
+    if (root.parentElement === host && host.firstChild === root) return false;
+    host.insertBefore(root, host.firstChild);
+    return true;
   }
 
   function fitOverlayToCanvas(host, canvas) {
@@ -1181,7 +1201,7 @@
     }
     if (panEl.parentElement !== root) root.appendChild(panEl);
     if (root.parentElement !== host || host.firstChild !== root) {
-      host.insertBefore(root, host.firstChild);
+      attachRootToHost(host);
     }
     if (getComputedStyle(host).position === "static") host.style.position = "relative";
     root.style.zIndex = String(OVERLAY_Z);
@@ -1506,7 +1526,7 @@
     // Hidden must mean nothing painted — out of China or native-only views
     // must leave no tiles of ours in the DOM.
     if (panEl) {
-      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
+      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route,.gcj02-coverage")
         .forEach((e) => e.remove());
       lastKey = "";
     }
@@ -1662,7 +1682,7 @@
   }
 
   function onPanPointerDown(ev) {
-    if (!overlayIsVisible()) return;
+    if (!overlayIsVisible() || coverageMode()) return;
     if (ev.pointerType === "mouse" && ev.button !== 0) return;
     if (ev.isPrimary === false) return;
     const t = ev.target;
@@ -1710,8 +1730,119 @@
     beginGestureHold(snap || cameraSnapshot());
   }
 
+  // Cell size for the coverage tint grid (CSS px). Smaller = sharper borders,
+  // larger = cheaper; 16px is enough to spot coast / exclusion leaks at z≥8.
+  const COVERAGE_CELL_PX = 16;
+  const COVERAGE_ACTIVE_RGBA = [15, 120, 110, 72]; // teal where On would align
+  const COVERAGE_REGION_RGBA = [200, 140, 40, 48]; // amber: in region, shift too small
+
+  function ensureCoverageCanvas(w, h) {
+    let canvas = panEl && panEl.querySelector("canvas.gcj02-coverage");
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.className = "gcj02-coverage";
+      panEl.appendChild(canvas);
+    }
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const bw = Math.max(1, Math.round(w * dpr));
+    const bh = Math.max(1, Math.round(h * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    return { canvas, dpr };
+  }
+
+  function redrawCoverageMask() {
+    const st = parseMapState();
+    if (!st || !(st.zoom >= 3) || st.zoom > 21) {
+      hideOverlay();
+      return;
+    }
+    if (!ensureRoot()) return;
+    // data-mode=coverage raises z-index above the native canvas (see content.css).
+    root.dataset.mode = "coverage";
+    root.dataset.alignMode = "coverage";
+    root.dataset.hybridLayer = "coverage";
+    setNativeMapHidden(false);
+    clearSatelliteBasemapGate();
+    if (root.style.display === "none") root.style.display = "";
+    const box = root.getBoundingClientRect();
+    const w = root.clientWidth || box.width;
+    const h = root.clientHeight || box.height;
+    if (!(w >= 32) || !(h >= 32)) return;
+
+    // Drop any hybrid tiles left over from a previous mode.
+    panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
+      .forEach((e) => e.remove());
+
+    const cell = COVERAGE_CELL_PX;
+    const cols = Math.ceil(w / cell);
+    const rows = Math.ceil(h / cell);
+    const key = [
+      "coverage",
+      st.lat.toFixed(5), st.lon.toFixed(5), st.zoom.toFixed(3),
+      Math.round(w), Math.round(h), cell
+    ].join(",");
+    if (key === lastKey) {
+      if (statusEl) statusEl.style.display = "";
+      return;
+    }
+    lastKey = key;
+    clearPanVisual();
+
+    const { canvas, dpr } = ensureCoverageCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const camLat = st.lat;
+    const camLon = st.lon;
+    let active = 0;
+    let region = 0;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const sx = col * cell + cell / 2;
+        const sy = row * cell + cell / 2;
+        const ll = globalThis.Gcj02Aligner.gcjScreenPxToLatLon(
+          sx, sy, camLat, camLon, st.zoom, w, h
+        );
+        const kind = globalThis.Gcj02Aligner.coverageClass(ll.lat, ll.lon, st.zoom);
+        if (kind === "out") continue;
+        const rgba = kind === "active" ? COVERAGE_ACTIVE_RGBA : COVERAGE_REGION_RGBA;
+        if (kind === "active") active += 1;
+        else region += 1;
+        ctx.fillStyle = `rgba(${rgba[0]},${rgba[1]},${rgba[2]},${rgba[3] / 255})`;
+        ctx.fillRect(col * cell, row * cell, cell, cell);
+      }
+    }
+
+    if (statusEl) {
+      statusEl.style.display = "";
+      setStatus(
+        `Coverage · teal=align · amber=region only · v${VERSION} · z=${st.zoom.toFixed(2)}`,
+        {
+          mode: "coverage",
+          layer: "coverage",
+          version: VERSION,
+          zoom: st.zoom.toFixed(3),
+          coverageActive: String(active),
+          coverageRegion: String(region),
+          lat: st.lat.toFixed(6),
+          lon: st.lon.toFixed(6)
+        }
+      );
+    }
+  }
+
   function redraw() {
     if (!alive || gestureBusy()) return;
+    if (coverageMode()) {
+      redrawCoverageMask();
+      return;
+    }
     const st = parseMapState();
     if (!inChina(st)) {
       standDownOutsideChina();
@@ -1852,7 +1983,7 @@
     setNativeMapHidden(false);
     setHoveredPoi("");
     if (panEl) {
-      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route")
+      panEl.querySelectorAll(".gcj02-tile,.gcj02-road,.gcj02-shade,.gcj02-poi,.gcj02-route,.gcj02-coverage")
         .forEach((e) => e.remove());
     }
     lastKey = "";
@@ -1992,6 +2123,30 @@
   });
   pollTimer = setInterval(() => {
     if (!alive || gestureBusy()) return;
+    if (coverageMode()) {
+      if (location.href !== lastHref) {
+        lastHref = location.href;
+        lastKey = "";
+      }
+      const found = overlayHost();
+      if (found && root) {
+        if (root.parentElement !== found.host) {
+          if (attachRootToHost(found.host)) lastKey = "";
+        }
+        clipHostForChrome(found.host);
+        if (fitOverlayToCanvas(found.host, found.canvas)) lastKey = "";
+      }
+      if (
+        !root
+        || root.style.display === "none"
+        || root.dataset.mode !== "coverage"
+        || !root.querySelector("canvas.gcj02-coverage")
+        || !lastKey
+      ) {
+        redraw();
+      }
+      return;
+    }
     const st = parseMapState();
     if (!inChina(st)) {
       if (root && root.style.display !== "none") standDownOutsideChina();
@@ -2041,8 +2196,7 @@
       const found = overlayHost();
       if (found) {
         if (root.parentElement !== found.host) {
-          found.host.insertBefore(root, found.host.firstChild);
-          lastKey = "";
+          if (attachRootToHost(found.host)) lastKey = "";
         }
         clipHostForChrome(found.host);
         if (fitOverlayToCanvas(found.host, found.canvas)) lastKey = "";

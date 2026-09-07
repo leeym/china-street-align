@@ -168,12 +168,15 @@
   // Two ways to satisfy the one rule that matters (WGS-84 satellite must line up
   // with every GCJ-02 layer):
   // "hybrid" — crisp aligned satellite when possible; force native map when extra
-  // layers are needed. "off" is native Maps. Legacy streets/satellite/on map to hybrid.
-  const ALIGN_MODES = ["hybrid", "off"];
+  // layers are needed. "off" is native Maps. "coverage" paints a tint mask of where
+  // hybrid would activate (region + visible-shift gates) without aligning tiles.
+  // Legacy streets/satellite/on map to hybrid.
+  const ALIGN_MODES = ["hybrid", "off", "coverage"];
 
   function normalizeAlignMode(v) {
     const s = String(v == null ? "" : v).trim().toLowerCase();
     if (s === "off" || s === "native") return "off";
+    if (s === "coverage" || s === "region" || s === "mask" || s === "debug") return "coverage";
     if (s === "hybrid" || s === "auto" || s === "smart") return "hybrid";
     if (
       s === "satellite" || s === "sat" || s === "imagery" || s === "blend"
@@ -182,6 +185,15 @@
       return "hybrid";
     }
     return "hybrid";
+  }
+
+  // Classify a ground point the same way hybrid On decides whether to align:
+  // "out" — outside the China region gate; "region" — inside but GCJ shift too
+  // small to see; "active" — On would paint the aligned overlay.
+  function coverageClass(lat, lon, zoom) {
+    if (outOfChina(lat, lon)) return "out";
+    if (!overlayShiftVisible(lat, lon, zoom)) return "region";
+    return "active";
   }
 
   function isDirectionsView(href) {
@@ -479,8 +491,8 @@
     return TILE * 2 ** (z - zTile);
   }
 
-  // Classic WGS↔GCJ literature box. It is not a political border; it includes
-  // Taiwan even though Google Maps there is WGS-84 on both layers.
+  // Classic WGS↔GCJ literature box (algorithm domain). Not a political border and
+  // NOT the overlay region — see CHINA_LAND_INCLUSIONS / outOfChina.
   function inChinaGcjBox(lat, lon) {
     const la = Number(lat);
     const lo = Number(lon);
@@ -491,24 +503,110 @@
     return lat >= south && lat <= north && lon >= west && lon <= east;
   }
 
-  // Taiwan main island (Formosa). West of 120.03°E stays on the Fujian side
-  // of the strait (Xiamen ~118.07°E, Pingtan ~119.8°E).
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  // Approximate PRC land (+ near coastal waters only). The overlay region is the
+  // union of these boxes, minus neighbor / SAR / Taiwan-median cuts below.
+  // Intentionally excludes SE Asia, South Asia seas, Japan, Korea, open Pacific.
+  const CHINA_LAND_INCLUSIONS = [
+    // Xinjiang (Kashgar ~75.99°E, Ürümqi ~87.6°E)
+    [34.0, 49.2, 73.2, 96.5],
+    // Tibet / Qinghai / west Sichuan
+    [27.4, 40.0, 78.0, 104.5],
+    // Gansu corridor / Ningxia / central Inner Mongolia
+    [35.0, 45.5, 94.0, 115.0],
+    // Yunnan / SW Sichuan / west Guangxi (Ruili ~97.85°E, Jinghong ~100.8°E).
+    // East edge stops short of the Gulf of Tonkin / east Guangxi coast boxes below.
+    [21.15, 30.0, 97.3, 107.7],
+    // South China mainland — south edge stays north of the Tonkin / VN strip that
+    // used to run west from Hainan at ~20°N (105–109°E).
+    [21.45, 27.5, 105.0, 120.3],
+    // Guangxi coast (Dongxing ~21.55°N / Fangchenggang / Beihai) — not west into VN.
+    [21.45, 22.40, 107.85, 111.0],
+    // Leizhou Peninsula + Weizhou + Wuchuan east coast (Wangcungang ~21.44°N,
+    // 110.94°E) + Beihai Guantouling (黄金海岸烧烤场 ~21.447°N, 109.049°E).
+    // Former west 109.05°E / east 110.90°E left those coastal tips outside.
+    [20.05, 21.50, 109.00, 111.20],
+    // Hainan Island
+    [18.05, 20.12, 108.55, 111.15],
+    // Central + North China Plain + east coast through Zhejiang
+    [27.0, 42.5, 103.0, 123.2],
+    // North / eastern Inner Mongolia / Hebei / Shanxi fringe
+    [40.0, 50.5, 110.0, 126.0],
+  // Northeast — east lon steps so Japan Sea east of NK is not “land”, while
+  // Hunchun (~130.37°E) and Fuyuan (~134.3°E, ~48°N) stay inside.
+  [38.7, 43.5, 118.0, 130.55],
+  [43.5, 48.0, 118.0, 133.5],
+  [48.0, 53.6, 118.0, 135.1],
+  // Shandong / Liaodong nearshore
+  [36.0, 41.2, 119.0, 124.5],
+  // Fujian / Zhejiang coastal strip (Pingtan, Zhoushan)
+  [23.4, 31.2, 117.5, 123.0]
+];
+
+  function inChinaLandApprox(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    return CHINA_LAND_INCLUSIONS.some(([south, north, west, east]) =>
+      inLatLonBox(la, lo, south, north, west, east)
+    );
+  }
+
+  // Taiwan Strait median line (海峽中線) — ROC MND airspace definition:
+  // the straight segment between (27°N, 122°E) and (23°N, 118°E), then due
+  // south along 118°E from the southern endpoint. Everything on or east of
+  // this cut is outside the overlay.
+  const TAIWAN_MEDIAN_SOUTH_LAT = 23.0;
+  const TAIWAN_MEDIAN_SOUTH_LON = 118.0;
+  const TAIWAN_MEDIAN_NORTH_LAT = 27.0;
+  const TAIWAN_MEDIAN_NORTH_LON = 122.0;
+
+  function taiwanStraitMedianLon(lat) {
+    const la = Number(lat);
+    // South of the MND segment: vertical meridian at 118°E.
+    if (la <= TAIWAN_MEDIAN_SOUTH_LAT) return TAIWAN_MEDIAN_SOUTH_LON;
+    if (la >= TAIWAN_MEDIAN_NORTH_LAT) return TAIWAN_MEDIAN_NORTH_LON;
+    // lon = 118 + (122−118)×(lat−23)/(27−23) = 118 + (lat−23)
+    const t = (la - TAIWAN_MEDIAN_SOUTH_LAT)
+      / (TAIWAN_MEDIAN_NORTH_LAT - TAIWAN_MEDIAN_SOUTH_LAT);
+    return lerp(TAIWAN_MEDIAN_SOUTH_LON, TAIWAN_MEDIAN_NORTH_LON, t);
+  }
+
+  function eastOfTaiwanStraitMedian(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    // North of the MND segment: median cut does not apply (Fujian / Zhejiang stay).
+    if (la > TAIWAN_MEDIAN_NORTH_LAT) return false;
+    // In-band diagonal, or due-south 118°E meridian below 23°N.
+    return lo >= taiwanStraitMedianLon(la);
+  }
+
+  // Taiwan main island (Formosa) — diagnostic only. Do NOT use in outOfChina:
+  // the axis-aligned box [21.88–25.32°N, 120.03–122.01°E] crosses west of the
+  // MND median near 25.0–25.32°N (median lon ≈ 120.0–120.32°E), cutting a
+  // false notch east of Wuqiu / south of Juguang. The median cut already
+  // excludes the whole island (entirely east of the line).
   function inTaiwanIsland(lat, lon) {
     return inLatLonBox(Number(lat), Number(lon), 21.88, 25.32, 120.03, 122.01);
   }
 
-  // Penghu, Kinmen (incl. Lieyu / Wuqiu), and Matsu. Boxes stay east of
-  // Xiamen (~118.07°E) and off the Fujian coast (Huangqi ~119.85°E).
+  // Penghu, Kinmen (incl. Lieyu / Wuqiu), and Matsu. Several of these sit west
+  // of the median line but still use WGS-84 on Google Maps.
+  // Boxes stay east of Xiamen (~118.07°E) and off Huangqi Peninsula (east tip
+  // ~119.93°E at Beijiao) — a single Matsu rectangle at 119.88°E ate that tip.
   const ROC_OFFSHORE_BOXES = [
     [23.18, 23.80, 119.30, 119.70], // Penghu
-    [24.392, 24.527, 118.295, 118.46], // Greater Kinmen
-    [24.408, 24.452, 118.215, 118.275], // Lieyu
+    [24.380, 24.535, 118.280, 118.485], // Greater Kinmen (outer tips)
+    [24.400, 24.458, 118.205, 118.285], // Lieyu (outer tips; east of Xiamen box 118.20)
     [24.365, 24.395, 118.148, 118.185], // Dadan / Erdan
     [24.977, 25.005, 119.443, 119.479], // Wuqiu
-    [26.135, 26.18, 119.905, 119.965], // Nangan
-    [26.21, 26.255, 119.965, 120.025], // Beigan
-    [26.355, 26.39, 120.465, 120.515], // Dongyin
-    [25.945, 25.995, 119.915, 120.0] // Juguang
+    // Matsu stepped so Huangqi east tip (~26.35°N, 119.93°E) stays PRC.
+    [25.92, 26.20, 119.90, 120.05], // Juguang / Nangan
+    [26.18, 26.305, 119.94, 120.08], // Beigan + Gaodeng (incl. north shore) / SW waters
+    [26.30, 26.38, 120.18, 120.30], // Liangdao (亮島)
+    [26.35, 26.40, 120.46, 120.53] // Dongyin
   ];
 
   // Xiamen island, Jimei, and Huli west of the Kinmen channel.
@@ -558,31 +656,98 @@
     );
   }
 
-  // Inside the literature GCJ box but outside PRC map territory.
-  // Conservative lat/lon rectangles — not a political border.
+  // Neighbor / open-sea cuts inside CHINA_LAND_INCLUSIONS (and leftover literature
+  // overlaps). Conservative rectangles — not a political border. Stepped so
+  // Ruili, Hekou, Dongxing, Dandong, Yanji, Hunchun, Mohe, Kashgar stay inside.
   const GCJ_BOX_EXCLUSIONS = [
-    [46.0, 52.5, 87.0, 107.0], // Mongolia (west / central, incl. Ulaanbaatar)
-    [49.0, 52.5, 107.0, 116.5], // Mongolia (east; stops west of Hulunbuir ~119.8°E)
-    [39.0, 55.0, 72.0, 82.5], // Kazakhstan / central Asia
+    // --- Central Asia / Mongolia / west ---
+    // Mongolia — keep Erenhot (~43.65°N, 111.99°E), Manzhouli, Hulunbuir, Xilinhot,
+    // and Xinjiang (Urumqi / Turpan / Hami, all south of 46°N and west of ~96°E) inside PRC.
+    // Do NOT extend the west/central box south of 46°N (that swallowed Xinjiang).
+    [46.0, 52.5, 87.0, 107.0], // west / central incl. Ulaanbaatar
+    [42.5, 46.0, 100.0, 107.0], // south Gobi / Omnogovi (Dalanzadgad); east of Hami, north of Ejin
+    [41.5, 46.0, 107.0, 111.95], // SE Gobi → Zamyn-Uud; east of cut = Erenhot
+    [46.0, 49.0, 107.0, 116.5], // east Mongolia (Baruun-Urt / Choibalsan)
+    [49.0, 52.5, 107.0, 116.5], // NE Mongolia west of Manzhouli
+    [46.8, 47.95, 116.5, 119.7], // Dornod far-east tip; south of New Barag
+    // Kazakhstan — keep Ili Prefecture (Yining ~81.3°E, Khorgas ~80.42°E),
+    // Bortala (Bole ~82.07°E), and Tacheng (~82.98°E) inside PRC. Former east
+    // edge 82.5°E swallowed Yining / Khorgas / Gongliu / Tekes / Zhaosu / Bole.
+    [42.0, 55.0, 72.0, 80.15], // through Zharkent (~80.0°E); east of cut = Khorgas
+    [45.2, 55.0, 80.15, 82.70], // NE Kazakhstan; south of this = Bole, east = Tacheng
+    [39.0, 42.0, 72.0, 74.8],
     [35.0, 43.0, 72.0, 75.5], // Kyrgyzstan / Tajikistan / Afghanistan (far west)
-    [26.3, 30.5, 80.0, 88.5], // Nepal
+    // Nepal — stepped under PRC Gyirong / Nyalam / Zhangmu / Purang.
+    // A single [26.3, 30.15, 80, 88.5] box swallowed Gyirong County (~28.4–28.9°N).
+    [26.3, 29.45, 80.0, 84.20], // west Nepal + Mustang; east of this is Gyirong approach
+    [26.3, 29.10, 84.20, 85.05], // east Mustang / west of Gyirong valley
+    [26.3, 28.25, 85.05, 85.85], // south of Gyirong Port (~28.278°N, 85.37°E)
+    [26.3, 27.94, 85.85, 88.50], // south of Zhangmu (~27.975°N) / Nyalam
+    [29.45, 30.20, 80.95, 82.50], // Hilsa fringe; keep Purang (~30.29°N, 81.17°E) north
     [26.5, 28.5, 88.5, 92.0], // Bhutan
-    [6.5, 35.5, 68.0, 78.5], // India (north / west of Himalayas)
-    [9.0, 28.5, 92.0, 100.5], // Myanmar
-    [13.5, 22.3, 100.0, 107.0], // Laos
-    [8.0, 20.5, 102.0, 106.5], // Vietnam (south)
-    [20.5, 22.5, 104.0, 106.8], // Vietnam (north, west of Guangxi / Yunnan)
-    // Mong Cai tip east of 106.8°E; north edge stays south of Dongxing (~21.55°N).
-    [21.20, 21.545, 106.8, 108.20],
-    // North Korea — stepped edges so Liaoning / Jilin / Yanbian stay in.
-    [37.5, 39.95, 124.25, 128.5], // southern / western NK (Pyongyang); south of Dandong
-    [39.95, 42.2, 126.2, 130.5], // mid-north NK (Chongjin); south/west of Yanji / Hunchun
+
+    // --- South Asia (Tibet inclusion overlaps Himalayan south slope) ---
+    // Uttarakhand + UP plains SE of Delhi — Tibet inclusion starts at 27.4°N/78°E,
+    // so a former UK south edge of 28.0°N left an Aligarh (~27.88°N, 78.08°E) enclave.
+    // Keep Purang (~30.29°N, 81.17°E) just east of 80.95°E.
+    [27.4, 31.70, 77.50, 80.95],
+    [26.5, 28.5, 88.0, 97.5], // NE India / Bhutan fringe south of Tibet
+    [27.4, 28.2, 88.5, 97.5], // Arunachal fringe under Tibet south edge
+
+    // --- Myanmar / Laos — keep Yunnan (Ruili ~97.85°E, Jinghong ~100.8°E) ---
+    [21.15, 27.2, 97.3, 97.55], // thin Myanmar strip west of Ruili if inclusion overlaps
+    [14.0, 23.5, 97.55, 99.5], // Myanmar east of the Ruili lon cut
+    [20.8, 22.4, 102.0, 107.5], // north Laos
+
+    // --- Vietnam / Gulf of Tonkin — keep Dongxing / Fangchenggang / Hekou / Weizhou ---
+    // West of Hainan a former land box drew a ~20°N strip into north VN; cut Tonkin.
+    [18.0, 21.45, 105.0, 109.0],
+    [20.2, 21.45, 103.5, 108.0],
+    [21.45, 22.45, 103.5, 106.7],
+    [22.45, 23.05, 102.5, 103.90],
+    [21.20, 21.545, 106.8, 108.20], // Mong Cai tip
+
+    // --- Korean peninsula ---
+    // Close the Japan-Sea gap east of NK around 39.5–40°N (SK box ended at 39.5°N
+    // and the first NK box only reached 128.6°E, leaving a false land patch).
+    [37.5, 39.95, 124.20, 131.20], // south / west NK + east nearshore; south of Dandong
+    [39.90, 40.55, 124.55, 131.20], // Sinuiju belt + east nearshore
+    [40.55, 41.05, 124.80, 131.20],
+    [41.05, 41.55, 126.45, 131.20],
+    [41.55, 42.05, 127.15, 131.20],
+    [42.05, 42.85, 127.60, 130.45],
+    // Japan Sea: west edge south of Hunchun can reach closer to the NK coast.
+    [39.50, 42.05, 128.50, 135.10],
+    [42.05, 43.50, 130.45, 135.10], // keep Hunchun (~130.37°E) west of this cut
     [33.0, 39.5, 124.5, 132.0], // South Korea
-    // Japan — keep west of Kyushu/Honshu; do not swallow Yanbian / Mudanjiang.
-    [24.0, 37.0, 129.0, 137.8], // Ryukyu / Kyushu / Shikoku / south Honshu
-    [37.0, 46.0, 130.5, 137.8], // north Honshu / west Hokkaido
-    [0.8, 21.0, 117.0, 127.0], // Philippines
-    [42.0, 55.0, 131.0, 137.8] // Russia (Far East, east of Heilongjiang)
+
+    // --- Open East / Yellow Sea beyond China coastal waters ---
+    [23.5, 30.5, 123.00, 129.00],
+    [30.5, 34.5, 123.40, 129.00], // close Kyushu-west gap (was 128.5→129)
+    [34.5, 38.2, 124.00, 126.30],
+
+    // --- Japan / Ryukyu (trim NE inclusion / Japan Sea) ---
+    [24.0, 25.55, 122.70, 126.20],
+    [24.0, 28.60, 126.20, 129.0],
+    [24.0, 37.0, 128.50, 137.85], // west edge 128.5 closes Kyushu-west enclaves
+    [37.0, 46.0, 130.5, 137.85],
+
+    // --- Russia ---
+    // Keep Mohe (~53.48°N, 122.37°E), Daxinganling, and Heihe Prefecture
+    // (Heihe ~50.245°N/127.53°E, Xunke ~49.56°N/128.48°E) inside PRC.
+    [53.55, 55.83, 116.50, 135.00], // strictly north of Mohe tip
+    // Russian bank NE of Heilongjiang — east of Huma (~126.65°E), north of Heihe.
+    [51.50, 53.55, 128.00, 135.00],
+    // Blagoveshchensk / Russian Amur bank — north of Heihe CBD and east of it.
+    // Former [50.28, 51.50, 127.00, …] ate Heihe west-bank and [49.50, 50.28,
+    // 128.20, …] ate Xunke.
+    [50.26, 51.50, 127.53, 135.00],
+    [50.10, 50.26, 127.70, 135.00],
+    // Primorsky / Khabarovsk — stay east of Fuyuan PRC (~134.3°E, ~48.37°N).
+    [48.0, 55.0, 134.70, 137.80],
+    [48.60, 55.0, 131.00, 134.70],
+    // Transbaikal west of Daxinganling (east edge west of ~121.5°E PRC forest belt).
+    [50.00, 53.50, 116.50, 121.20]
   ];
 
   function inExcludedNeighborRegion(lat, lon) {
@@ -593,13 +758,22 @@
     );
   }
 
+  // Hainan Island — explicit inclusion helper (also listed in CHINA_LAND_INCLUSIONS).
+  function inHainanIsland(lat, lon) {
+    return inLatLonBox(Number(lat), Number(lon), 18.05, 20.12, 108.55, 111.15);
+  }
+
   function outOfChina(lat, lon) {
     if (inXiamenMainland(lat, lon)) return false;
-    if (inTaiwanIsland(lat, lon)) return true;
+    if (inHainanIsland(lat, lon)) return false;
+    // ROC offshore first: Kinmen / Matsu / Penghu sit near or west of the median
+    // but still use WGS-84 on Google Maps.
     if (inPenghuKinmenMatsu(lat, lon)) return true;
+    if (eastOfTaiwanStraitMedian(lat, lon)) return true;
     if (inHongKong(lat, lon)) return true;
     if (inMacau(lat, lon)) return true;
-    if (!inChinaGcjBox(lat, lon)) return true;
+    // Overlay region = PRC land approx only (not the literature GCJ box).
+    if (!inChinaLandApprox(lat, lon)) return true;
     if (inExcludedNeighborRegion(lat, lon)) return true;
     return false;
   }
@@ -1156,10 +1330,10 @@
   function overlaySpec(href, alignMode, opts) {
     const url = String(href || "");
     const mode = normalizeAlignMode(alignMode);
-    if (mode === "off" || isNativeOnlyView(url)) {
+    if (mode === "off" || mode === "coverage" || isNativeOnlyView(url)) {
       return {
         nativeOnly: true,
-        label: "native",
+        label: mode === "coverage" ? "coverage" : "native",
         baseLyrs: [],
         roadLyrs: "",
         shadeLyrs: [],
@@ -1309,6 +1483,7 @@
     overlayPoiScreenPx,
     ALIGN_MODES,
     normalizeAlignMode,
+    coverageClass,
     hybridNeedsNativeLayers,
     imageryCamera,
     imageryScreenPx,
@@ -1328,8 +1503,12 @@
     placeNameFromHref,
     isGenericPoiName,
     inChinaGcjBox,
+    inChinaLandApprox,
     inTaiwanIsland,
+    eastOfTaiwanStraitMedian,
+    taiwanStraitMedianLon,
     inXiamenMainland,
+    inHainanIsland,
     inPenghuKinmenMatsu,
     inHongKong,
     inMacau,

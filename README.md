@@ -55,7 +55,7 @@ Outside China the extension stays off. Inside China it only paints aligned tiles
 
 ## How it works
 
-1. **Detect region** — reads the map camera `@lat,lon` from the URL (not device GPS). If the point is outside the overlay region (mainland PRC bounding area minus Taiwan, Hong Kong, Macau, and neighboring countries), or the GCJ→WGS screen shift is below ~3 px (too small to see when zoomed out), the extension does nothing.
+1. **Detect region** — reads the map camera `@lat,lon` from the URL (not device GPS). If the point is outside the overlay region (approximate PRC land and near-coastal waters only — Taiwan Strait on/east of the ROC MND median from 27°N,122°E to 23°N,118°E then due south along 118°E, Taiwan island, Hong Kong, Macau, neighboring countries, and open seas are excluded), or the GCJ→WGS screen shift is below ~3 px (too small to see when zoomed out), the extension does nothing.
 2. **Fetch tiles** — the service worker proxies Google map tile URLs and caches them in memory (~20 MB LRU).
 3. **Repaint stack** — hides Google’s skewed satellite canvas and paints WGS-84 `s` imagery plus CSS-shifted GCJ-02 hybrid `h` labels so roads sit on the photo.
 4. **Yield to native** — search, directions, terrain, pegman, and similar views tear down the overlay and switch to Google’s Map basemap when needed. Raster traffic / transit / bike (and Street View coverage tiles) stay on the aligned satellite stack.
