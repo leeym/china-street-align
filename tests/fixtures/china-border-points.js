@@ -10,6 +10,7 @@ const BORDER_POINTS = [
   { name: "Beijing", lat: 39.9042, lon: 116.4074, out: false },
   { name: "Shanghai", lat: 31.2304, lon: 121.4737, out: false },
   { name: "Zhoushan", lat: 30.016, lon: 122.1069, out: false },
+  { name: "Yushan-Islands", lat: 28.8883, lon: 122.275, out: false },
   { name: "Ningbo", lat: 29.8683, lon: 121.544, out: false },
   { name: "Wenzhou", lat: 27.9938, lon: 120.6994, out: false },
   { name: "Fuzhou", lat: 26.0745, lon: 119.2965, out: false },
@@ -66,6 +67,10 @@ const BORDER_POINTS = [
   { name: "ECS-mid", lat: 28.0, lon: 125.0, out: true },
   { name: "ECS-near-Kyushu", lat: 31.0, lon: 128.0, out: true },
   { name: "Yellow-Sea-mid", lat: 36.0, lon: 124.8, out: true },
+  { name: "KADIZ-west-wedge", lat: 37.5, lon: 123.95, out: true },
+  { name: "Taiwan-ADIZ-NE", lat: 28.5, lon: 122.8, out: true },
+  { name: "Japan-ADIZ-ECS", lat: 28.0, lon: 123.1, out: true },
+  { name: "Taiwan-ADIZ-ECS-lobe", lat: 28.0, lon: 122.8, out: true },
   { name: "Kagoshima", lat: 31.59, lon: 130.55, out: true },
   { name: "Naha", lat: 26.2124, lon: 127.6809, out: true },
   { name: "Yonaguni", lat: 24.4558, lon: 122.9885, out: true },
@@ -159,12 +164,16 @@ const BORDER_SWEEPS = [
     expectTeal: false,
     clearSamples: [
       { lat: 28.0, lon: 125.0 },
+      { lat: 28.0, lon: 123.1 }, // Japan ADIZ west line
+      { lat: 28.5, lon: 122.8 }, // Taiwan ADIZ NE lobe
       { lat: 30.0, lon: 126.0 },
       { lat: 31.0, lon: 128.0 }
     ],
     tintSamples: [
       { lat: 30.0, lon: 122.0 }, // near Zhoushan / Ningbo coast
-      { lat: 28.0, lon: 121.0 }
+      { lat: 28.8883, lon: 122.275 }, // Yushan Islands
+      { lat: 28.0, lon: 121.0 },
+      { lat: 27.99, lon: 120.70 } // Wenzhou west of TW ADIZ cut
     ]
   },
   {
@@ -173,6 +182,7 @@ const BORDER_SWEEPS = [
     expectTeal: true,
     clearSamples: [
       { lat: 36.0, lon: 124.8 },
+      { lat: 37.5, lon: 123.95 }, // KADIZ west of coarse 124°E box
       { lat: 37.5, lon: 126.9 }, // Seoul
       { lat: 39.0, lon: 125.8 } // Pyongyang
     ],

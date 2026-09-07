@@ -746,6 +746,29 @@ describe("GCJ box excludes neighboring countries inside the literature bounds", 
     }
   });
 
+  it("cuts Yellow / East China Sea / Taiwan Strait by neighbor ADIZs", () => {
+    // KADIZ (ROK AIP) — Yellow Sea west of a coarse 124°E box still inside the polygon.
+    assert.equal(lib.inKadiz(37.5, 123.95), true);
+    assert.equal(lib.outOfChina(37.5, 123.95), true);
+    assert.equal(lib.inKadiz(37.17, 122.42), false); // Rongcheng west of KADIZ
+    assert.equal(lib.outOfChina(37.17, 122.42), false);
+    // Japan ADIZ over ECS — west line ~123°E + Yonaguni bulge.
+    assert.equal(lib.inJapanAdizOverEcs(28.0, 123.1), true);
+    assert.equal(lib.outOfChina(28.0, 123.1), true);
+    assert.equal(lib.inJapanAdizOverEcs(28.0, 122.8), false);
+    assert.equal(lib.inJapanAdizOverEcs(24.45, 122.80), true); // Yonaguni bulge
+    // Taiwan ADIZ (CAA AIP) — dig east of median / north ECS lobe; keep Fujian.
+    assert.equal(lib.inTaiwanAdiz(25.5, 119.5), true);
+    assert.equal(lib.inTaiwanAdizOverlayCut(25.5, 119.5), false); // west of median
+    assert.equal(lib.outOfChina(25.503, 119.784), false); // Pingtan
+    assert.equal(lib.inTaiwanAdizOverlayCut(24.5, 119.9), true); // east of median
+    assert.equal(lib.outOfChina(28.5, 122.8), true); // TW ADIZ NE lobe
+    assert.equal(lib.outOfChina(28.0, 122.8), true); // TW ADIZ ECS lobe (cut lon 122.5°E)
+    assert.equal(lib.outOfChina(28.8883, 122.275), false); // Yushan Islands (象山)
+    assert.equal(lib.outOfChina(27.99, 120.70), false); // Wenzhou
+    assert.equal(lib.outOfChina(30.016, 122.107), false); // Zhoushan
+  });
+
   it("cuts the Taiwan Strait at the MND median line (east half is out)", () => {
     // ROC MND: segment (23°N, 118°E)–(27°N, 122°E) ⇒ lon = 118 + (lat − 23),
     // then due south along 118°E below 23°N.

@@ -719,11 +719,11 @@
     // Japan Sea: west edge south of Hunchun can reach closer to the NK coast.
     [39.50, 42.05, 128.50, 135.10],
     [42.05, 43.50, 130.45, 135.10], // keep Hunchun (~130.37°E) west of this cut
-    [33.0, 39.5, 124.5, 132.0], // South Korea
+    [33.0, 39.5, 124.5, 132.0], // South Korea (land + nearshore)
 
-    // --- Open East / Yellow Sea beyond China coastal waters ---
+    // --- Open East / Yellow Sea (coarse; ADIZ polygons below refine the cuts) ---
     [23.5, 30.5, 123.00, 129.00],
-    [30.5, 34.5, 123.40, 129.00], // close Kyushu-west gap (was 128.5→129)
+    [30.5, 34.5, 123.40, 129.00],
     [34.5, 38.2, 124.00, 126.30],
 
     // --- Japan / Ryukyu (trim NE inclusion / Japan Sea) ---
@@ -758,6 +758,98 @@
     );
   }
 
+  // Ray-casting point-in-polygon. Ring is [[lat, lon], ...] (not closed).
+  function pointInLatLonRing(lat, lon, ring) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const yi = ring[i][0];
+      const xi = ring[i][1];
+      const yj = ring[j][0];
+      const xj = ring[j][1];
+      const intersect = ((yi > la) !== (yj > la))
+        && (lo < ((xj - xi) * (la - yi)) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  // ROK KADIZ (AIP ENR 5.2) — Yellow Sea / Korea approaches.
+  // Vertices: 3900N 12330E → … → 3700N 12400E → close.
+  const KADIZ_RING = [
+    [39.00, 123.50],
+    [39.00, 133.00],
+    [37.17, 133.00],
+    [36.00, 130.50],
+    [35.2167, 129.80], // 35°13'N 129°48'E
+    [34.7167, 129.15], // 34°43'N 129°09'E
+    [34.2833, 128.8667], // 34°17'N 128°52'E
+    [32.50, 127.50],
+    [32.50, 126.8333], // 32°30'N 126°50'E
+    [30.00, 125.4167], // 30°00'N 125°25'E
+    [30.00, 124.00],
+    [37.00, 124.00]
+  ];
+
+  function inKadiz(lat, lon) {
+    return pointInLatLonRing(lat, lon, KADIZ_RING);
+  }
+
+  // Taiwan ADIZ (CAA AIP ENR 5.2):
+  // 21N 117.5E — 21N 121.5E — 22.5N 123E — 29N 123E — 29N 117.5E.
+  const TAIWAN_ADIZ_RING = [
+    [21.0, 117.5],
+    [21.0, 121.5],
+    [22.5, 123.0],
+    [29.0, 123.0],
+    [29.0, 117.5]
+  ];
+
+  function inTaiwanAdiz(lat, lon) {
+    return pointInLatLonRing(lat, lon, TAIWAN_ADIZ_RING);
+  }
+
+  // West of this cut inside Taiwan ADIZ stays overlay-eligible (PRC coast /
+  // west Taiwan Strait / Zhejiang nearshore islands). East of it is treated
+  // as Taiwan ADIZ dig-out over the strait and ECS lobe.
+  function taiwanAdizOverlayCutLon(lat) {
+    const la = Number(lat);
+    if (la >= TAIWAN_MEDIAN_SOUTH_LAT && la <= TAIWAN_MEDIAN_NORTH_LAT) {
+      return taiwanStraitMedianLon(la);
+    }
+    // North ADIZ lobe (27–29°N): keep Yushan Islands (~28.89°N, 122.27°E) and
+    // Wenzhou; still dig open ECS toward 123°E (Japan ADIZ west line).
+    if (la > TAIWAN_MEDIAN_NORTH_LAT && la <= 29.0) return 122.50;
+    if (la >= 21.0 && la < TAIWAN_MEDIAN_SOUTH_LAT) return TAIWAN_MEDIAN_SOUTH_LON;
+    return Infinity;
+  }
+
+  function inTaiwanAdizOverlayCut(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    if (!inTaiwanAdiz(la, lo)) return false;
+    return lo >= taiwanAdizOverlayCutLon(la);
+  }
+
+  // Japan ADIZ over the East China Sea — western boundary historically 123°E
+  // (AIP chart); 2010 Yonaguni bulge ~22 km west of the island (~122.99°E).
+  function inJapanAdizOverEcs(lat, lon) {
+    const la = Number(lat);
+    const lo = Number(lon);
+    if (la < 22.0 || la > 34.5) return false;
+    if (la >= 24.20 && la <= 24.70 && lo >= 122.75) return true; // Yonaguni
+    return lo >= 123.0;
+  }
+
+  // Neighbor ADIZs over Yellow Sea (KADIZ), East China Sea (Japan), and
+  // Taiwan Strait / NE Taiwan ADIZ lobe (Taiwan) — dig these out of the overlay.
+  function inForeignAdizCut(lat, lon) {
+    return inKadiz(lat, lon)
+      || inJapanAdizOverEcs(lat, lon)
+      || inTaiwanAdizOverlayCut(lat, lon);
+  }
+
   // Hainan Island — explicit inclusion helper (also listed in CHINA_LAND_INCLUSIONS).
   function inHainanIsland(lat, lon) {
     return inLatLonBox(Number(lat), Number(lon), 18.05, 20.12, 108.55, 111.15);
@@ -774,6 +866,7 @@
     if (inMacau(lat, lon)) return true;
     // Overlay region = PRC land approx only (not the literature GCJ box).
     if (!inChinaLandApprox(lat, lon)) return true;
+    if (inForeignAdizCut(lat, lon)) return true;
     if (inExcludedNeighborRegion(lat, lon)) return true;
     return false;
   }
@@ -1513,6 +1606,12 @@
     inHongKong,
     inMacau,
     inExcludedNeighborRegion,
+    inKadiz,
+    inTaiwanAdiz,
+    inTaiwanAdizOverlayCut,
+    inJapanAdizOverEcs,
+    inForeignAdizCut,
+    taiwanAdizOverlayCutLon,
     outOfChina,
     wgsToGcj,
     gcjToWgs,

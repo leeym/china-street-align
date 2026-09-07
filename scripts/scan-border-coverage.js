@@ -42,6 +42,8 @@ const PRC_SPOT_CHECKS = [
   ["Erenhot", 43.668, 111.977, false],
   ["Manzhouli", 49.6, 117.43, false],
   ["Hulunbuir", 49.212, 119.765, false],
+  ["Zhoushan", 30.016, 122.1069, false],
+  ["Yushan-Islands", 28.8883, 122.275, false],
   ["Huangqi-tip", 26.3575, 119.930278, false],
   ["Hainan-Dongfang", 19.1, 108.65, false],
   ["Wangcungang", 21.4368, 110.9414, false],
@@ -73,6 +75,10 @@ const FOREIGN_SPOT_CHECKS = [
   ["Bangkok", 13.75, 100.5, true],
   ["Maldives-Male", 4.175, 73.509, true],
   ["ECS-mid", 28.0, 125.0, true],
+  ["KADIZ-west-wedge", 37.5, 123.95, true],
+  ["Taiwan-ADIZ-NE", 28.5, 122.8, true],
+  ["Japan-ADIZ-ECS", 28.0, 123.1, true],
+  ["Taiwan-ADIZ-ECS-lobe", 28.0, 122.8, true],
   ["NK-east-gap", 39.75, 129.5, true]
 ];
 
